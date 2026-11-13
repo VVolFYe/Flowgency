@@ -6,6 +6,7 @@ import argparse
 import contextlib
 import json
 import sys
+import time
 from pathlib import Path
 from uuid import uuid4
 
@@ -19,7 +20,11 @@ def main() -> int:
     parser.add_argument("--adaptive-manifest", type=Path, help="verified TLS/phase mapping JSON")
     parser.add_argument("--sumo-binary", default="sumo")
     parser.add_argument("--trace-phases", action="store_true", help="print every observed TLS phase transition")
+    parser.add_argument("--step-delay-ms", type=float, default=0.0,
+                        help="wall-clock delay after each simulation step, useful with sumo-gui")
     args = parser.parse_args()
+    if args.step_delay_ms < 0:
+        parser.error("--step-delay-ms must be nonnegative")
     config = args.config.resolve()
     if not config.is_file():
         parser.error(f"SUMO config not found: {config}")
@@ -40,6 +45,8 @@ def main() -> int:
         while connection.simulation.getMinExpectedNumber() > 0:
             connection.simulationStep()
             steps += 1
+            if args.step_delay_ms:
+                time.sleep(args.step_delay_ms / 1000.0)
             for signal in signals:
                 current_phase = int(connection.trafficlight.getPhase(signal.tls_id))
                 if args.trace_phases and current_phase != observed_phases[signal.tls_id]:
