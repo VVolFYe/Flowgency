@@ -75,6 +75,7 @@ class SimulationService:
             coordinate_system=scenario.coordinate_system,
             seed=scenario.seed,
             output_directory=scenario.output_directory,
+            adaptive_manifest_path=scenario.adaptive_manifest_path,
         )
 
     @staticmethod

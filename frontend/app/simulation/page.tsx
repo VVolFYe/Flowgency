@@ -18,6 +18,7 @@ type ConnectionState = "connecting" | "connected" | "reconnecting" | "offline";
 const EMPTY_STATUS: SimulationStatus = {
   state: "idle",
   simulation_speed: 4,
+  control_mode: "fixed",
   scenario_id: "single_intersection",
   simulation_time_s: null,
   has_snapshot: false,
@@ -46,6 +47,12 @@ function formatTime(seconds: number | null | undefined) {
   const minutes = Math.floor(seconds / 60).toString().padStart(2, "0");
   const remainder = Math.floor(seconds % 60).toString().padStart(2, "0");
   return `${minutes}:${remainder}`;
+}
+
+function formatAccumulatedTime(seconds: number | null | undefined) {
+  if (seconds == null) return "—";
+  if (seconds < 3600) return `${(seconds / 60).toFixed(1)} min`;
+  return `${(seconds / 3600).toFixed(2)} hr`;
 }
 
 
@@ -84,6 +91,7 @@ export default function SimulationPage() {
   const [loading, setLoading] = useState(true);
   const [commandPending, setCommandPending] = useState<string | null>(null);
   const [selectedSpeed, setSelectedSpeed] = useState(4);
+  const [selectedControlMode, setSelectedControlMode] = useState<"fixed" | "adaptive">("fixed");
   const [error, setError] = useState<string | null>(null);
   const snapshotRef = useRef<SimulationSnapshot | null>(null);
   const connectionRef = useRef<ConnectionState>("connecting");
@@ -110,6 +118,7 @@ export default function SimulationPage() {
   const updateStatus = useCallback((next: SimulationStatus) => {
     statusRef.current = next;
     setStatus(next);
+    if (next.state !== "idle" && next.control_mode) setSelectedControlMode(next.control_mode);
     if (!next.has_snapshot || next.state === "idle") {
       snapshotRef.current = null;
       setSnapshot(null);
@@ -152,6 +161,7 @@ export default function SimulationPage() {
         selectedScenarioRef.current = scenarioId;
         updateStatus(initialStatus);
         setSelectedSpeed(initialStatus.simulation_speed);
+        setSelectedControlMode(initialStatus.control_mode ?? "fixed");
         const [network, initialSnapshot] = await Promise.all([
           api.network(scenarioId),
           initialStatus.has_snapshot ? api.snapshot() : Promise.resolve(null),
@@ -239,9 +249,11 @@ export default function SimulationPage() {
         command,
         command === "start" || command === "resume" ? selectedSpeed : undefined,
         command === "start" ? selectedScenarioRef.current : undefined,
+        command === "start" ? selectedControlMode : undefined,
       );
       updateStatus(nextStatus);
       setSelectedSpeed(nextStatus.simulation_speed);
+      setSelectedControlMode(nextStatus.control_mode ?? "fixed");
       if (command === "stop") {
         snapshotRef.current = null;
         setSnapshot(null);
@@ -288,6 +300,8 @@ export default function SimulationPage() {
     if (statusRef.current.state !== "idle" || commandPending) return;
     selectedScenarioRef.current = scenarioId;
     setSelectedScenarioId(scenarioId);
+    const nextScenario = scenarios.find((scenario) => scenario.scenario_id === scenarioId);
+    if (!nextScenario?.supports_adaptive_control) setSelectedControlMode("fixed");
     snapshotRef.current = null;
     setSnapshot(null);
     setError(null);
@@ -304,6 +318,7 @@ export default function SimulationPage() {
   }, [geometry, selectedScenarioId, snapshot]);
 
   const selectedScenario = scenarios.find((scenario) => scenario.scenario_id === selectedScenarioId) ?? null;
+  const metrics = snapshot?.metrics;
   const isStale = connection !== "connected" && snapshot !== null;
   const vehicleCount = snapshot?.vehicles ? snapshot.vehicles.length : null;
   const statusTone = status.state === "running" ? "#70e9a6" : status.state === "error" ? "#ff6c76" : "#f0bc55";
@@ -370,6 +385,22 @@ export default function SimulationPage() {
                 <p className="mt-2 rounded-lg border border-[#f0bc55]/20 bg-[#f0bc55]/10 px-2.5 py-2 text-[10px] leading-relaxed text-[#e5c783]">
                   {selectedScenario.known_limitation}
                 </p>
+              )}
+            </div>
+            <div className="mb-4">
+              <label htmlFor="control-mode" className="text-xs text-[#6f808a]">Control mode</label>
+              <select
+                id="control-mode"
+                value={selectedControlMode}
+                disabled={status.state !== "idle" || commandPending !== null}
+                onChange={(event) => setSelectedControlMode(event.target.value as "fixed" | "adaptive")}
+                className="mt-2 w-full rounded-xl border border-white/10 bg-[#0b1115] px-3 py-2.5 text-sm text-[#d7e1e6] outline-none transition focus:border-[#70e9a6]/50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <option value="fixed">Fixed timing</option>
+                <option value="adaptive" disabled={!selectedScenario?.supports_adaptive_control}>Adaptive{selectedScenarioId.startsWith("london_") ? " — J3 only" : ""}</option>
+              </select>
+              {selectedControlMode === "adaptive" && selectedScenarioId.startsWith("london_") && (
+                <p className="mt-2 text-[10px] leading-relaxed text-[#e5c783]">Experimental J3-only control. Imported yellow phases remain fixed; pedestrian and real-world clearance safety are not verified.</p>
               )}
             </div>
             <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
@@ -483,6 +514,34 @@ export default function SimulationPage() {
                 </div>
               )}
               {!snapshot && <p className="mt-3 text-[11px] leading-relaxed text-[#667781]">No measured queue data yet. Unknown values remain distinct from zero.</p>}
+            </div>
+
+            <div className="rounded-[20px] border border-white/[.07] bg-[#10171c] p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-mono text-[10px] uppercase tracking-[.2em] text-[#667781]">Run metrics</p>
+                  <h2 className="mt-1 text-sm font-medium">Cumulative waiting</h2>
+                </div>
+                <span className="rounded-full border border-white/10 px-2 py-1 font-mono text-[10px] uppercase text-[#9cacb5]">{status.control_mode ?? selectedControlMode}</span>
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <div className="rounded-xl bg-white/[.025] p-3">
+                  <p className="text-[10px] text-[#73838d]">Total vehicle-seconds</p>
+                  <p className="mt-1 font-mono text-lg text-[#e1eaee]">{metrics ? `${metrics.total_waiting_time_s.toFixed(0)}s` : "—"}</p>
+                  <p className="mt-1 text-[10px] text-[#71818a]">{formatAccumulatedTime(metrics?.total_waiting_time_s)}</p>
+                </div>
+                <div className="rounded-xl bg-white/[.025] p-3">
+                  <p className="text-[10px] text-[#73838d]">Average / departed</p>
+                  <p className="mt-1 font-mono text-lg text-[#e1eaee]">{metrics?.average_waiting_time_s == null ? "—" : `${metrics.average_waiting_time_s.toFixed(1)}s`}</p>
+                  <p className="mt-1 text-[10px] text-[#71818a]">{metrics?.departed_vehicle_count ?? 0} inserted</p>
+                </div>
+              </div>
+              <div className="mt-3 space-y-2 border-t border-white/[.06] pt-3 text-xs">
+                <div className="flex justify-between"><span className="text-[#73838d]">Arrived vehicles</span><span className="font-mono text-[#c5d0d6]">{metrics?.arrived_vehicle_count ?? "—"}</span></div>
+                <div className="flex justify-between"><span className="text-[#73838d]">Current queue</span><span className="font-mono text-[#c5d0d6]">{metrics?.network_queue_vehicles ?? "—"}</span></div>
+                <div className="flex justify-between"><span className="text-[#73838d]">Maximum queue</span><span className="font-mono text-[#c5d0d6]">{metrics?.maximum_network_queue_vehicles ?? "—"}</span></div>
+              </div>
+              <p className="mt-3 text-[10px] leading-relaxed text-[#667781]">Average denominator: every vehicle inserted so far, including active and completed trips.</p>
             </div>
           </aside>
         </section>

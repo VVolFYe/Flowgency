@@ -32,6 +32,7 @@ class ScenarioDefinition:
     coordinate_system: str
     seed: int
     supports_adaptive_control: bool = False
+    adaptive_manifest_path: Path | None = None
     known_limitation: str | None = None
 
 
@@ -63,6 +64,8 @@ SCENARIOS: dict[str, ScenarioDefinition] = {
         legacy_scenario_id="london-oval-kennington-v1",
         coordinate_system="sumo_cartesian_metres_utm_zone_30",
         seed=20261113,
+        supports_adaptive_control=True,
+        adaptive_manifest_path=_LONDON / "j3_adaptive.experimental.json",
     ),
     "london_rush_hour": ScenarioDefinition(
         scenario_id="london_rush_hour",
@@ -88,6 +91,8 @@ SCENARIOS: dict[str, ScenarioDefinition] = {
         legacy_scenario_id="london-oval-kennington-v1",
         coordinate_system="sumo_cartesian_metres_utm_zone_30",
         seed=20261113,
+        supports_adaptive_control=True,
+        adaptive_manifest_path=_LONDON / "j3_adaptive.experimental.json",
     ),
 }
 

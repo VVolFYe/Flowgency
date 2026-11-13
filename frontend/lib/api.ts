@@ -51,6 +51,7 @@ export const api = {
     command: "start" | "pause" | "resume" | "reset" | "stop",
     simulationSpeed?: number,
     scenarioId?: string,
+    controlMode?: "fixed" | "adaptive",
   ) =>
     request<SimulationStatus>(`/api/simulation/${command}`, {
       method: "POST",
@@ -59,6 +60,7 @@ export const api = {
         ? JSON.stringify({
             simulation_speed: simulationSpeed ?? 4,
             scenario_id: scenarioId ?? "single_intersection",
+            control_mode: controlMode ?? "fixed",
           })
         : command === "resume" && simulationSpeed !== undefined
           ? JSON.stringify({ simulation_speed: simulationSpeed })
