@@ -44,6 +44,7 @@ The API pattern is `https://api.tfl.gov.uk/Place/{jamcam_id}`. The road source i
 - `demand/` and `configs/`: checked-in targeted route files and matching SUMO configurations.
 - `TRAFFIC_SCENARIOS.md`: profile parameters, measured baseline metrics, coverage, and commands.
 - `SIGNAL_SAFETY_AUDIT.md`: initial J3 imported-program and controlled-link audit.
+- `COLLISION_TELEPORT_AUDIT.md`: evidence, targeted corrections, and unresolved J5 blocking.
 - `output/`: ignored runtime summary and trip output.
 
 ## Reproduce

@@ -22,11 +22,11 @@ Measurements use SUMO 1.27.1, 1-second steps, junction collision checking, and t
 
 | Profile | Vehicles arrived | Avg wait (s) | Avg time loss (s) | Max target queue (vehicles) | Collisions | Teleports | End time (s) |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Normal | 460 / 460 | 40.461 | 52.939 | 11 (J5) | 3 | 0 | 1,201 |
-| Rush hour | 690 / 690 | 101.251 | 119.896 | 24 (J5) | 4 | 2 | 1,457 |
-| Unbalanced | 528 / 528 | 62.998 | 80.903 | 25 (J3) | 1 | 1 | 1,278 |
+| Normal | 460 / 460 | 38.109 | 49.280 | 11 (J5) | 0 | 0 | 1,201 |
+| Rush hour | 690 / 690 | 115.149 | 132.036 | 24 (J5) | 0 | 4 | 1,688 |
+| Unbalanced | 528 / 528 | 59.324 | 77.204 | 25 (J3) | 0 | 0 | 1,291 |
 
-The collision findings are concerning imported-geometry warnings, not acceptable real-world behavior. They occur outside J3 in these runs and require NetEdit inspection. The two rush-hour teleports and one unbalanced teleport are also retained and reported rather than hidden. An earlier rejected rush-hour trial at 70 vehicles per approach produced 171 teleports and 1,278.450 seconds average waiting; it was reduced first to 40 (27 teleports), then to 30 for a useful hackathon comparison.
+The demonstrated joined-junction collision defect and generated U-turn are corrected in Phase 2.2b. Four repeatable rush-hour J5 blocking teleports remain visible and unresolved; see [COLLISION_TELEPORT_AUDIT.md](COLLISION_TELEPORT_AUDIT.md). An earlier rejected rush-hour trial at 70 vehicles per approach produced 171 teleports and 1,278.450 seconds average waiting; it was reduced first to 40 (27 teleports), then to 30 for a useful hackathon comparison.
 
 ## Target coverage and queues
 

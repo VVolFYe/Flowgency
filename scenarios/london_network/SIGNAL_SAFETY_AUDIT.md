@@ -41,7 +41,7 @@ The successful simulation runs verify only that SUMO can execute the modeled pha
 
 ## Warnings and follow-up
 
-- Junction collision checking found collisions elsewhere in the imported network in all three profiles (3 normal, 4 rush-hour, 1 unbalanced). Inspect the reported cluster geometry in NetEdit before expanding control beyond J3.
+- The joined-junction collision defect found outside J1–J5 was corrected in Phase 2.2b; junction collision checking remains enabled. J5 congestion teleports remain unresolved.
 - The Phase 2.1 import reported three intersecting-left-turn geometries, tight connections, sharp turns, and disconnected lane connections. These remain manual-review items.
 - J3 itself should be inspected in NetEdit/SUMO-GUI with link indices and request/conflict visualization enabled.
 - Before implementing adaptive timing, encode phases 1 and 3 as immutable transition phases; adjust only green dwell in phases 0 and 2 within configured bounds.

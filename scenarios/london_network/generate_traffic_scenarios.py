@@ -76,6 +76,14 @@ def edge_midpoint(edge) -> tuple[float, float]:
     return ((first[0] + last[0]) / 2, (first[1] + last[1]) / 2)
 
 
+def route_has_uturn(path) -> bool:
+    for current, following in zip(path, path[1:]):
+        connections = current.getConnections(following)
+        if any(connection.getDirection().upper() == "T" for connection in connections):
+            return True
+    return False
+
+
 def find_route_through(net, target, usable_edges) -> tuple[str, ...]:
     tx, ty = edge_midpoint(target)
     ranked = sorted(
@@ -91,7 +99,12 @@ def find_route_through(net, target, usable_edges) -> tuple[str, ...]:
         if edge == target:
             continue
         path, cost = net.getShortestPath(edge, target, vClass="passenger")
-        if path and 100 <= cost <= 1300 and len({item.getID() for item in path}) == len(path):
+        if (
+            path
+            and 100 <= cost <= 1300
+            and len({item.getID() for item in path}) == len(path)
+            and not route_has_uturn(path)
+        ):
             prefixes.append(path)
             if len(prefixes) == 20:
                 break
@@ -105,7 +118,12 @@ def find_route_through(net, target, usable_edges) -> tuple[str, ...]:
         if edge == target:
             continue
         path, cost = net.getShortestPath(target, edge, vClass="passenger")
-        if path and 100 <= cost <= 1300 and len({item.getID() for item in path}) == len(path):
+        if (
+            path
+            and 100 <= cost <= 1300
+            and len({item.getID() for item in path}) == len(path)
+            and not route_has_uturn(path)
+        ):
             suffix_ids = {item.getID() for item in path[1:]}
             for candidate in prefixes:
                 if not suffix_ids.intersection(item.getID() for item in candidate):

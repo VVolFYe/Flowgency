@@ -44,6 +44,22 @@ class TrafficScenarioTests(unittest.TestCase):
             self.assertGreaterEqual(min(departures), 0)
             self.assertLess(max(departures), 900)
 
+    def test_generated_routes_do_not_use_uturn_connections(self) -> None:
+        network = ET.parse(ROOT / "london.net.xml").getroot()
+        uturns = {
+            (connection.get("from"), connection.get("to"))
+            for connection in network.findall("connection")
+            if connection.get("dir") == "T"
+        }
+        for profile in EXPECTED_COUNTS:
+            vehicles = ET.parse(ROOT / "demand" / f"{profile}.rou.xml").getroot().findall("vehicle")
+            for vehicle in vehicles:
+                edges = vehicle.find("route").get("edges", "").split()
+                self.assertFalse(
+                    any(pair in uturns for pair in zip(edges, edges[1:])),
+                    f"{vehicle.get('id')} uses a generated U-turn",
+                )
+
     def test_configs_preserve_network_and_enable_collision_checks(self) -> None:
         for profile in EXPECTED_COUNTS:
             config = ET.parse(ROOT / "configs" / f"{profile}.sumocfg").getroot()
