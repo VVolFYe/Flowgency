@@ -31,8 +31,8 @@ export function formatTime(seconds: number | null | undefined) {
 export function ConnectionBadge({ connection, stale = false }: { connection: ConnectionState; stale?: boolean }) {
   const label = connection === "offline" ? "Backend disconnected" : connection;
   return (
-    <div className="flex items-center gap-3 rounded-full border border-white/10 bg-white/[.025] px-4 py-2 text-xs">
-      <span className={`h-2 w-2 rounded-full ${connection === "connected" ? "bg-[#70e9a6]" : connection === "offline" ? "bg-[#ff6c76]" : "pulse-soft bg-[#f0bc55]"}`} />
+    <div className="flex items-center gap-3 rounded-full border border-white/10 bg-[#10171b] px-4 py-2 text-xs shadow-lg shadow-black/10">
+      <span className={`h-2 w-2 rounded-full ${connection === "connected" ? "bg-[#7cf2ad] shadow-[0_0_10px_rgba(124,242,173,.45)]" : connection === "offline" ? "bg-[#ff727b]" : "pulse-soft bg-[#f1bd59]"}`} />
       <span className="capitalize text-[#a8b5bd]">{label}</span>
       {stale && <span className="border-l border-white/10 pl-3 font-medium text-[#f0bc55]">stale frame</span>}
     </div>
@@ -53,11 +53,11 @@ function LiveTelemetry({ operator }: { operator: boolean }) {
   const { status, snapshot } = useSimulation();
   const vehicleCount = snapshot?.vehicles ? snapshot.vehicles.length : null;
   return (
-    <div className="rounded-[20px] border border-white/[.07] bg-[#10171c] p-4">
+    <div className="surface rounded-[20px] p-4">
       <p className="font-mono text-[10px] uppercase tracking-[.2em] text-[#667781]">Live telemetry</p>
       <div className="mt-5 grid grid-cols-2 gap-3">
-        <div className="rounded-xl bg-white/[.025] p-3"><p className="text-[11px] text-[#73838d]">Simulation time</p><p className="mt-2 font-mono text-2xl font-medium tracking-tight">{formatTime(snapshot?.simulation_time_s ?? status.simulation_time_s)}</p></div>
-        <div className="rounded-xl bg-white/[.025] p-3"><p className="text-[11px] text-[#73838d]">Vehicles active</p><p className="mt-2 font-mono text-2xl font-medium tracking-tight">{vehicleCount ?? "—"}</p></div>
+        <div className="rounded-xl border border-white/[.05] bg-[#0b1114] p-3"><p className="text-[11px] text-[#73838d]">Simulation time</p><p className="mt-2 font-mono text-2xl font-medium tracking-tight">{formatTime(snapshot?.simulation_time_s ?? status.simulation_time_s)}</p></div>
+        <div className="rounded-xl border border-white/[.05] bg-[#0b1114] p-3"><p className="text-[11px] text-[#73838d]">Vehicles active</p><p className="mt-2 font-mono text-2xl font-medium tracking-tight">{vehicleCount ?? "—"}</p></div>
       </div>
       <div className="mt-4 space-y-2 border-t border-white/[.06] pt-4 text-xs">
         <div className="flex justify-between gap-3"><span className="text-[#73838d]">Simulation state</span><span className="font-mono text-[#c5d0d6]">{STATE_LABELS[status.state]}</span></div>
@@ -82,7 +82,7 @@ function Queues() {
   const measured = rows.map((row) => row.value).filter((value): value is number => value != null);
   const maxQueue = measured.length ? Math.max(1, ...measured) : null;
   return (
-    <div className="rounded-[20px] border border-white/[.07] bg-[#10171c] p-4">
+    <div className="surface rounded-[20px] p-4">
       <div className="flex items-center justify-between"><div><p className="font-mono text-[10px] uppercase tracking-[.2em] text-[#667781]">Queues</p><h2 className="mt-1 text-sm font-medium">Halting vehicles</h2></div><span className="text-[10px] text-[#667781]">SUMO</span></div>
       <div className="mt-4 space-y-2">{rows.map(({ approach, value }) => (
         <div key={approach} className="rounded-xl bg-white/[.025] px-3 py-2.5">
@@ -111,7 +111,7 @@ function SnapshotDetails() {
     ["Coordinate system", snapshot?.coordinate_system],
   ];
   return (
-    <details className="rounded-[20px] border border-white/[.07] bg-[#10171c] p-4">
+    <details className="surface rounded-[20px] p-4 open:border-white/[.12]">
       <summary className="cursor-pointer text-sm font-medium text-[#cbd6db]">Raw snapshot details</summary>
       <p className="mt-2 text-[11px] leading-5 text-[#667781]">Every value below comes directly from the latest backend snapshot.</p>
       <dl className="mt-4 space-y-2">{fields.map(([label, value]) => <div key={String(label)} className="flex justify-between gap-3 text-xs"><dt className="text-[#73838d]">{label}</dt><dd className="max-w-[60%] truncate font-mono text-[#c5d0d6]" title={value == null ? undefined : String(value)}>{value ?? "—"}</dd></div>)}</dl>
@@ -131,14 +131,14 @@ export function SimulationWorkspace({ access }: { access: "public" | "operator" 
 
   return (
     <div>
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div><p className="font-mono text-[10px] uppercase tracking-[.2em] text-[#72e9a6]">{operator ? "Operator workspace" : "Public live view"}</p><h1 className="mt-1 text-2xl font-semibold tracking-tight">Live Simulation</h1>{operator && <p className="mt-1 text-xs text-[#6f808a]">Authoritative SUMO simulation · {BACKEND_URL}</p>}</div>
+      <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
+        <div><p className="eyebrow">{operator ? "Operator workspace" : "Public live view"}</p><h1 className="mt-2 text-3xl font-semibold tracking-[-.04em]">Live Simulation</h1>{operator && <p className="mt-2 text-xs text-[#6f808a]">Authoritative SUMO simulation · {BACKEND_URL}</p>}</div>
         <ConnectionBadge connection={connection} stale={stale} />
       </div>
       {error && <div role="alert" className="mb-4 flex items-start justify-between gap-4 rounded-xl border border-[#ff6670]/25 bg-[#ff6670]/10 px-4 py-3 text-sm text-[#ffabb1]"><span>{error}</span><button type="button" onClick={dismissError} className="text-xs uppercase tracking-wider text-[#ffccd0]">Dismiss</button></div>}
 
       <section className={`grid gap-4 ${operator ? "xl:grid-cols-[260px_minmax(0,1fr)_285px]" : "lg:grid-cols-[minmax(0,1fr)_285px]"}`}>
-        {operator && <aside className="order-2 rounded-[20px] border border-white/[.07] bg-[#10171c] p-4 xl:order-1">
+        {operator && <aside className="surface order-2 rounded-[20px] p-4 xl:order-1">
           <div className="mb-5 flex items-center justify-between"><div><p className="font-mono text-[10px] uppercase tracking-[.2em] text-[#667781]">Simulation</p><h2 className="mt-1 text-base font-medium">Run controls</h2></div><div className="rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider" style={{ color: statusTone, borderColor: `${statusTone}40`, background: `${statusTone}10` }}>{STATE_LABELS[status.state]}</div></div>
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
             <ControlButton label="Start simulation" action="Start" primary enabled={status.state === "idle"} busy={commandPending !== null} onClick={() => run("start")} />
@@ -151,11 +151,11 @@ export function SimulationWorkspace({ access }: { access: "public" | "operator" 
           <div className="mt-4 flex items-center justify-between border-t border-white/[.06] pt-4 text-xs"><span className="text-[#6f808a]">Simulation speed</span><span className="font-mono text-[#c7d2d8]">{status.simulation_speed.toFixed(1)}×</span></div>
         </aside>}
 
-        <div className={`order-1 min-h-[480px] rounded-[24px] border border-white/[.08] bg-[#10171c] p-2 shadow-2xl shadow-black/30 ${operator ? "xl:order-2 xl:h-[calc(100vh-176px)] xl:min-h-[620px]" : "lg:h-[calc(100vh-180px)] lg:min-h-[600px]"}`}>
+        <div className={`surface order-1 min-h-[480px] rounded-[24px] p-2 shadow-2xl shadow-black/30 ${operator ? "xl:order-2 xl:h-[calc(100vh-176px)] xl:min-h-[620px]" : "lg:h-[calc(100vh-180px)] lg:min-h-[600px]"}`}>
           {geometry ? <IntersectionCanvas geometry={geometry} snapshot={snapshot} status={status} connection={connection} transitionRef={transitionRef} /> : <div className="grid h-full min-h-[470px] place-items-center rounded-[20px] bg-[#0b1115] px-6 text-center text-sm text-[#81909a]">{loading ? "Loading SUMO network geometry…" : "Network geometry unavailable while the backend is disconnected."}</div>}
         </div>
 
-        <aside className="order-3 grid content-start gap-4 sm:grid-cols-2 lg:grid-cols-1"><LiveTelemetry operator={operator} />{operator ? <><Queues /><SnapshotDetails /></> : <div className="rounded-[20px] border border-white/[.07] bg-[#10171c] p-4"><p className="font-mono text-[10px] uppercase tracking-[.2em] text-[#667781]">About this view</p><p className="mt-3 text-sm leading-6 text-[#8b9aa3]">This read-only feed shows geometry, vehicles and signals produced by the server-owned SUMO simulation. Public viewers cannot change the run.</p></div>}</aside>
+        <aside className="order-3 grid content-start gap-4 sm:grid-cols-2 lg:grid-cols-1"><LiveTelemetry operator={operator} />{operator ? <><Queues /><SnapshotDetails /></> : <div className="surface rounded-[20px] p-4"><p className="font-mono text-[10px] uppercase tracking-[.2em] text-[#667781]">About this view</p><p className="mt-3 text-sm leading-6 text-[#8b9aa3]">This read-only feed shows geometry, vehicles and signals produced by the server-owned SUMO simulation. Public viewers cannot change the run.</p></div>}</aside>
       </section>
     </div>
   );
