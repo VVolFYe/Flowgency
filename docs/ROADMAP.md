@@ -18,6 +18,8 @@ Create and validate one left-hand-traffic intersection, fixed safe signal plan, 
 
 Implement a pure controller with configurable green bounds, congestion scoring, normal order, pedestrian/safety intervals, and anti-starvation. Add unit tests and a narrow TraCI adapter. **Exit:** adaptive and fixed modes run on the same scenario.
 
+**In progress on `codex/adaptive-controller`:** the synthetic intersection has a deterministic queue-responsive policy, bounded green durations, anti-starvation, and a TraCI duration adapter. Runtime SUMO comparison and pedestrian-aware London control are still pending.
+
 ### Phase 3 — Backend API and web visualization
 
 Scaffold FastAPI and Next.js; expose run controls and stream bounded snapshots. Render roads, vehicles, signals, queues, and connection state without browser-side physics. **Exit:** browser observes and controls a local simulation.

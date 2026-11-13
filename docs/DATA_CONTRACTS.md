@@ -80,6 +80,8 @@ Counts are non-negative integers. Confidence is in `[0, 1]`; model IDs are prove
 
 Remaining duration may be `null`. `traffic_light_id`, `current_phase_index`, and `coordinate_system` are optional additive fields introduced for simulation integration and browser rendering; existing 1.0 consumers may ignore them. `current_phase_id` is the configured human-readable SUMO phase name when available. The SUMO link-state string requires separately versioned link-index metadata; clients must not infer movements from character position alone. Vehicle snapshots may be omitted from controller-only messages.
 
+For the synthetic scenario in adaptive mode, snapshots may additionally contain `control_reason`, a short machine-readable explanation such as `minimum_green_protected`, `hold_green_and_reevaluate`, `sustained_opposing_queue_advantage`, `opposing_approach_anti_starvation`, or `maximum_green_reached`. It is `null` before the first policy evaluation. This field describes the latest duration request, not a guarantee that a different phase has already begun. Fixed mode omits it.
+
 ## C. Controller decision
 
 ```json
@@ -163,6 +165,8 @@ The service status is transport metadata, not SUMO intersection state:
 ```
 
 `state` is one of `idle`, `running`, `paused`, `finished`, or `error`. Simulation speed is simulated seconds per wall-clock second. Time is `null` before the first run; `error` is populated only when the worker fails.
+
+Status also carries `control_mode`, either `fixed` or `adaptive`, for the current run. It defaults to `fixed` before a run and after stop.
 
 WebSocket messages use a small envelope so status notifications and unchanged version 1.0 state snapshots can share one stream:
 

@@ -2,7 +2,7 @@
 
 Flowgency is an AI-assisted urban traffic management and simulation project for UniHack 2026. It will turn traffic-camera observations into simulation demand, use Eclipse SUMO to model a London road network, apply explainable adaptive signal control, prioritize detected emergency vehicles safely, and present live state and metrics in a browser.
 
-> **Status:** Phase 0 repository foundation. No frontend, API, controller, vision pipeline, or SUMO scenario is implemented yet.
+> **Status:** the synthetic SUMO scenario, TraCI runner, simulation API/WebSocket, and a connected London baseline network are present. An adaptive controller for the synthetic scenario is in progress on `codex/adaptive-controller`. Frontend and vision remain unimplemented in this checkout.
 
 ## Problem and intended behavior
 

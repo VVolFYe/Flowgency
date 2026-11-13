@@ -32,6 +32,7 @@ class _Command:
     name: str
     future: Future[dict[str, Any] | None]
     speed: float | None = None
+    control_mode: str | None = None
 
 
 RunnerFactory = Callable[[], SumoRunner]
@@ -50,6 +51,7 @@ class SimulationService:
         self._runner_factory = runner_factory or self._default_runner_factory
         self._default_speed = self._validate_speed(default_speed)
         self._speed = self._default_speed
+        self._control_mode = "fixed"
         self._command_timeout_s = command_timeout_s
         self._commands: queue.Queue[_Command] = queue.Queue()
         self._lock = threading.Lock()
@@ -84,9 +86,11 @@ class SimulationService:
         if not self._worker_started.wait(self._command_timeout_s):
             raise RuntimeError("simulation worker did not start")
 
-    def start(self, speed: float | None = None) -> dict[str, Any]:
+    def start(self, speed: float | None = None, control_mode: str = "fixed") -> dict[str, Any]:
         selected_speed = self._default_speed if speed is None else self._validate_speed(speed)
-        return self._submit("start", speed=selected_speed)
+        if control_mode not in {"fixed", "adaptive"}:
+            raise ValueError("control_mode must be fixed or adaptive")
+        return self._submit("start", speed=selected_speed, control_mode=control_mode)
 
     def pause(self) -> dict[str, Any]:
         return self._submit("pause")
@@ -123,6 +127,7 @@ class SimulationService:
             return {
                 "state": self._state.value,
                 "simulation_speed": self._speed,
+                "control_mode": self._control_mode,
                 "simulation_time_s": (
                     snapshot["simulation_time_s"] if snapshot is not None else None
                 ),
@@ -135,12 +140,14 @@ class SimulationService:
         with self._lock:
             return copy.deepcopy(self._latest_snapshot)
 
-    def _submit(self, name: str, speed: float | None = None) -> dict[str, Any]:
+    def _submit(
+        self, name: str, speed: float | None = None, control_mode: str | None = None
+    ) -> dict[str, Any]:
         worker = self._worker
         if worker is None or not worker.is_alive():
             raise RuntimeError("simulation service is not open")
         future: Future[dict[str, Any] | None] = Future()
-        self._commands.put(_Command(name=name, future=future, speed=speed))
+        self._commands.put(_Command(name=name, future=future, speed=speed, control_mode=control_mode))
         result = future.result(timeout=self._command_timeout_s)
         return result or self.status()
 
@@ -219,12 +226,15 @@ class SimulationService:
                 raise InvalidTransition(f"cannot start simulation while {state.value}")
             runner = self._runner_factory()
             try:
+                if command.control_mode == "adaptive":
+                    runner.configure_control_mode("adaptive")
                 runner.start()
                 snapshot = runner.extract_snapshot()
             except BaseException:
                 runner.close()
                 raise
             self._speed = command.speed or self._default_speed
+            self._control_mode = command.control_mode or "fixed"
             self._set_state(SimulationState.RUNNING, snapshot=snapshot, error=None)
             return runner, True
 
@@ -257,6 +267,8 @@ class SimulationService:
                 runner.close()
             runner = self._runner_factory()
             try:
+                if self._control_mode == "adaptive":
+                    runner.configure_control_mode("adaptive")
                 runner.start()
                 snapshot = runner.extract_snapshot()
             except BaseException:
@@ -273,6 +285,7 @@ class SimulationService:
                 runner.close()
                 runner = None
             self._speed = self._default_speed
+            self._control_mode = "fixed"
             self._set_state(SimulationState.IDLE, snapshot=None, error=None)
             return runner, True
 
@@ -281,6 +294,7 @@ class SimulationService:
                 runner.close()
                 runner = None
             self._speed = self._default_speed
+            self._control_mode = "fixed"
             self._set_state(SimulationState.IDLE, snapshot=None, error=None)
             return runner, False
 

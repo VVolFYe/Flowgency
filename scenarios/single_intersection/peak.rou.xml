@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes>
+    <vType id="passenger" vClass="passenger" accel="2.6" decel="4.5" sigma="0.0"
+           length="5.0" minGap="2.5" maxSpeed="13.89" speedFactor="1.0" speedDev="0.0"/>
+    <route id="north_to_south" edges="north_in south_out"/>
+    <route id="south_to_north" edges="south_in north_out"/>
+    <route id="east_to_west" edges="east_in west_out"/>
+    <route id="west_to_east" edges="west_in east_out"/>
+
+    <!-- Demand shifts from north/south to east/west at 180 s. Synthetic, not camera data. -->
+    <flow id="north_early" type="passenger" route="north_to_south" begin="0" end="180" period="8"/>
+    <flow id="south_early" type="passenger" route="south_to_north" begin="2" end="182" period="8"/>
+    <flow id="east_early" type="passenger" route="east_to_west" begin="4" end="184" period="24"/>
+    <flow id="west_early" type="passenger" route="west_to_east" begin="6" end="186" period="24"/>
+    <flow id="north_late" type="passenger" route="north_to_south" begin="184" end="364" period="24"/>
+    <flow id="south_late" type="passenger" route="south_to_north" begin="186" end="366" period="24"/>
+    <flow id="east_late" type="passenger" route="east_to_west" begin="180" end="360" period="8"/>
+    <flow id="west_late" type="passenger" route="west_to_east" begin="182" end="362" period="8"/>
+</routes>
