@@ -22,6 +22,8 @@ Implement a pure controller with configurable green bounds, congestion scoring, 
 
 Scaffold FastAPI and Next.js; expose run controls and stream bounded snapshots. Render roads, vehicles, signals, queues, and connection state without browser-side physics. **Exit:** browser observes and controls a local simulation.
 
+**Status:** the Phase 1.3 simulation service, REST lifecycle API, and bounded WebSocket stream are implemented; the frontend visualization remains pending.
+
 ### Phase 4 — AI traffic-observation integration
 
 Implement/replay ingestion, detection/tracking, visible-approach counts, confidence, and observation-to-demand mapping. Keep media and weights out of Git. **Exit:** observations drive a repeatable scenario without coupling vision to TraCI.

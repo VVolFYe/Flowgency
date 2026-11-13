@@ -1,1 +1,1 @@
-"""HTTP and WebSocket API boundary (implementation pending)."""
+"""FastAPI HTTP and WebSocket boundary."""

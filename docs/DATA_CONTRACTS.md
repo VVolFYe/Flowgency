@@ -147,3 +147,33 @@ Initial modes are `fixed`, `adaptive`, and `adaptive_with_emergency_priority`. D
 ## Versioning changes
 
 Additive optional fields may remain minor-compatible; renamed/removed fields and semantic or unit changes require a new major version. Update this document, shared models, fixtures, producers, and consumers together. Support only agreed versions during the hackathon rather than building general negotiation.
+
+## F. Simulation service status and stream envelope
+
+The service status is transport metadata, not SUMO intersection state:
+
+```json
+{
+  "state": "running",
+  "simulation_speed": 4.0,
+  "simulation_time_s": 42.0,
+  "has_snapshot": true,
+  "error": null
+}
+```
+
+`state` is one of `idle`, `running`, `paused`, `finished`, or `error`. Simulation speed is simulated seconds per wall-clock second. Time is `null` before the first run; `error` is populated only when the worker fails.
+
+WebSocket messages use a small envelope so status notifications and unchanged version 1.0 state snapshots can share one stream:
+
+```json
+{
+  "type": "snapshot",
+  "data": {
+    "schema_version": "1.0",
+    "scenario_id": "single-intersection-v1"
+  }
+}
+```
+
+`type` is currently `status` or `snapshot`. For `snapshot`, `data` is the complete SUMO intersection state contract rather than the abbreviated example above.
