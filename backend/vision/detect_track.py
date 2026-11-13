@@ -22,6 +22,7 @@ reach ByteTrack (Ultralytics' own tracking default is 0.1).
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -73,6 +74,7 @@ class DetectionCache:
 
     def __init__(self, root: Path | None) -> None:
         self.root = root
+        self.last_detect_s: float | None = None  # detection time recorded with the last loaded entry
 
     def _path(self, clip_key: str) -> Path | None:
         return None if self.root is None else self.root / f"{clip_key}.npz"
@@ -85,9 +87,11 @@ class DetectionCache:
             if int(data["size"]) != size:
                 return None
             frames, offsets, dets = data["frames"], data["offsets"], data["dets"]
+            # Entries written before timing was recorded reuse their detections; runtime is unknown.
+            self.last_detect_s = float(data["detect_s"]) if "detect_s" in data.files else None
         return {int(f): dets[offsets[i] : offsets[i + 1]] for i, f in enumerate(frames)}
 
-    def save(self, clip_key: str, size: int, detections: dict[int, np.ndarray]) -> None:
+    def save(self, clip_key: str, size: int, detections: dict[int, np.ndarray], detect_s: float) -> None:
         path = self._path(clip_key)
         if path is None:
             return
@@ -96,7 +100,9 @@ class DetectionCache:
         offsets = np.cumsum([0] + [len(detections[f]) for f in frames])
         dets = np.concatenate([detections[f] for f in frames]) if frames else np.zeros((0, 6), np.float32)
         tmp = path.with_name(path.name + ".tmp.npz")
-        np.savez_compressed(tmp, size=size, frames=np.array(frames, np.int32), offsets=offsets, dets=dets)
+        np.savez_compressed(
+            tmp, size=size, frames=np.array(frames, np.int32), offsets=offsets, dets=dets, detect_s=detect_s
+        )
         tmp.replace(path)
 
 
@@ -140,6 +146,11 @@ class VehicleTracker:
         self._clip: tuple[str, int] | None = None
         self._cached: dict[int, np.ndarray] | None = None
         self._fresh: dict[int, np.ndarray] = {}
+        self._fresh_s = 0.0
+        self._cached_s: float | None = None
+        # After end_clip(): YOLO time for the clip (measured now, or recorded when first cached).
+        self.last_clip_detect_s: float | None = None
+        self.last_clip_fresh_detect_s = 0.0  # YOLO time actually spent during the last clip
 
     @property
     def model_id(self) -> str:
@@ -152,11 +163,17 @@ class VehicleTracker:
         self._tracker = BYTETracker(args=self._tracker_cfg)  # track_buffer 30 frames = 1.2 s at 25 fps
         self._clip = (clip_key, size) if clip_key else None
         self._cached = self.cache.load(clip_key, size) if clip_key else None
-        self._fresh = {}
+        self._cached_s = self.cache.last_detect_s if self._cached is not None else None
+        self._fresh, self._fresh_s = {}, 0.0
 
     def end_clip(self) -> None:
         if self._clip and self._cached is None and self._fresh:
-            self.cache.save(self._clip[0], self._clip[1], self._fresh)
+            self.cache.save(self._clip[0], self._clip[1], self._fresh, self._fresh_s)
+        if self._cached is None:
+            self.last_clip_detect_s = self._fresh_s
+        else:
+            self.last_clip_detect_s = None if self._cached_s is None else self._cached_s + self._fresh_s
+        self.last_clip_fresh_detect_s = self._fresh_s
         self._clip, self._cached, self._fresh = None, None, {}
 
     def reset(self) -> None:  # kept for callers that do not use the cache
@@ -177,7 +194,9 @@ class VehicleTracker:
         if self._cached is not None and frame_index is not None:
             dets = self._cached.get(frame_index)
         if dets is None:
+            started = time.perf_counter()
             dets = self.detect(frame)
+            self._fresh_s += time.perf_counter() - started
             if frame_index is not None:
                 self._fresh[frame_index] = dets
         dets = dets[dets[:, 4] >= self.conf]

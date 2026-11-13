@@ -99,7 +99,16 @@ class ClipResult:
     observation: dict[str, Any] | None = None
     frames_total: int = 0
     window_duration_s: float | None = None
-    runtime_s: float = 0.0
+    runtime_s: float = 0.0  # wall time of this call (cache hits make it small)
+    detect_s: float | None = None  # YOLO time for the clip, measured or recorded in the cache
+    fresh_detect_s: float = 0.0  # YOLO time actually spent in this call
+
+    @property
+    def pipeline_runtime_s(self) -> float | None:
+        """Full-cost estimate: tracking/counting wall time + YOLO time (cached or not)."""
+        if self.detect_s is None:
+            return None
+        return self.runtime_s - self.fresh_detect_s + self.detect_s
 
 
 def process_clip(
@@ -136,6 +145,8 @@ def process_clip(
                     on_frame(index, frames[index], boxes, counter, events)
         finally:
             tracker.end_clip()
+        detect_s = getattr(tracker, "last_clip_detect_s", None)
+        fresh_detect_s = getattr(tracker, "last_clip_fresh_detect_s", 0.0)
         counts = counter.result()
         window = (len(frames) - scan.start_frame) / info.fps
         observation = observation_json(
@@ -153,6 +164,7 @@ def process_clip(
     return ClipResult(
         clip, decision, "ok", None, decision.evidence, counts, observation,
         frames_total=len(frames), window_duration_s=window, runtime_s=time.perf_counter() - started,
+        detect_s=detect_s, fresh_detect_s=fresh_detect_s,
     )
 
 
