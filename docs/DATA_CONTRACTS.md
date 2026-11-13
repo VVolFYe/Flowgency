@@ -54,6 +54,8 @@ Counts are non-negative integers. Confidence is in `[0, 1]`; model IDs are prove
   "run_id": "run-20261113-001",
   "intersection_id": "J1",
   "simulation_time_s": 42.0,
+  "traffic_light_id": "sumo_tls_01",
+  "current_phase_index": 0,
   "current_phase_id": "vehicle_ns_green",
   "remaining_phase_duration_s": 8.0,
   "queue_lengths_by_approach": {
@@ -61,6 +63,7 @@ Counts are non-negative integers. Confidence is in `[0, 1]`; model IDs are prove
     "southbound_in": {"vehicles": 3, "measurement": "sumo_halting_number"}
   },
   "traffic_light_state": "GGrr",
+  "coordinate_system": "sumo_cartesian_metres",
   "vehicles": [
     {
       "vehicle_id": "veh-12",
@@ -75,7 +78,7 @@ Counts are non-negative integers. Confidence is in `[0, 1]`; model IDs are prove
 }
 ```
 
-Remaining duration may be `null`. The SUMO link-state string requires separately versioned link-index metadata; clients must not infer movements from character position alone. Vehicle snapshots may be omitted from controller-only messages.
+Remaining duration may be `null`. `traffic_light_id`, `current_phase_index`, and `coordinate_system` are optional additive fields introduced for simulation integration and browser rendering; existing 1.0 consumers may ignore them. `current_phase_id` is the configured human-readable SUMO phase name when available. The SUMO link-state string requires separately versioned link-index metadata; clients must not infer movements from character position alone. Vehicle snapshots may be omitted from controller-only messages.
 
 ## C. Controller decision
 
