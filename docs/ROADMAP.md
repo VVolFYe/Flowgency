@@ -44,6 +44,8 @@ Validate camera/network mappings and extend to one connected network containing 
 
 **Traffic-scenario status:** Phase 2.2 adds deterministic normal, rush-hour, and J3-unbalanced demand with measured approach coverage and a fixed-program safety audit. J3 is the recommended first adaptive-control candidate; mappings and real-world signal/pedestrian behavior remain unverified.
 
+**Backend integration:** Phase 2.3b exposes the synthetic and three London profiles through one scenario-aware worker, multi-controller snapshots, and cached geometry selection. Frontend scenario selection remains a later UI task.
+
 ### Phase 7 — Analytics, testing, and demo
 
 Compare fixed/adaptive/emergency modes using waiting time, queues, throughput, and emergency delay; harden failures; prepare a deterministic demo and setup guide. **Exit:** repeatable demo and honestly labeled results.

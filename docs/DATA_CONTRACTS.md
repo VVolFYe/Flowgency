@@ -51,6 +51,7 @@ Counts are non-negative integers. Confidence is in `[0, 1]`; model IDs are prove
 {
   "schema_version": "1.0",
   "scenario_id": "single-intersection-v1",
+  "scenario_selection_id": "single_intersection",
   "run_id": "run-20261113-001",
   "intersection_id": "J1",
   "simulation_time_s": 42.0,
@@ -72,13 +73,16 @@ Counts are non-negative integers. Confidence is in `[0, 1]`; model IDs are prove
       "y_m": 204.8,
       "angle_deg": 178.0,
       "speed_mps": 4.2,
-      "road_id": "edge_s_in"
+      "road_id": "edge_s_in",
+      "lane_id": "edge_s_in_0"
     }
   ]
 }
 ```
 
 Remaining duration may be `null`. `traffic_light_id`, `current_phase_index`, and `coordinate_system` are optional additive fields introduced for simulation integration and browser rendering; existing 1.0 consumers may ignore them. `current_phase_id` is the configured human-readable SUMO phase name when available. The SUMO link-state string requires separately versioned link-index metadata; clients must not infer movements from character position alone. Vehicle snapshots may be omitted from controller-only messages.
+
+`scenario_id` keeps its established network-contract meaning (`single-intersection-v1` or `london-oval-kennington-v1`). The additive `scenario_selection_id` is the public registry choice used by the start API. Multi-intersection snapshots add `traffic_light_controllers`, keyed by every TraCI-enumerated controller ID. Each entry includes phase index/name, state, remaining duration, unique controlled-lane queues, and a per-controller total. `network_queue` sums each controlled lane once across controllers using measurement `sumo_halting_number_unique_controlled_lanes`. The legacy single-controller fields stay populated for the synthetic scenario and are `null`/empty for London.
 
 For the synthetic scenario in adaptive mode, snapshots may additionally contain `control_reason`, a short machine-readable explanation such as `minimum_green_protected`, `hold_green_and_reevaluate`, `sustained_opposing_queue_advantage`, `opposing_approach_anti_starvation`, or `maximum_green_reached`. It is `null` before the first policy evaluation. This field describes the latest duration request, not a guarantee that a different phase has already begun. Fixed mode omits it.
 
@@ -158,6 +162,8 @@ The service status is transport metadata, not SUMO intersection state:
 {
   "state": "running",
   "simulation_speed": 4.0,
+  "control_mode": "fixed",
+  "scenario_id": "single_intersection",
   "simulation_time_s": 42.0,
   "has_snapshot": true,
   "error": null
@@ -167,6 +173,8 @@ The service status is transport metadata, not SUMO intersection state:
 `state` is one of `idle`, `running`, `paused`, `finished`, or `error`. Simulation speed is simulated seconds per wall-clock second. Time is `null` before the first run; `error` is populated only when the worker fails.
 
 Status also carries `control_mode`, either `fixed` or `adaptive`, for the current run. It defaults to `fixed` before a run and after stop.
+
+Status `scenario_id` is the active public selection ID. While idle, and after Stop, it is `single_intersection`. Reset retains the active selection.
 
 WebSocket messages use a small envelope so status notifications and unchanged version 1.0 state snapshots can share one stream:
 
@@ -190,6 +198,7 @@ WebSocket messages use a small envelope so status notifications and unchanged ve
 {
   "schema_version": "1.0",
   "scenario_id": "single-intersection-v1",
+  "scenario_selection_id": "single_intersection",
   "coordinate_system": "synthetic_cartesian_metres",
   "bounds": {
     "min_x_m": 0.0,
@@ -242,3 +251,11 @@ WebSocket messages use a small envelope so status notifications and unchanged ve
 ```
 
 All positions and shapes preserve SUMO Cartesian coordinates in metres. Internal edges use IDs beginning with `:` and are included so vehicles remain renderable while crossing the junction. A browser must apply the same scale and translation to geometry and live vehicle positions. If rendering onto a surface whose Y axis points downward, invert Y at presentation time; do not alter or relabel the API values as geographic coordinates.
+
+Geometry also includes `projection` (`proj_parameter`, `net_offset`, and `original_boundary`) read from the actual `net.xml`, plus `rendering.invert_y_axis_for_screen=true`. London preserves its UTM zone 30 definition. Geometry and vehicle positions both remain in post-offset SUMO Cartesian metres.
+
+## H. Scenario registry and selection
+
+`GET /api/simulation/scenarios` lists stable public IDs and display metadata without loading SUMO. London entries expose J1–J5 candidate mappings and retain the multiple candidates for ambiguous J2 and J5.
+
+`POST /api/simulation/start` accepts optional `scenario_id`: `single_intersection`, `london_normal`, `london_rush_hour`, or `london_unbalanced`. Omission preserves the synthetic default. Static geometry may be selected explicitly with `GET /api/simulation/network?scenario_id=london_normal`; without a query it follows the active scenario and remains synthetic while idle.
