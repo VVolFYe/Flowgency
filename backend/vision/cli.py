@@ -243,6 +243,8 @@ def cmd_label(args: argparse.Namespace) -> int:
 
 
 def cmd_evaluate(args: argparse.Namespace) -> int:
+    from collections import Counter
+
     from .clips import find_clip
     from .counting import VEHICLE_CLASSES
     from .detect_track import VehicleTracker
@@ -260,6 +262,7 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
     config = load_cameras(args.config)
     contexts: dict[str, CameraContext] = {}
     notes: list[str] = []
+    unlabelled: Counter[str] = Counter()
     jobs = []
     for row in eval_rows:
         camera = config.get(row["camera_id"])
@@ -267,11 +270,12 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
             notes.append(f"{row['camera_id']} {row['clip']}: marked unusable by labeller; excluded")
             continue
         if not all((row["camera_id"], row["clip"], a) in labels for a in camera.approach_ids):
-            notes.append(f"{row['camera_id']} {row['clip']}: not (fully) labelled; excluded")
+            unlabelled[f"{row['intersection_id']} {row['camera_id']}"] += 1
             continue
         if row["camera_id"] not in contexts:
             contexts[row["camera_id"]] = CameraContext.build(camera, paths, progress=_log)
         jobs.append((row, camera))
+    notes += [f"{camera}: {n} eval clip(s) not (fully) labelled; excluded" for camera, n in sorted(unlabelled.items())]
     if not jobs:
         raise SystemExit(f"no labelled eval clips found in {gt_path}")
     _log(f"evaluating {len(jobs)} labelled clips")

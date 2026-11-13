@@ -270,7 +270,8 @@ def config_verdict(pairs: Sequence[Pair], targets: Targets = Targets()) -> dict[
         fails.append("per-clip MAE")
     worst = [c for c, s in cameras.items() if s.rel_error is None or abs(s.rel_error) > targets.max_camera_rel_error]
     if worst:
-        fails.append("cameras over limit: " + ", ".join(worst))
+        jids = {p.camera_id: p.intersection_id for p in pairs}
+        fails.append("cameras over limit: " + ", ".join(jids[c] for c in worst))
     runtimes = [p.runtime_s for p in pairs if p.runtime_s is not None]
     return {
         "overall": overall,
@@ -330,6 +331,7 @@ def render_report(
     configs = sorted({(p.model, p.conf) for p in pairs})
     verdicts = {cfg: config_verdict([p for p in pairs if (p.model, p.conf) == cfg], targets) for cfg in configs}
     best = choose_recommendation(verdicts)
+    jids = {p.camera_id: p.intersection_id for p in pairs}
     lines = [
         "# Flowgency vision accuracy report",
         "",
@@ -353,7 +355,8 @@ def render_report(
         worst = max(v["cameras"].items(), key=lambda kv: abs(kv[1].rel_error) if kv[1].rel_error is not None else float("inf"))
         lines.append(
             f"| {cfg[0]} | {cfg[1]:.2f} | {_pct(o.rel_error, True)} | {_num(o.mae)} | {_pct(o.exact)} | "
-            f"{_pct(o.within1)} | {worst[0]} {_pct(worst[1].rel_error, True)} | {_num(v['mean_runtime_s'], 1)} s | "
+            f"{_pct(o.within1)} | {jids.get(worst[0], worst[0])} {_pct(worst[1].rel_error, True)} | "
+            f"{_num(v['mean_runtime_s'], 1)} s | "
             f"{'yes' if v['meets_targets'] else 'no: ' + '; '.join(v['fails'])} |"
         )
     lines.append("")

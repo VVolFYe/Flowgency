@@ -142,7 +142,7 @@ class EntryTests(unittest.TestCase):
 
 
 def pair(cam: str, gt: int, pred: int, period: str = "day", model: str = "m", conf: float = 0.25) -> Pair:
-    return Pair(model, conf, "J1", cam, f"clip{gt}{pred}", period, "southbound_in", gt, pred, 10.0)
+    return Pair(model, conf, f"J-{cam}", cam, f"clip{gt}{pred}", period, "southbound_in", gt, pred, 10.0)
 
 
 class MetricTests(unittest.TestCase):
@@ -161,7 +161,7 @@ class MetricTests(unittest.TestCase):
         self.assertTrue(config_verdict(good, Targets())["meets_targets"])
         verdict = config_verdict(bad_camera, Targets())
         self.assertFalse(verdict["meets_targets"])
-        self.assertTrue(any("b" in f for f in verdict["fails"]))
+        self.assertTrue(any("J-b" in f and "J-a" not in f for f in verdict["fails"]))
         verdicts = {("m", 0.25): config_verdict(bad_camera), ("n", 0.4): config_verdict(good)}
         self.assertEqual(choose_recommendation(verdicts), ("n", 0.4))
 
