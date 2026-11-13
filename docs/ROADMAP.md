@@ -42,6 +42,8 @@ Validate camera/network mappings and extend to one connected network containing 
 
 **Status:** the Phase 2.1 Oval/Kennington OSM foundation is imported as one connected left-hand network with deterministic baseline routes. J1–J5 mappings remain candidates pending manual NetEdit/SUMO-GUI verification.
 
+**Traffic-scenario status:** Phase 2.2 adds deterministic normal, rush-hour, and J3-unbalanced demand with measured approach coverage and a fixed-program safety audit. J3 is the recommended first adaptive-control candidate; mappings and real-world signal/pedestrian behavior remain unverified.
+
 ### Phase 7 — Analytics, testing, and demo
 
 Compare fixed/adaptive/emergency modes using waiting time, queues, throughput, and emergency delay; harden failures; prepare a deterministic demo and setup guide. **Exit:** repeatable demo and honestly labeled results.

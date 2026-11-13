@@ -39,6 +39,12 @@ The API pattern is `https://api.tfl.gov.uk/Place/{jamcam_id}`. The road source i
 - `london.sumocfg`: 1,200-second smoke-test configuration.
 - `mapping_candidates.json`: candidate mappings for J1–J5; none are declared fully verified.
 - `validate_network.py`: connectivity, left-hand, statistics, and mapping-ID validation.
+- `generate_traffic_scenarios.py`: deterministic targeted demand generator for normal, rush-hour, and unbalanced profiles.
+- `analyze_traffic_scenario.py`: TraCI coverage, queue, throughput, collision, teleport, and trip metric analyzer.
+- `demand/` and `configs/`: checked-in targeted route files and matching SUMO configurations.
+- `TRAFFIC_SCENARIOS.md`: profile parameters, measured baseline metrics, coverage, and commands.
+- `SIGNAL_SAFETY_AUDIT.md`: initial J3 imported-program and controlled-link audit.
+- `COLLISION_TELEPORT_AUDIT.md`: evidence, targeted corrections, and unresolved J5 blocking.
 - `output/`: ignored runtime summary and trip output.
 
 ## Reproduce
@@ -55,6 +61,8 @@ PYTHONDONTWRITEBYTECODE=1 python3 scenarios/london_network/validate_network.py
 The import keeps passenger-accessible edges, uses `--lefthand`, preserves street/original names, applies official geometry/roundabout/junction and signal-guessing heuristics, disables generated turnarounds, and retains only the largest weakly connected component. `--tls.join` is deliberately not used: close signal nodes are not automatically collapsed into one controller. Imported TLS phases are SUMO-generated from OSM topology and must not be treated as real TfL timings.
 
 Demand uses seed `42`, departures every 12 seconds from 0–900 seconds (75 passenger cars), at least 500 m trip distance, and fringe-weighted endpoints. `randomTrips.py --validate` and `duarouter` ensure the checked-in routes are connected; this is synthetic baseline demand, not measured traffic.
+
+The original 75-vehicle baseline is preserved. For controller evaluation, use the three targeted profiles documented in [TRAFFIC_SCENARIOS.md](TRAFFIC_SCENARIOS.md). They use seed `20261113`, explicitly cover all mapped candidate approaches, and keep the exact route files stable between fixed and adaptive runs. The selected first controller candidate and safety limitations are documented in [SIGNAL_SAFETY_AUDIT.md](SIGNAL_SAFETY_AUDIT.md).
 
 ## Run and inspect
 
