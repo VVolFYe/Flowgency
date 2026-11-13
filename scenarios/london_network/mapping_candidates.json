@@ -1,0 +1,123 @@
+{
+  "schema_version": "1.0",
+  "scenario_id": "london-oval-kennington-v1",
+  "status": "candidate_mappings_require_manual_verification",
+  "camera_metadata_source": "https://api.tfl.gov.uk/Place/{jamcam_id}",
+  "network_source": "OpenStreetMap extract converted with SUMO 1.27.1",
+  "targets": [
+    {
+      "intersection_id": "J1",
+      "target_location": "Camberwell New Rd / Brixton Rd (Oval)",
+      "jamcam_id": "JamCams_00001.04503",
+      "tfl_common_name": "Camberwell New Rd/Brixton Rd",
+      "camera_view": "East - CNR twds Camberwell",
+      "latitude": 51.4812,
+      "longitude": -0.11065,
+      "mapping_status": "candidate_high_confidence",
+      "candidates": [
+        {
+          "junction_id": "cluster_10218369045_4202836241_6391501625",
+          "traffic_light_id": "GS_cluster_10218369045_4202836241_6391501625",
+          "distance_from_camera_m": 17.5,
+          "incoming_edges": ["-905942131#3", "1065476894", "682488188", "682488202#0"],
+          "incoming_road_names": ["Camberwell New Road", "Brixton Road"]
+        }
+      ],
+      "notes": "Road names and proximity agree; camera approach coverage still requires visual verification."
+    },
+    {
+      "intersection_id": "J2",
+      "target_location": "Camberwell New Rd / Vassall Rd",
+      "jamcam_id": "JamCams_00001.04339",
+      "tfl_common_name": "Camberwell New Rd/Vassall Rd",
+      "camera_view": "SW - Vassall Road",
+      "latitude": 51.4784,
+      "longitude": -0.10381,
+      "mapping_status": "candidate_ambiguous_multiple_tls",
+      "candidates": [
+        {
+          "junction_id": "2066046353",
+          "traffic_light_id": "GS_2066046353",
+          "distance_from_camera_m": 17.9,
+          "incoming_edges": ["-1117613589#1", "1065494634", "11826101#0"],
+          "incoming_road_names": ["Camberwell New Road", "Vassall Road", "Warham Street"]
+        },
+        {
+          "junction_id": "8413292286",
+          "traffic_light_id": "GS_8413292286",
+          "distance_from_camera_m": 34.6,
+          "incoming_edges": ["-395912709#1", "1117613589#0"],
+          "incoming_road_names": ["Camberwell New Road"]
+        }
+      ],
+      "notes": "Two nearby SUMO controllers may represent separate stop lines; inspect together in NetEdit."
+    },
+    {
+      "intersection_id": "J3",
+      "target_location": "Brixton Rd / Vassall Rd / Caldwell St",
+      "jamcam_id": "JamCams_00001.04523",
+      "tfl_common_name": "A23 Brixton Rd/Vassell Rd",
+      "camera_view": "North (A23 twds Kennington)",
+      "latitude": 51.4765,
+      "longitude": -0.11232,
+      "mapping_status": "candidate_high_confidence",
+      "candidates": [
+        {
+          "junction_id": "26546583",
+          "traffic_light_id": "GS_26546583",
+          "distance_from_camera_m": 31.9,
+          "incoming_edges": ["-1015085160#0", "-5001019#4", "-66924592#2", "1118018433#0"],
+          "incoming_road_names": ["Vassall Road", "Caldwell Street", "Brixton Road"]
+        }
+      ],
+      "notes": "Road names agree with the target, but exact camera field of view remains unverified."
+    },
+    {
+      "intersection_id": "J4",
+      "target_location": "Clapham Rd / Caldwell St",
+      "jamcam_id": "JamCams_00001.04611",
+      "tfl_common_name": "A3 Clapham Rd/Caldwell St",
+      "camera_view": "South - Clapham Rd",
+      "latitude": 51.4777,
+      "longitude": -0.11667,
+      "mapping_status": "candidate_medium_confidence",
+      "candidates": [
+        {
+          "junction_id": "33213216",
+          "traffic_light_id": "GS_33213216",
+          "distance_from_camera_m": 43.5,
+          "incoming_edges": ["-1306644989#1", "1119391145#0", "639145025#3"],
+          "incoming_road_names": ["Clapham Road", "Caldwell Street"]
+        }
+      ],
+      "notes": "Nearest road nodes are not signalized; the named signalized junction is the plausible candidate."
+    },
+    {
+      "intersection_id": "J5",
+      "target_location": "Kennington Park Rd / Kennington Oval",
+      "jamcam_id": "JamCams_00001.04345",
+      "tfl_common_name": "Kenington Pk Rd/Kennington Oval",
+      "camera_view": "North - A3 twds Elephant",
+      "latitude": 51.4824,
+      "longitude": -0.11208,
+      "mapping_status": "candidate_ambiguous_multiple_tls",
+      "candidates": [
+        {
+          "junction_id": "cluster_108195_6967968844",
+          "traffic_light_id": "GS_cluster_108195_6967968844",
+          "distance_from_camera_m": 43.0,
+          "incoming_edges": ["744514100#0", "744514103#0", "744514111#0"],
+          "incoming_road_names": ["Kennington Park Road", "Brixton Road"]
+        },
+        {
+          "junction_id": "cluster_8982713135_8982713136",
+          "traffic_light_id": "GS_cluster_8982713135_8982713136",
+          "distance_from_camera_m": 49.7,
+          "incoming_edges": ["-4357021#3", "377654348#0", "744514106#0", "968531508#0"],
+          "incoming_road_names": ["Camberwell New Road", "Harleyford Street", "Kennington Park Road"]
+        }
+      ],
+      "notes": "The camera lies between two complex signalized clusters; do not merge or select one without GUI verification."
+    }
+  ]
+}
