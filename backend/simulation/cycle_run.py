@@ -22,6 +22,8 @@ def main() -> int:
     parser.add_argument("--trace-phases", action="store_true", help="print every observed TLS phase transition")
     parser.add_argument("--step-delay-ms", type=float, default=0.0,
                         help="wall-clock delay after each simulation step, useful with sumo-gui")
+    parser.add_argument("--output-directory", type=Path,
+                        help="override generated tripinfo and summary output directory")
     args = parser.parse_args()
     if args.step_delay_ms < 0:
         parser.error("--step-delay-ms must be nonnegative")
@@ -32,8 +34,14 @@ def main() -> int:
         parser.error(f"adaptive manifest not found: {args.adaptive_manifest}")
     traci = _import_traci()
     label = f"flowgency-cycle-{uuid4()}"
+    command = [args.sumo_binary, "-c", str(config), "--no-step-log", "true"]
+    if args.output_directory is not None:
+        output = args.output_directory.resolve()
+        output.mkdir(parents=True, exist_ok=True)
+        command.extend(["--tripinfo-output", str(output / "tripinfo.xml"),
+                        "--summary-output", str(output / "summary.xml")])
     with contextlib.redirect_stdout(sys.stderr):
-        traci.start([args.sumo_binary, "-c", str(config), "--no-step-log", "true"], label=label, stdout=sys.stderr)
+        traci.start(command, label=label, stdout=sys.stderr)
     connection = traci.getConnection(label)
     try:
         signals = load_adaptive_signals(args.adaptive_manifest, connection) if args.adaptive_manifest else []

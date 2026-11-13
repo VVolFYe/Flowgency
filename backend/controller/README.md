@@ -63,3 +63,11 @@ Omit `--adaptive-manifest` to run the same SUMO configuration with fixed timings
 Add `--trace-phases` to print each observed SUMO phase entry and verify actual interval lengths. TraCI's `setPhaseDuration` accepts **remaining** time, so the adapter subtracts time already spent in the green phase from the planned total before sending the command. This matters when a phase transition is first observed after a simulation step.
 
 To watch the adaptive run in SUMO-GUI, use `--sumo-binary sumo-gui --step-delay-ms 150`. This adds 150 ms of real time between simulated one-second steps; it does not change simulation timing or phase decisions. A WSL environment needs working Linux GUI support (such as WSLg). The first observed phase boundary may be at 71 s due to SUMO's initial step; subsequent complete cycles should match the configured 70 s.
+
+To measure whether adaptive timing helped on identical vehicles and demand, run:
+
+```bash
+python3 -m backend.simulation.compare_cycles --config scenarios/single_intersection/peak.sumocfg --adaptive-manifest scenarios/single_intersection/adaptive.json
+```
+
+The report pairs completed vehicle IDs and prints fixed/adaptive averages plus seconds saved for waiting time, time loss, and trip duration. Positive savings favor adaptive; negative savings favor fixed. It also reports arrivals, collisions, and teleports. The two runs write separate ignored outputs under the scenario's `output/` directory. Repeat on `demo.sumocfg` and, after J3 validation, London `normal` and `unbalanced`; one profile is not proof of general improvement.
