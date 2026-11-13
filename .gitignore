@@ -71,6 +71,7 @@ sumo_output/
 *.tls-state.xml
 *.trace.xml
 *.sumo.log
+scenarios/**/route_errors.log
 metrics.generated.json
 
 # Temporary files

@@ -38,6 +38,8 @@ Implement deterministic request handling, compatible-green shortcut, safe cleara
 
 Validate camera/network mappings and extend to one connected network containing about five intersections. Add cross-junction routes and test spillback. If time is limited, two connected intersections are a defensible fallback.
 
+**Status:** the Phase 2.1 Oval/Kennington OSM foundation is imported as one connected left-hand network with deterministic baseline routes. J1–J5 mappings remain candidates pending manual NetEdit/SUMO-GUI verification.
+
 ### Phase 7 — Analytics, testing, and demo
 
 Compare fixed/adaptive/emergency modes using waiting time, queues, throughput, and emergency delay; harden failures; prepare a deterministic demo and setup guide. **Exit:** repeatable demo and honestly labeled results.
