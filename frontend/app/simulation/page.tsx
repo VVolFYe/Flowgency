@@ -3,30 +3,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, BACKEND_URL, WS_URL } from "@/lib/api";
 import { SiteNav } from "@/components/site-nav";
+import { SimulationCanvas } from "@/components/simulation-canvas";
 import type {
-  Lane,
   NetworkGeometry,
   ServiceState,
+  SimulationScenario,
   SimulationSnapshot,
   SimulationStatus,
   StreamEnvelope,
-  Vehicle,
 } from "@/lib/contracts";
 
 type ConnectionState = "connecting" | "connected" | "reconnecting" | "offline";
-type VehicleFrame = Map<string, Vehicle>;
-
-interface Transition {
-  from: VehicleFrame;
-  to: VehicleFrame;
-  startedAt: number;
-  durationMs: number;
-  runId: string;
-}
 
 const EMPTY_STATUS: SimulationStatus = {
   state: "idle",
   simulation_speed: 4,
+  scenario_id: "single_intersection",
   simulation_time_s: null,
   has_snapshot: false,
   error: null,
@@ -49,30 +41,6 @@ const APPROACH_LABELS: Record<string, string> = {
   westbound_in: "Westbound",
 };
 
-const vehicleMap = (vehicles: Vehicle[] | undefined): VehicleFrame =>
-  new Map((vehicles ?? []).map((vehicle) => [vehicle.vehicle_id, vehicle]));
-
-const interpolateAngle = (from: number, to: number, progress: number) => {
-  const delta = ((to - from + 540) % 360) - 180;
-  return from + delta * progress;
-};
-
-function interpolatedVehicles(transition: Transition, now: number): VehicleFrame {
-  if (transition.durationMs <= 0) return transition.to;
-  const progress = Math.min(1, Math.max(0, (now - transition.startedAt) / transition.durationMs));
-  const result = new Map<string, Vehicle>();
-  transition.to.forEach((target, id) => {
-    const source = transition.from.get(id) ?? target;
-    result.set(id, {
-      ...target,
-      x_m: source.x_m + (target.x_m - source.x_m) * progress,
-      y_m: source.y_m + (target.y_m - source.y_m) * progress,
-      angle_deg: interpolateAngle(source.angle_deg, target.angle_deg, progress),
-    });
-  });
-  return result;
-}
-
 function formatTime(seconds: number | null | undefined) {
   if (seconds == null) return "—";
   const minutes = Math.floor(seconds / 60).toString().padStart(2, "0");
@@ -80,211 +48,6 @@ function formatTime(seconds: number | null | undefined) {
   return `${minutes}:${remainder}`;
 }
 
-function signalColor(state: string | undefined) {
-  if (state === "G" || state === "g") return "#61f69b";
-  if (state === "y" || state === "Y") return "#f3bd4b";
-  if (state === "r" || state === "R") return "#ff5964";
-  return "#53616c";
-}
-
-function drawRoundedRect(
-  context: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  radius: number,
-) {
-  context.beginPath();
-  context.roundRect(x, y, width, height, radius);
-}
-
-function SimulationCanvas({
-  geometry,
-  snapshot,
-  status,
-  connection,
-  transitionRef,
-}: {
-  geometry: NetworkGeometry;
-  snapshot: SimulationSnapshot | null;
-  status: SimulationStatus;
-  connection: ConnectionState;
-  transitionRef: React.MutableRefObject<Transition | null>;
-}) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const hostRef = useRef<HTMLDivElement>(null);
-  const sizeRef = useRef({ width: 0, height: 0 });
-
-  const draw = useCallback((now: number) => {
-    const canvas = canvasRef.current;
-    const { width, height } = sizeRef.current;
-    if (!canvas || width <= 0 || height <= 0) return;
-    const context = canvas.getContext("2d");
-    if (!context) return;
-
-    const pixelRatio = window.devicePixelRatio || 1;
-    if (canvas.width !== Math.round(width * pixelRatio) || canvas.height !== Math.round(height * pixelRatio)) {
-      canvas.width = Math.round(width * pixelRatio);
-      canvas.height = Math.round(height * pixelRatio);
-    }
-    context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-    context.clearRect(0, 0, width, height);
-
-    const padding = Math.max(28, Math.min(width, height) * 0.075);
-    const bounds = geometry.bounds;
-    const worldWidth = Math.max(1, bounds.max_x_m - bounds.min_x_m);
-    const worldHeight = Math.max(1, bounds.max_y_m - bounds.min_y_m);
-    const scale = Math.min((width - padding * 2) / worldWidth, (height - padding * 2) / worldHeight);
-    const offsetX = (width - worldWidth * scale) / 2;
-    const offsetY = (height - worldHeight * scale) / 2;
-    const screen = (point: { x_m: number; y_m: number }) => ({
-      x: offsetX + (point.x_m - bounds.min_x_m) * scale,
-      y: height - offsetY - (point.y_m - bounds.min_y_m) * scale,
-    });
-
-    const grid = Math.max(25, worldWidth / 12);
-    context.strokeStyle = "rgba(121, 152, 169, .055)";
-    context.lineWidth = 1;
-    for (let x = Math.ceil(bounds.min_x_m / grid) * grid; x <= bounds.max_x_m; x += grid) {
-      const start = screen({ x_m: x, y_m: bounds.min_y_m });
-      const end = screen({ x_m: x, y_m: bounds.max_y_m });
-      context.beginPath(); context.moveTo(start.x, start.y); context.lineTo(end.x, end.y); context.stroke();
-    }
-    for (let y = Math.ceil(bounds.min_y_m / grid) * grid; y <= bounds.max_y_m; y += grid) {
-      const start = screen({ x_m: bounds.min_x_m, y_m: y });
-      const end = screen({ x_m: bounds.max_x_m, y_m: y });
-      context.beginPath(); context.moveTo(start.x, start.y); context.lineTo(end.x, end.y); context.stroke();
-    }
-
-    geometry.junctions.forEach((junction) => {
-      if (junction.shape.length < 3) return;
-      context.beginPath();
-      junction.shape.forEach((point, index) => {
-        const position = screen(point);
-        if (index === 0) context.moveTo(position.x, position.y);
-        else context.lineTo(position.x, position.y);
-      });
-      context.closePath();
-      context.fillStyle = junction.type === "traffic_light" ? "#202c34" : "#161f25";
-      context.fill();
-      context.strokeStyle = "#34434d";
-      context.stroke();
-    });
-
-    const lanes = geometry.edges.flatMap((edge) => edge.lanes.map((lane) => ({ lane, internal: edge.is_internal })));
-    lanes.forEach(({ lane, internal }) => {
-      if (lane.shape.length < 2) return;
-      context.beginPath();
-      lane.shape.forEach((point, index) => {
-        const position = screen(point);
-        if (index === 0) context.moveTo(position.x, position.y);
-        else context.lineTo(position.x, position.y);
-      });
-      context.lineWidth = Math.max(3, lane.width_m * scale);
-      context.lineCap = "round";
-      context.lineJoin = "round";
-      context.strokeStyle = internal ? "#35434b" : "#2c3941";
-      context.stroke();
-      context.lineWidth = 1;
-      context.setLineDash(internal ? [3, 4] : [7, 8]);
-      context.strokeStyle = internal ? "rgba(186, 207, 216, .22)" : "rgba(186, 207, 216, .32)";
-      context.stroke();
-      context.setLineDash([]);
-    });
-
-    const laneById = new Map<string, Lane>();
-    geometry.edges.forEach((edge) => edge.lanes.forEach((lane) => laneById.set(lane.lane_id, lane)));
-    const junction = geometry.junctions.find((item) => item.type === "traffic_light");
-    const center = junction ? { x_m: junction.x_m, y_m: junction.y_m } : {
-      x_m: (bounds.min_x_m + bounds.max_x_m) / 2,
-      y_m: (bounds.min_y_m + bounds.max_y_m) / 2,
-    };
-    const grouped = new Map<string, typeof geometry.controlled_links>();
-    geometry.controlled_links.forEach((link) => grouped.set(link.from_lane, [...(grouped.get(link.from_lane) ?? []), link]));
-    grouped.forEach((links, laneId) => {
-      const lane = laneById.get(laneId);
-      if (!lane || lane.shape.length < 2) return;
-      const sorted = [...lane.shape].sort((a, b) =>
-        Math.hypot(a.x_m - center.x_m, a.y_m - center.y_m) - Math.hypot(b.x_m - center.x_m, b.y_m - center.y_m));
-      const near = sorted[0];
-      const next = sorted[1];
-      const length = Math.max(0.001, Math.hypot(next.x_m - near.x_m, next.y_m - near.y_m));
-      const ux = (next.x_m - near.x_m) / length;
-      const uy = (next.y_m - near.y_m) / length;
-      links.sort((a, b) => a.link_index - b.link_index).forEach((link, index) => {
-        const spread = (index - (links.length - 1) / 2) * 3.3;
-        const position = screen({
-          x_m: near.x_m + ux * 5 - uy * spread,
-          y_m: near.y_m + uy * 5 + ux * spread,
-        });
-        const color = signalColor(snapshot?.traffic_light_state?.[link.link_index]);
-        context.beginPath(); context.arc(position.x, position.y, 7, 0, Math.PI * 2);
-        context.fillStyle = "#071014"; context.fill();
-        context.lineWidth = 2; context.strokeStyle = "#65737c"; context.stroke();
-        context.beginPath(); context.arc(position.x, position.y, 4, 0, Math.PI * 2);
-        context.fillStyle = color; context.shadowColor = color; context.shadowBlur = 9; context.fill(); context.shadowBlur = 0;
-      });
-    });
-
-    const transition = transitionRef.current;
-    const vehicles = transition ? interpolatedVehicles(transition, now) : vehicleMap(snapshot?.vehicles);
-    vehicles.forEach((vehicle) => {
-      const position = screen(vehicle);
-      const length = Math.max(7, 4.6 * scale);
-      const vehicleWidth = Math.max(4, 1.9 * scale);
-      context.save();
-      context.translate(position.x, position.y);
-      context.rotate((vehicle.angle_deg * Math.PI) / 180);
-      drawRoundedRect(context, -vehicleWidth / 2, -length / 2, vehicleWidth, length, Math.min(2.5, vehicleWidth / 2));
-      context.fillStyle = vehicle.vehicle_type.toLowerCase().includes("bus") ? "#f3bd4b" : "#dce9ef";
-      context.shadowColor = "rgba(115, 226, 255, .55)"; context.shadowBlur = 5; context.fill();
-      context.shadowBlur = 0;
-      context.fillStyle = "#1c657c";
-      context.fillRect(-vehicleWidth * .32, -length * .24, vehicleWidth * .64, length * .19);
-      context.restore();
-    });
-  }, [geometry, snapshot, transitionRef]);
-
-  useEffect(() => {
-    const host = hostRef.current;
-    if (!host) return;
-    const resize = new ResizeObserver(([entry]) => {
-      sizeRef.current = { width: entry.contentRect.width, height: entry.contentRect.height };
-      draw(performance.now());
-    });
-    resize.observe(host);
-    return () => resize.disconnect();
-  }, [draw]);
-
-  useEffect(() => {
-    let frame = 0;
-    const animate = (now: number) => {
-      draw(now);
-      const transition = transitionRef.current;
-      if (status.state === "running" && connection === "connected" && transition && now < transition.startedAt + transition.durationMs) {
-        frame = requestAnimationFrame(animate);
-      }
-    };
-    frame = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(frame);
-  }, [connection, draw, snapshot, status.state, transitionRef]);
-
-  return (
-    <div ref={hostRef} className="relative h-full min-h-[390px] overflow-hidden rounded-[20px] bg-[#0b1115]">
-      <canvas ref={canvasRef} className="block h-full w-full" aria-label="Live SUMO intersection map" />
-      <div className="pointer-events-none absolute left-4 top-4 rounded-lg border border-white/10 bg-[#0b1115]/80 px-3 py-2 backdrop-blur">
-        <div className="font-mono text-[10px] uppercase tracking-[.18em] text-[#7f909b]">SUMO Cartesian</div>
-        <div className="mt-1 text-xs text-[#b8c5cc]">{geometry.scenario_id}</div>
-      </div>
-      {!snapshot && status.state !== "idle" && (
-        <div className="absolute inset-0 grid place-items-center bg-[#0b1115]/60 text-sm text-[#9cabb4]">
-          Waiting for first SUMO snapshot…
-        </div>
-      )}
-    </div>
-  );
-}
 
 function ControlButton({ label, action, enabled, busy, primary, onClick }: {
   label: string;
@@ -313,6 +76,8 @@ function ControlButton({ label, action, enabled, busy, primary, onClick }: {
 
 export default function SimulationPage() {
   const [geometry, setGeometry] = useState<NetworkGeometry | null>(null);
+  const [scenarios, setScenarios] = useState<SimulationScenario[]>([]);
+  const [selectedScenarioId, setSelectedScenarioId] = useState("single_intersection");
   const [status, setStatus] = useState<SimulationStatus>(EMPTY_STATUS);
   const [snapshot, setSnapshot] = useState<SimulationSnapshot | null>(null);
   const [connection, setConnection] = useState<ConnectionState>("connecting");
@@ -320,44 +85,49 @@ export default function SimulationPage() {
   const [commandPending, setCommandPending] = useState<string | null>(null);
   const [selectedSpeed, setSelectedSpeed] = useState(4);
   const [error, setError] = useState<string | null>(null);
-  const transitionRef = useRef<Transition | null>(null);
   const snapshotRef = useRef<SimulationSnapshot | null>(null);
   const connectionRef = useRef<ConnectionState>("connecting");
   const statusRef = useRef<SimulationStatus>(EMPTY_STATUS);
-  const lastSnapshotAtRef = useRef(0);
+  const selectedScenarioRef = useRef("single_intersection");
+  const geometryRequestRef = useRef(0);
+
+  const loadGeometry = useCallback(async (scenarioId: string) => {
+    const requestId = ++geometryRequestRef.current;
+    setLoading(true);
+    setGeometry(null);
+    try {
+      const network = await api.network(scenarioId);
+      if (requestId === geometryRequestRef.current) setGeometry(network);
+    } catch (reason) {
+      if (requestId === geometryRequestRef.current) {
+        setError(reason instanceof Error ? reason.message : "Failed to load network geometry");
+      }
+    } finally {
+      if (requestId === geometryRequestRef.current) setLoading(false);
+    }
+  }, []);
 
   const updateStatus = useCallback((next: SimulationStatus) => {
     statusRef.current = next;
     setStatus(next);
     if (!next.has_snapshot || next.state === "idle") {
       snapshotRef.current = null;
-      transitionRef.current = null;
       setSnapshot(null);
     }
     if (next.error) setError(next.error);
   }, []);
 
-  const receiveSnapshot = useCallback((next: SimulationSnapshot, animate = true) => {
+  const receiveSnapshot = useCallback((next: SimulationSnapshot) => {
     const previous = snapshotRef.current;
-    const now = performance.now();
-    const nextVehicles = vehicleMap(next.vehicles);
-    const sameRun = previous?.run_id === next.run_id;
-    const isNewFrame = !previous || !sameRun || next.simulation_time_s !== previous.simulation_time_s;
-
-    if (!isNewFrame) return;
-    const canAnimate = animate && sameRun && statusRef.current.state === "running" && connectionRef.current === "connected";
-    let from = nextVehicles;
-    if (canAnimate && transitionRef.current) from = interpolatedVehicles(transitionRef.current, now);
-    else if (canAnimate && previous) from = vehicleMap(previous.vehicles);
-    const elapsed = lastSnapshotAtRef.current ? now - lastSnapshotAtRef.current : 250;
-    transitionRef.current = {
-      from,
-      to: nextVehicles,
-      startedAt: now,
-      durationMs: canAnimate ? Math.min(600, Math.max(120, elapsed)) : 0,
-      runId: next.run_id,
-    };
-    lastSnapshotAtRef.current = now;
+    const nextScenario = next.scenario_selection_id ?? next.scenario_id;
+    const previousScenario = previous?.scenario_selection_id ?? previous?.scenario_id;
+    if (statusRef.current.state !== "idle" && nextScenario !== statusRef.current.scenario_id) return;
+    if (
+      previous
+      && previous.run_id === next.run_id
+      && previousScenario === nextScenario
+      && next.simulation_time_s <= previous.simulation_time_s
+    ) return;
     snapshotRef.current = next;
     setSnapshot(next);
   }, []);
@@ -367,19 +137,28 @@ export default function SimulationPage() {
     updateStatus(nextStatus);
     if (includeSnapshot || nextStatus.has_snapshot) {
       const latest = await api.snapshot();
-      if (latest) receiveSnapshot(latest, false);
+      if (latest) receiveSnapshot(latest);
     }
   }, [receiveSnapshot, updateStatus]);
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([api.network(), api.status(), api.snapshot()])
-      .then(([network, initialStatus, initialSnapshot]) => {
+    Promise.all([api.scenarios(), api.status()])
+      .then(async ([availableScenarios, initialStatus]) => {
         if (cancelled) return;
-        setGeometry(network);
+        const scenarioId = initialStatus.scenario_id || "single_intersection";
+        setScenarios(availableScenarios);
+        setSelectedScenarioId(scenarioId);
+        selectedScenarioRef.current = scenarioId;
         updateStatus(initialStatus);
         setSelectedSpeed(initialStatus.simulation_speed);
-        if (initialSnapshot) receiveSnapshot(initialSnapshot, false);
+        const [network, initialSnapshot] = await Promise.all([
+          api.network(scenarioId),
+          initialStatus.has_snapshot ? api.snapshot() : Promise.resolve(null),
+        ]);
+        if (cancelled) return;
+        setGeometry(network);
+        if (initialSnapshot) receiveSnapshot(initialSnapshot);
         setError(null);
       })
       .catch((reason: unknown) => {
@@ -390,6 +169,15 @@ export default function SimulationPage() {
   }, [receiveSnapshot, updateStatus]);
 
   useEffect(() => {
+    if (status.state === "idle" || status.scenario_id === selectedScenarioRef.current) return;
+    selectedScenarioRef.current = status.scenario_id;
+    setSelectedScenarioId(status.scenario_id);
+    snapshotRef.current = null;
+    setSnapshot(null);
+    void loadGeometry(status.scenario_id);
+  }, [loadGeometry, status.scenario_id, status.state]);
+
+  useEffect(() => {
     let socket: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let closed = false;
@@ -398,9 +186,6 @@ export default function SimulationPage() {
     const setConnectionState = (next: ConnectionState) => {
       connectionRef.current = next;
       setConnection(next);
-      if (next !== "connected" && transitionRef.current) {
-        transitionRef.current = { ...transitionRef.current, from: transitionRef.current.to, durationMs: 0 };
-      }
     };
     const connect = () => {
       if (closed) return;
@@ -453,16 +238,19 @@ export default function SimulationPage() {
       const nextStatus = await api.command(
         command,
         command === "start" || command === "resume" ? selectedSpeed : undefined,
+        command === "start" ? selectedScenarioRef.current : undefined,
       );
       updateStatus(nextStatus);
       setSelectedSpeed(nextStatus.simulation_speed);
       if (command === "stop") {
         snapshotRef.current = null;
-        transitionRef.current = null;
         setSnapshot(null);
+        selectedScenarioRef.current = nextStatus.scenario_id;
+        setSelectedScenarioId(nextStatus.scenario_id);
+        await loadGeometry(nextStatus.scenario_id);
       } else {
         const latest = await api.snapshot();
-        if (latest) receiveSnapshot(latest, false);
+        if (latest) receiveSnapshot(latest);
       }
       await refreshHttp(false);
     } catch (reason) {
@@ -478,6 +266,7 @@ export default function SimulationPage() {
 
   const changeSpeed = async (speed: number) => {
     setSelectedSpeed(speed);
+    if (statusRef.current.state === "idle") return;
     setCommandPending("speed");
     setError(null);
     try {
@@ -495,14 +284,26 @@ export default function SimulationPage() {
     }
   };
 
+  const changeScenario = async (scenarioId: string) => {
+    if (statusRef.current.state !== "idle" || commandPending) return;
+    selectedScenarioRef.current = scenarioId;
+    setSelectedScenarioId(scenarioId);
+    snapshotRef.current = null;
+    setSnapshot(null);
+    setError(null);
+    await loadGeometry(scenarioId);
+  };
+
   const queueRows = useMemo(() => {
+    if (selectedScenarioId !== "single_intersection") return [];
     const known = snapshot?.queue_lengths_by_approach;
     const approaches = geometry
       ? Array.from(new Set(geometry.controlled_links.map((link) => link.approach)))
       : Object.keys(APPROACH_LABELS);
     return approaches.map((approach) => ({ approach, value: known?.[approach]?.vehicles ?? null }));
-  }, [geometry, snapshot]);
+  }, [geometry, selectedScenarioId, snapshot]);
 
+  const selectedScenario = scenarios.find((scenario) => scenario.scenario_id === selectedScenarioId) ?? null;
   const isStale = connection !== "connected" && snapshot !== null;
   const vehicleCount = snapshot?.vehicles ? snapshot.vehicles.length : null;
   const statusTone = status.state === "running" ? "#70e9a6" : status.state === "error" ? "#ff6c76" : "#f0bc55";
@@ -551,8 +352,28 @@ export default function SimulationPage() {
                 {STATE_LABELS[status.state]}
               </div>
             </div>
+            <div className="mb-4">
+              <label htmlFor="scenario" className="text-xs text-[#6f808a]">Scenario</label>
+              <select
+                id="scenario"
+                value={selectedScenarioId}
+                disabled={status.state !== "idle" || commandPending !== null || loading}
+                onChange={(event) => void changeScenario(event.target.value)}
+                className="mt-2 w-full rounded-xl border border-white/10 bg-[#0b1115] px-3 py-2.5 text-sm text-[#d7e1e6] outline-none transition focus:border-[#70e9a6]/50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {scenarios.map((scenario) => (
+                  <option key={scenario.scenario_id} value={scenario.scenario_id}>{scenario.display_name}</option>
+                ))}
+              </select>
+              {selectedScenario && <p className="mt-2 text-[10px] leading-relaxed text-[#70818b]">{selectedScenario.description}</p>}
+              {selectedScenario?.known_limitation && (
+                <p className="mt-2 rounded-lg border border-[#f0bc55]/20 bg-[#f0bc55]/10 px-2.5 py-2 text-[10px] leading-relaxed text-[#e5c783]">
+                  {selectedScenario.known_limitation}
+                </p>
+              )}
+            </div>
             <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
-              <ControlButton label="Start simulation" action="Start" primary enabled={status.state === "idle"} busy={commandPending !== null} onClick={() => execute("start")} />
+              <ControlButton label="Start simulation" action="Start" primary enabled={status.state === "idle" && geometry !== null} busy={commandPending !== null} onClick={() => execute("start")} />
               <ControlButton label="Pause" action="Pause" enabled={status.state === "running"} busy={commandPending !== null} onClick={() => execute("pause")} />
               <ControlButton label="Resume" action="Play" enabled={status.state === "paused"} busy={commandPending !== null} onClick={() => execute("resume")} />
               <ControlButton label="New run at 00:00" action="Reset" enabled={status.state !== "idle"} busy={commandPending !== null} onClick={() => execute("reset")} />
@@ -590,7 +411,7 @@ export default function SimulationPage() {
 
           <div className="order-1 min-h-[480px] rounded-[24px] border border-white/[.08] bg-[#10171c] p-2 shadow-2xl shadow-black/30 xl:order-2 xl:h-[calc(100vh-116px)] xl:min-h-[620px]">
             {geometry ? (
-              <SimulationCanvas geometry={geometry} snapshot={snapshot} status={status} connection={connection} transitionRef={transitionRef} />
+              <SimulationCanvas key={geometry.scenario_selection_id} geometry={geometry} scenario={selectedScenario} snapshot={snapshot} status={status} connection={connection} />
             ) : (
               <div className="grid h-full min-h-[470px] place-items-center rounded-[20px] bg-[#0b1115] text-sm text-[#81909a]">
                 {loading ? "Loading SUMO network geometry…" : "Network geometry unavailable"}
@@ -612,8 +433,17 @@ export default function SimulationPage() {
                 </div>
               </div>
               <div className="mt-4 border-t border-white/[.06] pt-4">
-                <div className="flex justify-between text-xs"><span className="text-[#73838d]">Phase</span><span className="max-w-[165px] truncate font-mono text-[#c5d0d6]">{snapshot?.current_phase_id || "—"}</span></div>
-                <div className="mt-2 flex justify-between text-xs"><span className="text-[#73838d]">Next switch</span><span className="font-mono text-[#c5d0d6]">{snapshot?.remaining_phase_duration_s == null ? "—" : `${snapshot.remaining_phase_duration_s.toFixed(0)}s`}</span></div>
+                {selectedScenarioId === "single_intersection" ? (
+                  <>
+                    <div className="flex justify-between text-xs"><span className="text-[#73838d]">Phase</span><span className="max-w-[165px] truncate font-mono text-[#c5d0d6]">{snapshot?.current_phase_id || "—"}</span></div>
+                    <div className="mt-2 flex justify-between text-xs"><span className="text-[#73838d]">Next switch</span><span className="font-mono text-[#c5d0d6]">{snapshot?.remaining_phase_duration_s == null ? "—" : `${snapshot.remaining_phase_duration_s.toFixed(0)}s`}</span></div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex justify-between text-xs"><span className="text-[#73838d]">Controllers</span><span className="font-mono text-[#c5d0d6]">{snapshot?.traffic_light_controllers ? Object.keys(snapshot.traffic_light_controllers).length : geometry?.traffic_lights.length ?? "—"}</span></div>
+                    <div className="mt-2 flex justify-between text-xs"><span className="text-[#73838d]">Network queue</span><span className="font-mono text-[#c5d0d6]">{snapshot?.network_queue?.vehicles ?? "—"}</span></div>
+                  </>
+                )}
                 <div className="mt-2 flex justify-between text-xs"><span className="text-[#73838d]">Run</span><span className="max-w-[165px] truncate font-mono text-[10px] text-[#82939d]" title={snapshot?.run_id}>{snapshot?.run_id ?? "—"}</span></div>
               </div>
             </div>
@@ -626,8 +456,9 @@ export default function SimulationPage() {
                 </div>
                 <span className="text-[10px] text-[#667781]">SUMO</span>
               </div>
-              <div className="mt-4 space-y-2">
-                {queueRows.map(({ approach, value }) => {
+              {selectedScenarioId === "single_intersection" ? (
+                <div className="mt-4 space-y-2">
+                  {queueRows.map(({ approach, value }) => {
                   const maxQueue = Math.max(1, ...queueRows.map((row) => row.value ?? 0));
                   return (
                     <div key={approach} className="rounded-xl bg-white/[.025] px-3 py-2.5">
@@ -640,8 +471,17 @@ export default function SimulationPage() {
                       </div>
                     </div>
                   );
-                })}
-              </div>
+                  })}
+                </div>
+              ) : (
+                <div className="mt-4 rounded-xl bg-white/[.025] p-3">
+                  <div className="flex items-end justify-between">
+                    <span className="text-xs text-[#8797a0]">All controlled lanes</span>
+                    <span className="font-mono text-2xl text-[#dce5e9]">{snapshot?.network_queue?.vehicles ?? "—"}</span>
+                  </div>
+                  <p className="mt-2 text-[10px] leading-relaxed text-[#667781]">Deduplicated SUMO halting count across {snapshot?.network_queue?.controlled_lane_count ?? "—"} controlled lanes.</p>
+                </div>
+              )}
               {!snapshot && <p className="mt-3 text-[11px] leading-relaxed text-[#667781]">No measured queue data yet. Unknown values remain distinct from zero.</p>}
             </div>
           </aside>
