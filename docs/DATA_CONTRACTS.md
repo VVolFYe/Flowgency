@@ -147,3 +147,94 @@ Initial modes are `fixed`, `adaptive`, and `adaptive_with_emergency_priority`. D
 ## Versioning changes
 
 Additive optional fields may remain minor-compatible; renamed/removed fields and semantic or unit changes require a new major version. Update this document, shared models, fixtures, producers, and consumers together. Support only agreed versions during the hackathon rather than building general negotiation.
+
+## F. Simulation service status and stream envelope
+
+The service status is transport metadata, not SUMO intersection state:
+
+```json
+{
+  "state": "running",
+  "simulation_speed": 4.0,
+  "simulation_time_s": 42.0,
+  "has_snapshot": true,
+  "error": null
+}
+```
+
+`state` is one of `idle`, `running`, `paused`, `finished`, or `error`. Simulation speed is simulated seconds per wall-clock second. Time is `null` before the first run; `error` is populated only when the worker fails.
+
+WebSocket messages use a small envelope so status notifications and unchanged version 1.0 state snapshots can share one stream:
+
+```json
+{
+  "type": "snapshot",
+  "data": {
+    "schema_version": "1.0",
+    "scenario_id": "single-intersection-v1"
+  }
+}
+```
+
+`type` is currently `status` or `snapshot`. For `snapshot`, `data` is the complete SUMO intersection state contract rather than the abbreviated example above.
+
+## G. Static SUMO network geometry
+
+`GET /api/simulation/network` returns cached geometry parsed from the scenario network without starting SUMO or using TraCI:
+
+```json
+{
+  "schema_version": "1.0",
+  "scenario_id": "single-intersection-v1",
+  "coordinate_system": "synthetic_cartesian_metres",
+  "bounds": {
+    "min_x_m": 0.0,
+    "min_y_m": 0.0,
+    "max_x_m": 300.0,
+    "max_y_m": 300.0
+  },
+  "edges": [
+    {
+      "edge_id": "east_in",
+      "from_junction_id": "east",
+      "to_junction_id": "demo_01",
+      "function": "normal",
+      "is_internal": false,
+      "lanes": [
+        {
+          "lane_id": "east_in_0",
+          "index": 0,
+          "speed_limit_mps": 13.89,
+          "length_m": 142.8,
+          "width_m": 3.2,
+          "shape": [
+            {"x_m": 300.0, "y_m": 148.4},
+            {"x_m": 157.2, "y_m": 148.4}
+          ]
+        }
+      ]
+    }
+  ],
+  "junctions": [
+    {
+      "junction_id": "demo_01",
+      "type": "traffic_light",
+      "x_m": 150.0,
+      "y_m": 150.0,
+      "shape": [{"x_m": 146.8, "y_m": 142.8}]
+    }
+  ],
+  "traffic_lights": [{"traffic_light_id": "demo_01"}],
+  "controlled_links": [
+    {
+      "link_index": 0,
+      "approach": "northbound_in",
+      "from_lane": "south_in_0",
+      "to_lane": "north_out_0",
+      "movement": "straight"
+    }
+  ]
+}
+```
+
+All positions and shapes preserve SUMO Cartesian coordinates in metres. Internal edges use IDs beginning with `:` and are included so vehicles remain renderable while crossing the junction. A browser must apply the same scale and translation to geometry and live vehicle positions. If rendering onto a surface whose Y axis points downward, invert Y at presentation time; do not alter or relabel the API values as geographic coordinates.
