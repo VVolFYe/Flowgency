@@ -38,10 +38,19 @@ export const api = {
     if (!response.ok) throw new Error(`Snapshot request failed (${response.status})`);
     return response.json() as Promise<SimulationSnapshot>;
   },
-  command: (command: "start" | "pause" | "resume" | "reset" | "stop") =>
+  command: (command: "start" | "pause" | "resume" | "reset" | "stop", simulationSpeed?: number) =>
     request<SimulationStatus>(`/api/simulation/${command}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: command === "start" ? JSON.stringify({ simulation_speed: 4 }) : undefined,
+      body: command === "start"
+        ? JSON.stringify({ simulation_speed: simulationSpeed ?? 4 })
+        : command === "resume" && simulationSpeed !== undefined
+          ? JSON.stringify({ simulation_speed: simulationSpeed })
+          : undefined,
     }),
+  setSpeed: (simulationSpeed: number) => request<SimulationStatus>("/api/simulation/speed", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ simulation_speed: simulationSpeed }),
+  }),
 };

@@ -22,6 +22,10 @@ class ResumeOptions(BaseModel):
     simulation_speed: float | None = Field(default=None, ge=0.1, le=100.0)
 
 
+class SpeedOptions(BaseModel):
+    simulation_speed: float = Field(ge=0.1, le=100.0)
+
+
 def create_app(service: SimulationService | None = None) -> FastAPI:
     simulation = service or SimulationService()
 
@@ -84,6 +88,10 @@ def create_app(service: SimulationService | None = None) -> FastAPI:
     @app.post("/api/simulation/resume")
     async def resume(options: ResumeOptions = ResumeOptions()) -> dict[str, object]:
         return await execute("resume", options.simulation_speed)
+
+    @app.post("/api/simulation/speed")
+    async def set_speed(options: SpeedOptions) -> dict[str, object]:
+        return await execute("set_speed", options.simulation_speed)
 
     @app.post("/api/simulation/reset")
     async def reset() -> dict[str, object]:

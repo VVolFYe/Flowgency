@@ -32,6 +32,8 @@ const EMPTY_STATUS: SimulationStatus = {
   error: null,
 };
 
+const SPEED_PRESETS = [1, 2, 4, 8, 16, 32] as const;
+
 const STATE_LABELS: Record<ServiceState, string> = {
   idle: "Ready",
   running: "Live",
@@ -316,6 +318,7 @@ export default function SimulationPage() {
   const [connection, setConnection] = useState<ConnectionState>("connecting");
   const [loading, setLoading] = useState(true);
   const [commandPending, setCommandPending] = useState<string | null>(null);
+  const [selectedSpeed, setSelectedSpeed] = useState(4);
   const [error, setError] = useState<string | null>(null);
   const transitionRef = useRef<Transition | null>(null);
   const snapshotRef = useRef<SimulationSnapshot | null>(null);
@@ -375,6 +378,7 @@ export default function SimulationPage() {
         if (cancelled) return;
         setGeometry(network);
         updateStatus(initialStatus);
+        setSelectedSpeed(initialStatus.simulation_speed);
         if (initialSnapshot) receiveSnapshot(initialSnapshot, false);
         setError(null);
       })
@@ -446,8 +450,12 @@ export default function SimulationPage() {
     setCommandPending(command);
     setError(null);
     try {
-      const nextStatus = await api.command(command);
+      const nextStatus = await api.command(
+        command,
+        command === "start" || command === "resume" ? selectedSpeed : undefined,
+      );
       updateStatus(nextStatus);
+      setSelectedSpeed(nextStatus.simulation_speed);
       if (command === "stop") {
         snapshotRef.current = null;
         transitionRef.current = null;
@@ -459,7 +467,29 @@ export default function SimulationPage() {
       await refreshHttp(false);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : `Could not ${command} simulation`);
-      try { await refreshHttp(true); } catch { /* retain command error */ }
+      try {
+        await refreshHttp(true);
+        setSelectedSpeed(statusRef.current.simulation_speed);
+      } catch { /* retain command error */ }
+    } finally {
+      setCommandPending(null);
+    }
+  };
+
+  const changeSpeed = async (speed: number) => {
+    setSelectedSpeed(speed);
+    setCommandPending("speed");
+    setError(null);
+    try {
+      const nextStatus = await api.setSpeed(speed);
+      updateStatus(nextStatus);
+      setSelectedSpeed(nextStatus.simulation_speed);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not change simulation speed");
+      try {
+        await refreshHttp(true);
+        setSelectedSpeed(statusRef.current.simulation_speed);
+      } catch { /* retain command error */ }
     } finally {
       setCommandPending(null);
     }
@@ -528,12 +558,33 @@ export default function SimulationPage() {
               <ControlButton label="New run at 00:00" action="Reset" enabled={status.state !== "idle"} busy={commandPending !== null} onClick={() => execute("reset")} />
               <ControlButton label="Stop & clear" action="Stop" enabled={status.state !== "idle"} busy={commandPending !== null} onClick={() => execute("stop")} />
             </div>
+            <div className="mt-4 border-t border-white/[.06] pt-4">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-[#6f808a]">Simulation speed</span>
+                <span className="font-mono text-xs text-[#c7d2d8]">{status.simulation_speed.toFixed(1)}× actual</span>
+              </div>
+              <div className="mt-2 grid grid-cols-3 gap-1.5" role="group" aria-label="Simulation speed">
+                {SPEED_PRESETS.map((speed) => (
+                  <button
+                    key={speed}
+                    type="button"
+                    disabled={commandPending !== null || status.state === "finished" || status.state === "error"}
+                    aria-pressed={selectedSpeed === speed}
+                    onClick={() => void changeSpeed(speed)}
+                    className={`rounded-lg border px-2 py-2 font-mono text-xs transition ${
+                      selectedSpeed === speed
+                        ? "border-[#70e9a6]/60 bg-[#70e9a6]/15 text-[#8df5bb]"
+                        : "border-white/[.08] bg-white/[.025] text-[#91a0a8] hover:border-white/20 hover:text-[#d7e1e6]"
+                    } disabled:cursor-not-allowed disabled:opacity-35`}
+                  >
+                    {speed}×
+                  </button>
+                ))}
+              </div>
+              <p className="mt-2 text-[10px] leading-relaxed text-[#667781]">Select before Start or change pacing while running/paused.</p>
+            </div>
             <div className="mt-5 rounded-xl border border-white/[.06] bg-black/10 p-3 text-xs leading-relaxed text-[#7f909b]">
               Reset starts a fresh SUMO run at zero and keeps it paused. Stop returns the service to idle and clears the frame.
-            </div>
-            <div className="mt-4 flex items-center justify-between border-t border-white/[.06] pt-4 text-xs">
-              <span className="text-[#6f808a]">Simulation speed</span>
-              <span className="font-mono text-[#c7d2d8]">{status.simulation_speed.toFixed(1)}×</span>
             </div>
           </aside>
 
