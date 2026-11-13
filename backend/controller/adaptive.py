@@ -66,8 +66,8 @@ def decide(
     """Evaluate one snapshot; return a decision and new immutable policy state.
 
     Missing or invalid queue measurements yield no command, preserving the
-    installed SUMO plan. A one-second request completes the current green on
-    the next step; a two-second request keeps it alive for reevaluation.
+    installed SUMO plan. Zero remaining duration completes the current green
+    on the next step; a two-second request keeps it alive for reevaluation.
     """
     phase = snapshot.get("current_phase_id")
     now = float(snapshot["simulation_time_s"])
@@ -106,16 +106,16 @@ def decide(
     opposing_last = state.last_green_ew_s if phase == "north_south_green" else state.last_green_ns_s
 
     if elapsed >= config.max_green_s:
-        reason, remaining = "maximum_green_reached", 1.0
+        reason, remaining = "maximum_green_reached", 0.0
     elif elapsed < config.min_green_s:
         reason, remaining = "minimum_green_protected", 2.0
     elif now - opposing_last >= config.max_red_s:
-        reason, remaining = "opposing_approach_anti_starvation", 1.0
+        reason, remaining = "opposing_approach_anti_starvation", 0.0
     else:
         sustained = state.switch_samples + 1 if opposing >= current + config.switch_margin_vehicles else 0
         state = replace(state, switch_samples=sustained)
         if sustained >= config.sustained_samples:
-            reason, remaining = "sustained_opposing_queue_advantage", 1.0
+            reason, remaining = "sustained_opposing_queue_advantage", 0.0
         else:
             reason, remaining = "hold_green_and_reevaluate", 2.0
     return AdaptiveDecision(remaining, reason, current, opposing), state

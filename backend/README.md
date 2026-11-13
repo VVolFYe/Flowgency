@@ -56,7 +56,13 @@ Development CORS is restricted to `http://localhost:3000` and `http://127.0.0.1:
 
 `simulation_speed` means simulated seconds advanced per wall-clock second and accepts values from `0.1` through `100`. Reset starts a fresh SUMO process at time zero and leaves it paused. Stop releases SUMO and returns to `idle`.
 
-`POST /api/simulation/start` also accepts `"control_mode": "fixed"` (default) or `"adaptive"`. Adaptive mode currently supports only the verified `single_intersection` scenario. It samples halting queues each simulated second, protects a 10-second minimum green, limits green to 45 seconds, starts the opposing transition after 40 seconds without green, smooths demand and requires three sustained samples before an early change. It only adjusts the remaining duration of the active green; the scenario's 3-second yellow and 2-second all-red phases stay in SUMO. `GET /api/simulation/status` includes `control_mode`, and adaptive snapshots include `control_reason`. Reset retains the selected mode; stop returns to fixed.
+`POST /api/simulation/start` accepts `"control_mode": "fixed"`, `"adaptive"`, or `"adaptive_with_emergency_priority"`. When omitted, the selected scenario supplies its default (`fixed` except for `single_intersection_emergency`). Adaptive modes are configured only for the synthetic intersection. The normal policy samples halting queues each second, protects a 10-second minimum green, and normally limits green to 45 seconds. The emergency mode recognizes declared SUMO types `ambulance`, `fire_brigade`, and `police` on verified incoming edges. A conflicting green keeps its 10-second minimum, then the existing 3-second yellow and 2-second all-red run before the requested approach gets green. A compatible green can remain active past 45 seconds until the emergency vehicle leaves the junction. Neither policy writes arbitrary signal states or shortens clearance. `GET /api/simulation/status` includes `control_mode`, and adaptive snapshots include `control_reason`. Reset retains the selected mode; stop returns to fixed.
+
+For a visible emergency demo, select **Emergency priority demo** in the browser scenario list and press Start. The scenario contains three marked emergency vehicles; their colors/types are also visible in SUMO-GUI. Headless verification from the repository root:
+
+```bash
+python3 -m backend.simulation.runner --config scenarios/single_intersection/emergency.sumocfg --control-mode adaptive_with_emergency_priority
+```
 
 For a headless adaptive run: `python3 -m backend.simulation.runner --control-mode adaptive`. This policy is a simulation experiment, not a validated traffic-signal controller. London candidate mappings and pedestrian movements must be verified before extending it to that network.
 

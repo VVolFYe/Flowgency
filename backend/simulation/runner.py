@@ -14,6 +14,11 @@ from typing import Any, TextIO
 from uuid import uuid4
 
 from backend.controller.adaptive import AdaptiveConfig, AdaptiveState, decide
+from backend.controller.emergency import (
+    EMERGENCY_TYPES,
+    EmergencyRequest,
+    decide_emergency,
+)
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SCENARIO_DIRECTORY = REPOSITORY_ROOT / "scenarios" / "single_intersection"
@@ -124,30 +129,42 @@ class SumoRunner:
         self._traci = traci_module
         self._connection: Any | None = None
         self._label = f"flowgency-{uuid4()}"
-        if control_mode not in {"fixed", "adaptive"}:
-            raise ValueError("control_mode must be fixed or adaptive")
-        if control_mode == "adaptive" and (
+        if control_mode not in {"fixed", "adaptive", "adaptive_with_emergency_priority"}:
+            raise ValueError("unsupported control_mode")
+        if control_mode != "fixed" and (
             self.mapping is None or self.mapping["scenario_id"] != "single-intersection-v1"
         ):
             raise ValueError("adaptive mode is only configured for single-intersection-v1")
+        if control_mode == "adaptive_with_emergency_priority" and not self.mapping.get("incoming_edges"):
+            raise ValueError("emergency priority requires verified incoming edges")
         self.control_mode = control_mode
         self._adaptive_config = AdaptiveConfig()
         self._adaptive_state = AdaptiveState()
         self.last_control_reason: str | None = None
+        self._emergency_first_seen: dict[str, float] = {}
+        self._emergency_approaches: dict[str, str] = {}
+        self._active_emergency_vehicle_id: str | None = None
+        self._active_emergency_approach: str | None = None
 
     def configure_control_mode(self, control_mode: str) -> None:
         """Select a mode before starting; reset per-run policy history."""
         if self._connection is not None:
             raise RuntimeError("cannot change control mode while SUMO is running")
-        if control_mode not in {"fixed", "adaptive"}:
-            raise ValueError("control_mode must be fixed or adaptive")
-        if control_mode == "adaptive" and (
+        if control_mode not in {"fixed", "adaptive", "adaptive_with_emergency_priority"}:
+            raise ValueError("unsupported control_mode")
+        if control_mode != "fixed" and (
             self.mapping is None or self.mapping["scenario_id"] != "single-intersection-v1"
         ):
             raise ValueError("adaptive mode is only configured for single-intersection-v1")
+        if control_mode == "adaptive_with_emergency_priority" and not self.mapping.get("incoming_edges"):
+            raise ValueError("emergency priority requires verified incoming edges")
         self.control_mode = control_mode
         self._adaptive_state = AdaptiveState()
         self.last_control_reason = None
+        self._emergency_first_seen.clear()
+        self._emergency_approaches.clear()
+        self._active_emergency_vehicle_id = None
+        self._active_emergency_approach = None
 
     @property
     def connection(self) -> Any:
@@ -180,13 +197,13 @@ class SumoRunner:
         with contextlib.redirect_stdout(sys.stderr):
             self._traci.start(command, label=self._label, stdout=sys.stderr)
         self._connection = self._traci.getConnection(self._label)
-        if self.control_mode == "adaptive":
+        if self.control_mode != "fixed":
             self._apply_adaptive_control()
 
     def advance(self) -> float:
         """Advance exactly one configured SUMO step and return simulation time."""
         self.connection.simulationStep()
-        if self.control_mode == "adaptive":
+        if self.control_mode != "fixed":
             self._apply_adaptive_control()
         return float(self.connection.simulation.getTime())
 
@@ -196,13 +213,56 @@ class SumoRunner:
         decision, self._adaptive_state = decide(
             snapshot, self._adaptive_state, self._adaptive_config
         )
+        remaining_green_s = decision.remaining_green_s
         self.last_control_reason = decision.reason
-        if decision.remaining_green_s is not None:
+        if self.control_mode == "adaptive_with_emergency_priority":
+            requests = self._emergency_requests(snapshot)
+            priority = decide_emergency(
+                phase_id=snapshot["current_phase_id"],
+                signal_state=snapshot["traffic_light_state"],
+                phase_elapsed_s=max(0.0, snapshot["simulation_time_s"] - self._adaptive_state.phase_started_s),
+                requests=requests,
+                active_vehicle_id=self._active_emergency_vehicle_id,
+                min_green_s=self._adaptive_config.min_green_s,
+            )
+            self._active_emergency_vehicle_id = priority.active_vehicle_id
+            self._active_emergency_approach = priority.active_approach
+            if requests:
+                remaining_green_s = priority.remaining_green_s
+                self.last_control_reason = priority.reason
+        if remaining_green_s is not None:
             if self.mapping is None:
                 raise RuntimeError("adaptive control requires a verified scenario mapping")
             self.connection.trafficlight.setPhaseDuration(
-                self.mapping["sumo_traffic_light_id"], decision.remaining_green_s
+                self.mapping["sumo_traffic_light_id"], remaining_green_s
             )
+
+    def _emergency_requests(self, snapshot: dict[str, Any]) -> tuple[EmergencyRequest, ...]:
+        """Locate declared emergency types on an audited incoming edge or in the junction."""
+        if self.mapping is None:
+            return ()
+        incoming = {edge: approach for approach, edge in self.mapping["incoming_edges"].items()}
+        active_ids: set[str] = set()
+        requests: list[EmergencyRequest] = []
+        now = float(snapshot["simulation_time_s"])
+        for vehicle in snapshot["vehicles"]:
+            if vehicle["vehicle_type"] not in EMERGENCY_TYPES:
+                continue
+            vehicle_id = vehicle["vehicle_id"]
+            road_id = vehicle["road_id"]
+            approach = incoming.get(road_id)
+            if approach is None and road_id.startswith(":"):
+                approach = self._emergency_approaches.get(vehicle_id)
+            if approach is None:
+                continue
+            active_ids.add(vehicle_id)
+            self._emergency_approaches[vehicle_id] = approach
+            first_seen = self._emergency_first_seen.setdefault(vehicle_id, now)
+            requests.append(EmergencyRequest(vehicle_id, vehicle["vehicle_type"], approach, first_seen))
+        for vehicle_id in set(self._emergency_first_seen) - active_ids:
+            del self._emergency_first_seen[vehicle_id]
+            self._emergency_approaches.pop(vehicle_id, None)
+        return tuple(requests)
 
     def has_pending_vehicles(self) -> bool:
         """Return whether vehicles are active or expected from future demand."""
@@ -261,10 +321,12 @@ class SumoRunner:
         vehicles = []
         for vehicle_id in sorted(connection.vehicle.getIDList()):
             x_m, y_m = connection.vehicle.getPosition(vehicle_id)
+            vehicle_type = connection.vehicle.getTypeID(vehicle_id)
             vehicles.append(
                 {
                     "vehicle_id": vehicle_id,
-                    "vehicle_type": connection.vehicle.getTypeID(vehicle_id),
+                    "vehicle_type": vehicle_type,
+                    "is_emergency": vehicle_type in EMERGENCY_TYPES,
                     "x_m": float(x_m),
                     "y_m": float(y_m),
                     "angle_deg": float(connection.vehicle.getAngle(vehicle_id)),
@@ -306,8 +368,14 @@ class SumoRunner:
             },
             "vehicles": vehicles,
         }
-        if self.control_mode == "adaptive":
+        if self.control_mode != "fixed":
             snapshot["control_reason"] = self.last_control_reason
+        if self.control_mode == "adaptive_with_emergency_priority":
+            snapshot["emergency_priority"] = {
+                "active_vehicle_id": self._active_emergency_vehicle_id,
+                "active_approach": self._active_emergency_approach,
+                "reason": self.last_control_reason,
+            }
         return snapshot
 
     def run(
@@ -374,7 +442,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--mappings", type=Path, default=DEFAULT_MAPPING_PATH)
     parser.add_argument("--sumo-binary", default="sumo")
     parser.add_argument("--run-id", default="single-intersection-traci")
-    parser.add_argument("--control-mode", choices=("fixed", "adaptive"), default="fixed")
+    parser.add_argument("--control-mode", choices=("fixed", "adaptive", "adaptive_with_emergency_priority"), default="fixed")
     parser.add_argument("--sample-every", type=float, default=10.0, metavar="SECONDS")
     output = parser.add_mutually_exclusive_group()
     output.add_argument(

@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from backend.simulation.runner import SumoRunner, load_scenario_mapping
+from backend.controller.adaptive import AdaptiveState
 
 ROOT = Path(__file__).resolve().parents[1]
 MAPPING_PATH = ROOT / "scenarios" / "single_intersection" / "mappings.json"
@@ -69,6 +70,36 @@ class FakeVehicle:
 
     def getLaneID(self, vehicle_id: str) -> str:
         return "south_in_0"
+
+
+class FakeAmbulance(FakeVehicle):
+    def getIDList(self) -> tuple[str, ...]:
+        return ("ambulance-1",)
+
+    def getTypeID(self, vehicle_id: str) -> str:
+        return "ambulance"
+
+    def getRoadID(self, vehicle_id: str) -> str:
+        return "east_in"
+
+    def getLaneID(self, vehicle_id: str) -> str:
+        return "east_in_0"
+
+
+class LateSimulation(FakeSimulation):
+    def getTime(self) -> float:
+        return 47.0
+
+
+class EastWestTrafficLight(FakeTrafficLight):
+    def getPhase(self, traffic_light_id: str) -> int:
+        return 3
+
+    def getPhaseName(self, traffic_light_id: str) -> str:
+        return "east_west_green"
+
+    def getRedYellowGreenState(self, traffic_light_id: str) -> str:
+        return "rGrG"
 
 
 class FakeMultiTrafficLight(FakeTrafficLight):
@@ -152,6 +183,23 @@ class RunnerStateTests(unittest.TestCase):
         self.assertEqual(self.runner.connection.trafficlight.duration_requests, [("demo_01", 2.0)])
         self.assertEqual(self.runner.last_control_reason, "minimum_green_protected")
         self.assertEqual(self.runner.extract_snapshot()["control_reason"], "minimum_green_protected")
+
+    def test_emergency_mode_holds_green_past_normal_maximum(self) -> None:
+        connection = self.runner._connection
+        self.runner._connection = None
+        self.runner.configure_control_mode("adaptive_with_emergency_priority")
+        self.runner._connection = connection
+        connection.simulation = LateSimulation()
+        connection.trafficlight = EastWestTrafficLight()
+        connection.vehicle = FakeAmbulance()
+        self.runner._adaptive_state = AdaptiveState(phase_id="east_west_green", phase_started_s=0)
+
+        self.runner._apply_adaptive_control()
+        self.assertEqual(connection.trafficlight.duration_requests, [("demo_01", 2.0)])
+        snapshot = self.runner.extract_snapshot()
+        self.assertTrue(snapshot["vehicles"][0]["is_emergency"])
+        self.assertEqual(snapshot["emergency_priority"]["active_vehicle_id"], "ambulance-1")
+        self.assertEqual(snapshot["control_reason"], "hold_compatible_green_for_emergency")
 
 
 if __name__ == "__main__":

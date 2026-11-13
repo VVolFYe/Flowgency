@@ -29,7 +29,7 @@ class AdaptiveControllerTests(unittest.TestCase):
             decision, state = decide(snapshot(second, "north_south_green", 0, 8), state, config)
             if second < 10:
                 self.assertEqual(decision.remaining_green_s, 2)
-        self.assertEqual(decision.remaining_green_s, 1)
+        self.assertEqual(decision.remaining_green_s, 0)
         self.assertEqual(decision.reason, "sustained_opposing_queue_advantage")
 
     def test_one_spike_does_not_switch(self) -> None:
@@ -43,7 +43,7 @@ class AdaptiveControllerTests(unittest.TestCase):
         state = AdaptiveState(phase_id="north_south_green", phase_started_s=0)
         decision, _ = decide(snapshot(45, "north_south_green", 20, 0), state, AdaptiveConfig())
         self.assertEqual(decision.reason, "maximum_green_reached")
-        self.assertEqual(decision.remaining_green_s, 1)
+        self.assertEqual(decision.remaining_green_s, 0)
 
     def test_missing_measurement_and_clearance_never_issue_command(self) -> None:
         state = AdaptiveState()

@@ -34,6 +34,8 @@ Implement/replay ingestion, detection/tracking, visible-approach counts, confide
 
 Implement deterministic request handling, compatible-green shortcut, safe clearance, expiry, simultaneous requests, and return to normal. **Exit:** tested scenarios demonstrate safe transitions and report emergency delay.
 
+**Synthetic demo in progress:** declared SUMO ambulance, fire, and police types now trigger a deterministic priority policy. The standard 10-second green minimum and existing yellow/all-red phases remain; a compatible green may extend past the normal maximum until the vehicle passes. Recorded-video emergency detection, explicit event expiry, pedestrian-aware London integration, and emergency-delay comparison remain open.
+
 ## Expansion and hardening
 
 ### Phase 6 — London multi-intersection network

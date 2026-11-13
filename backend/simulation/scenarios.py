@@ -32,6 +32,7 @@ class ScenarioDefinition:
     coordinate_system: str
     seed: int
     supports_adaptive_control: bool = False
+    default_control_mode: str = "fixed"
     known_limitation: str | None = None
 
 
@@ -51,6 +52,21 @@ SCENARIOS: dict[str, ScenarioDefinition] = {
         coordinate_system="synthetic_cartesian_metres",
         seed=42,
         supports_adaptive_control=True,
+    ),
+    "single_intersection_emergency": ScenarioDefinition(
+        scenario_id="single_intersection_emergency",
+        display_name="Emergency priority demo",
+        description="Synthetic junction with marked ambulance, fire brigade, and police vehicles.",
+        config_path=_SINGLE / "emergency.sumocfg",
+        network_path=_SINGLE / "demo.net.xml",
+        mapping_path=_SINGLE / "mappings.json",
+        output_directory=_SINGLE / "output" / "emergency",
+        legacy_scenario_id="single-intersection-v1",
+        coordinate_system="synthetic_cartesian_metres",
+        seed=42,
+        supports_adaptive_control=True,
+        default_control_mode="adaptive_with_emergency_priority",
+        known_limitation="Simulation demonstration; no pedestrian crossings are modeled.",
     ),
     "london_normal": ScenarioDefinition(
         scenario_id="london_normal",
@@ -137,6 +153,7 @@ def list_scenarios() -> list[dict[str, Any]]:
             "description": scenario.description,
             "coordinate_system": scenario.coordinate_system,
             "supports_adaptive_control": scenario.supports_adaptive_control,
+            "default_control_mode": scenario.default_control_mode,
             "known_limitation": scenario.known_limitation,
             "target_mappings": (
                 copy.deepcopy(_london_targets())

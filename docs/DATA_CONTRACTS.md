@@ -69,6 +69,7 @@ Counts are non-negative integers. Confidence is in `[0, 1]`; model IDs are prove
     {
       "vehicle_id": "veh-12",
       "vehicle_type": "passenger",
+      "is_emergency": false,
       "x_m": 513.2,
       "y_m": 204.8,
       "angle_deg": 178.0,
@@ -84,7 +85,7 @@ Remaining duration may be `null`. `traffic_light_id`, `current_phase_index`, and
 
 `scenario_id` keeps its established network-contract meaning (`single-intersection-v1` or `london-oval-kennington-v1`). The additive `scenario_selection_id` is the public registry choice used by the start API. Multi-intersection snapshots add `traffic_light_controllers`, keyed by every TraCI-enumerated controller ID. Each entry includes phase index/name, state, remaining duration, unique controlled-lane queues, and a per-controller total. `network_queue` sums each controlled lane once across controllers using measurement `sumo_halting_number_unique_controlled_lanes`. The legacy single-controller fields stay populated for the synthetic scenario and are `null`/empty for London.
 
-For the synthetic scenario in adaptive mode, snapshots may additionally contain `control_reason`, a short machine-readable explanation such as `minimum_green_protected`, `hold_green_and_reevaluate`, `sustained_opposing_queue_advantage`, `opposing_approach_anti_starvation`, or `maximum_green_reached`. It is `null` before the first policy evaluation. This field describes the latest duration request, not a guarantee that a different phase has already begun. Fixed mode omits it.
+Synthetic adaptive snapshots may additionally contain `control_reason`, a short machine-readable explanation such as `minimum_green_protected`, `hold_green_and_reevaluate`, `sustained_opposing_queue_advantage`, `opposing_approach_anti_starvation`, or `maximum_green_reached`. The emergency mode adds `hold_compatible_green_for_emergency`, `minimum_green_protected_before_emergency`, and `request_normal_clearance_for_emergency`. It is `null` before the first policy evaluation. This field describes the latest duration request, not a guarantee that a different phase has already begun. Fixed mode omits it. Vehicles carry additive `is_emergency`, derived only from the declared SUMO type IDs `ambulance`, `fire_brigade`, and `police`; it is not a YOLO inference. Emergency-mode snapshots include `emergency_priority` with nullable `active_vehicle_id`, `active_approach`, and `reason`.
 
 ## C. Controller decision
 
@@ -172,7 +173,7 @@ The service status is transport metadata, not SUMO intersection state:
 
 `state` is one of `idle`, `running`, `paused`, `finished`, or `error`. Simulation speed is simulated seconds per wall-clock second. Time is `null` before the first run; `error` is populated only when the worker fails.
 
-Status also carries `control_mode`, either `fixed` or `adaptive`, for the current run. It defaults to `fixed` before a run and after stop.
+Status also carries `control_mode`: `fixed`, `adaptive`, or `adaptive_with_emergency_priority`. It defaults to `fixed` before a run and after stop. The priority mode is available only on the mapped synthetic intersection. It preserves the normal 10-second minimum green on a conflicting approach, then requests the configured yellow and all-red sequence. A compatible green can extend beyond the normal 45-second maximum while the declared emergency vehicle remains on its incoming edge or inside the junction. This is simulation behavior, not a validated road-signal policy.
 
 Status `scenario_id` is the active public selection ID. While idle, and after Stop, it is `single_intersection`. Reset retains the active selection.
 
@@ -258,4 +259,4 @@ Geometry also includes `projection` (`proj_parameter`, `net_offset`, and `origin
 
 `GET /api/simulation/scenarios` lists stable public IDs and display metadata without loading SUMO. London entries expose J1–J5 candidate mappings and retain the multiple candidates for ambiguous J2 and J5.
 
-`POST /api/simulation/start` accepts optional `scenario_id`: `single_intersection`, `london_normal`, `london_rush_hour`, or `london_unbalanced`. Omission preserves the synthetic default. Static geometry may be selected explicitly with `GET /api/simulation/network?scenario_id=london_normal`; without a query it follows the active scenario and remains synthetic while idle.
+`POST /api/simulation/start` accepts optional `scenario_id`: `single_intersection`, `single_intersection_emergency`, `london_normal`, `london_rush_hour`, or `london_unbalanced`. Omission preserves the synthetic default. Omitted `control_mode` selects the scenario default: `fixed` normally, `adaptive_with_emergency_priority` for `single_intersection_emergency`. An explicit `control_mode` overrides that default when supported. Static geometry may be selected explicitly with `GET /api/simulation/network?scenario_id=london_normal`; without a query it follows the active scenario and remains synthetic while idle.

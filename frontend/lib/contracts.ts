@@ -91,6 +91,7 @@ export interface NetworkGeometry {
 export interface Vehicle {
   vehicle_id: string;
   vehicle_type: string;
+  is_emergency?: boolean;
   x_m: number;
   y_m: number;
   angle_deg: number;
