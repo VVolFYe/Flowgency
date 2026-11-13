@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<!-- generated on 2026-11-13T17:34:51.102369+02:00 by Eclipse SUMO netconvert 1.27.1
+<!-- generated on 2026-11-13T18:25:14.162289+02:00 by Eclipse SUMO netconvert 1.27.1
 <netconvertConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/netconvertConfiguration.xsd">
 
     <input>
@@ -41,13 +41,13 @@
     <junctions>
         <no-turnarounds value="true"/>
         <junctions.join value="true"/>
+        <junctions.join-exclude value="105952131"/>
     </junctions>
 
 </netconvertConfiguration>
 -->
 
 <nodes version="1.20" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/nodes_file.xsd">
-    <join nodes="105952131 3654005559"/>
     <join nodes="108195 6967968844"/>
     <join nodes="11740332027 8960473844"/>
     <join nodes="110248436 33228962"/>
