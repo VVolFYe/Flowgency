@@ -99,6 +99,10 @@ class SimulationService:
         validated = None if speed is None else self._validate_speed(speed)
         return self._submit("resume", speed=validated)
 
+    def set_speed(self, speed: float) -> dict[str, Any]:
+        """Change pacing without advancing or restarting the SUMO runner."""
+        return self._submit("set_speed", speed=self._validate_speed(speed))
+
     def reset(self) -> dict[str, Any]:
         return self._submit("reset")
 
@@ -246,6 +250,14 @@ class SimulationService:
             if command.speed is not None:
                 self._speed = command.speed
             self._set_state(SimulationState.RUNNING)
+            return runner, True
+
+        if command.name == "set_speed":
+            if state not in (SimulationState.RUNNING, SimulationState.PAUSED):
+                raise InvalidTransition(f"cannot change speed while {state.value}")
+            if command.speed is None:  # defensive; public API always supplies it
+                raise ValueError("simulation speed is required")
+            self._speed = command.speed
             return runner, True
 
         if command.name == "reset":

@@ -31,6 +31,9 @@ curl -X POST http://127.0.0.1:8000/api/simulation/start \
   -H 'Content-Type: application/json' \
   -d '{"simulation_speed": 4.0}'
 curl -X POST http://127.0.0.1:8000/api/simulation/pause
+curl -X POST http://127.0.0.1:8000/api/simulation/speed \
+  -H 'Content-Type: application/json' \
+  -d '{"simulation_speed": 8.0}'
 curl -X POST http://127.0.0.1:8000/api/simulation/resume \
   -H 'Content-Type: application/json' \
   -d '{"simulation_speed": 4.0}'
@@ -53,6 +56,8 @@ Development CORS is restricted to `http://localhost:3000` and `http://127.0.0.1:
 For a headless adaptive run: `python3 -m backend.simulation.runner --control-mode adaptive`. This policy is a simulation experiment, not a validated traffic-signal controller. London candidate mappings and pedestrian movements must be verified before extending it to that network.
 
 For a repeatable fixed/adaptive comparison and phase-safety audit, run `python3 -m backend.simulation.compare --scenario peak` (or `--scenario demo`). The script reports identical-demand metrics and exits nonzero on an unsafe phase trace, collision, teleport, or unfinished trip.
+
+`POST /api/simulation/speed` changes pacing through the simulation worker while the service is `running` or `paused`; it does not restart SUMO or change vehicle physics. The response is the backend-confirmed status. Invalid values are rejected with HTTP 422, and invalid lifecycle states return HTTP 409.
 
 ## Test
 

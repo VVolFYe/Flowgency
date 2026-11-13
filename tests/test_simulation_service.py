@@ -128,6 +128,20 @@ class SimulationServiceTests(unittest.TestCase):
         self.assertEqual(len(self.fixture.close_events), 1)
         self.assertEqual(self.service.status()["state"], "idle")
 
+    def test_speed_changes_on_worker_while_running_and_paused(self) -> None:
+        self.assertEqual(self.service.start(4.0)["simulation_speed"], 4.0)
+        self.assertEqual(self.service.set_speed(16.0)["simulation_speed"], 16.0)
+        self.assertEqual(self.service.status()["state"], "running")
+        self.assertEqual(self.service.pause()["simulation_speed"], 16.0)
+        self.assertEqual(self.service.set_speed(2.0)["simulation_speed"], 2.0)
+        self.assertEqual(self.service.resume()["simulation_speed"], 2.0)
+
+    def test_speed_validation_and_invalid_state(self) -> None:
+        with self.assertRaises(ValueError):
+            self.service.set_speed(0.09)
+        with self.assertRaises(InvalidTransition):
+            self.service.set_speed(8.0)
+
 
 class SimulationApiTests(unittest.TestCase):
     @unittest.skip(
