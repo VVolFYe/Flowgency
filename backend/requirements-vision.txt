@@ -1,0 +1,14 @@
+# Vision-only dependencies for backend/vision (YOLO11 + ByteTrack clip replay).
+# Install into a Linux-native virtual environment outside this NTFS-backed repo:
+#   python3 -m venv ~/.venvs/flowgency-vision
+#   # optional, CPU-only torch avoids several GB of CUDA wheels:
+#   ~/.venvs/flowgency-vision/bin/pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+#   ~/.venvs/flowgency-vision/bin/pip install -r backend/requirements-vision.txt
+# Verified with Python 3.14.8, torch 2.15.0+cpu, ultralytics 8.4.212, opencv-python 5.0.0.93, lap 0.5.14.
+-r requirements.txt
+# YOLO11 detector and the ByteTrack tracker implementation.
+ultralytics>=8.4,<9
+# Video decoding, view check, and the interactive draw/label windows (needs the GUI build, not -headless).
+opencv-python>=4.10,<6
+# Linear-assignment solver ByteTrack requires; pinned here so Ultralytics never pip-installs it at runtime.
+lap>=0.5,<1

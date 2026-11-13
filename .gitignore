@@ -78,3 +78,13 @@ metrics.generated.json
 *.tmp
 *.temp
 *.bak
+
+# Vision runtime artefacts (all generated output belongs in $UNIHACK_DIR, outside the repo)
+*.pt
+*.pth
+*.onnx
+runs/
+vision_output/
+ultralytics_config/
+backend/vision/config/*.jpg
+backend/vision/config/*.png
