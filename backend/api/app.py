@@ -7,8 +7,10 @@ from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, status
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from backend.simulation.geometry import get_network_geometry
 from backend.simulation.service import InvalidTransition, SimulationService
 
 
@@ -32,6 +34,13 @@ def create_app(service: SimulationService | None = None) -> FastAPI:
             await asyncio.to_thread(simulation.shutdown)
 
     app = FastAPI(title="Flowgency API", version="0.1.0", lifespan=lifespan)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+        allow_credentials=False,
+        allow_methods=["GET", "POST"],
+        allow_headers=["Content-Type"],
+    )
     app.state.simulation_service = simulation
 
     async def execute(operation: str, *args: object) -> dict[str, object]:
@@ -59,6 +68,10 @@ def create_app(service: SimulationService | None = None) -> FastAPI:
         if snapshot is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no snapshot")
         return snapshot
+
+    @app.get("/api/simulation/network")
+    async def network_geometry() -> dict[str, object]:
+        return get_network_geometry()
 
     @app.post("/api/simulation/start")
     async def start(options: SimulationOptions = SimulationOptions()) -> dict[str, object]:

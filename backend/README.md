@@ -26,6 +26,7 @@ Useful requests:
 ```bash
 curl http://127.0.0.1:8000/api/health
 curl http://127.0.0.1:8000/api/simulation/status
+curl http://127.0.0.1:8000/api/simulation/network
 curl -X POST http://127.0.0.1:8000/api/simulation/start \
   -H 'Content-Type: application/json' \
   -d '{"simulation_speed": 4.0}'
@@ -38,6 +39,12 @@ curl -X POST http://127.0.0.1:8000/api/simulation/stop
 ```
 
 Connect a WebSocket client to `ws://127.0.0.1:8000/ws/simulation`. Messages are envelopes with `type` equal to `status` or `snapshot` and a corresponding `data` object. The endpoint sends at most four messages per wall-clock second per client.
+
+`GET /api/simulation/network` is a static, read-only response parsed once and cached from `demo.net.xml`; it neither starts SUMO nor accesses TraCI. It includes external and internal lane shapes, junction polygons, bounds, traffic-light IDs, and verified controlled-link mappings.
+
+Geometry and vehicle positions use unchanged SUMO Cartesian metres with positive Y pointing upward. Browser canvas and many screen coordinate systems use positive Y downward. A frontend should use one shared transform for geometry and vehicles, for example `screen_y = viewport_height - (sumo_y - min_y) * scale`, and should not mutate API coordinates into latitude/longitude.
+
+Development CORS is restricted to `http://localhost:3000` and `http://127.0.0.1:3000`; no wildcard origin is enabled.
 
 `simulation_speed` means simulated seconds advanced per wall-clock second and accepts values from `0.1` through `100`. Reset starts a fresh SUMO process at time zero and leaves it paused. Stop releases SUMO and returns to `idle`.
 
