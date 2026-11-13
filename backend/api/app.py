@@ -10,13 +10,19 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, stat
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from backend.simulation.geometry import get_network_geometry
+from backend.simulation.geometry import get_scenario_geometry
+from backend.simulation.scenarios import (
+    DEFAULT_SCENARIO_ID,
+    ScenarioNotFound,
+    list_scenarios,
+)
 from backend.simulation.service import InvalidTransition, SimulationService
 
 
 class SimulationOptions(BaseModel):
     simulation_speed: float = Field(default=4.0, ge=0.1, le=100.0)
     control_mode: Literal["fixed", "adaptive"] = "fixed"
+    scenario_id: str = DEFAULT_SCENARIO_ID
 
 
 class ResumeOptions(BaseModel):
@@ -52,8 +58,12 @@ def create_app(service: SimulationService | None = None) -> FastAPI:
         method = getattr(simulation, operation)
         try:
             return await asyncio.to_thread(method, *args)
+        except ScenarioNotFound as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
         except InvalidTransition as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         except (RuntimeError, TimeoutError) as exc:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
@@ -74,13 +84,23 @@ def create_app(service: SimulationService | None = None) -> FastAPI:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no snapshot")
         return snapshot
 
+    @app.get("/api/simulation/scenarios")
+    async def supported_scenarios() -> list[dict[str, object]]:
+        return list_scenarios()
+
     @app.get("/api/simulation/network")
-    async def network_geometry() -> dict[str, object]:
-        return get_network_geometry()
+    async def network_geometry(scenario_id: str | None = None) -> dict[str, object]:
+        selected = scenario_id or str(simulation.status()["scenario_id"])
+        try:
+            return get_scenario_geometry(selected)
+        except ScenarioNotFound as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
     @app.post("/api/simulation/start")
     async def start(options: SimulationOptions = SimulationOptions()) -> dict[str, object]:
-        return await execute("start", options.simulation_speed, options.control_mode)
+        return await execute(
+            "start", options.simulation_speed, options.control_mode, options.scenario_id
+        )
 
     @app.post("/api/simulation/pause")
     async def pause() -> dict[str, object]:

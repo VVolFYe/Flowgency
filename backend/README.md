@@ -26,10 +26,15 @@ Useful requests:
 ```bash
 curl http://127.0.0.1:8000/api/health
 curl http://127.0.0.1:8000/api/simulation/status
+curl http://127.0.0.1:8000/api/simulation/scenarios
 curl http://127.0.0.1:8000/api/simulation/network
+curl 'http://127.0.0.1:8000/api/simulation/network?scenario_id=london_normal'
 curl -X POST http://127.0.0.1:8000/api/simulation/start \
   -H 'Content-Type: application/json' \
   -d '{"simulation_speed": 4.0}'
+curl -X POST http://127.0.0.1:8000/api/simulation/start \
+  -H 'Content-Type: application/json' \
+  -d '{"scenario_id":"london_unbalanced","simulation_speed":4.0}'
 curl -X POST http://127.0.0.1:8000/api/simulation/pause
 curl -X POST http://127.0.0.1:8000/api/simulation/speed \
   -H 'Content-Type: application/json' \
@@ -43,7 +48,7 @@ curl -X POST http://127.0.0.1:8000/api/simulation/stop
 
 Connect a WebSocket client to `ws://127.0.0.1:8000/ws/simulation`. Messages are envelopes with `type` equal to `status` or `snapshot` and a corresponding `data` object. The endpoint sends at most four messages per wall-clock second per client.
 
-`GET /api/simulation/network` is a static, read-only response parsed once and cached from `demo.net.xml`; it neither starts SUMO nor accesses TraCI. It includes external and internal lane shapes, junction polygons, bounds, traffic-light IDs, and verified controlled-link mappings.
+`GET /api/simulation/network` is static, read-only, cached per scenario network, and never accesses TraCI. It accepts an explicit `scenario_id`; otherwise it follows the active scenario and defaults to synthetic while idle. London geometry preserves UTM zone 30 projection metadata, external/internal lanes, junctions, TLS positions, and controlled links.
 
 Geometry and vehicle positions use unchanged SUMO Cartesian metres with positive Y pointing upward. Browser canvas and many screen coordinate systems use positive Y downward. A frontend should use one shared transform for geometry and vehicles, for example `screen_y = viewport_height - (sumo_y - min_y) * scale`, and should not mutate API coordinates into latitude/longitude.
 
@@ -58,6 +63,8 @@ For a headless adaptive run: `python3 -m backend.simulation.runner --control-mod
 For a repeatable fixed/adaptive comparison and phase-safety audit, run `python3 -m backend.simulation.compare --scenario peak` (or `--scenario demo`). The script reports identical-demand metrics and exits nonzero on an unsafe phase trace, collision, teleport, or unfinished trip.
 
 `POST /api/simulation/speed` changes pacing through the simulation worker while the service is `running` or `paused`; it does not restart SUMO or change vehicle physics. The response is the backend-confirmed status. Invalid values are rejected with HTTP 422, and invalid lifecycle states return HTTP 409.
+
+Start defaults to `single_intersection`. The London selections are `london_normal`, `london_rush_hour`, and `london_unbalanced`. Reset restarts the active scenario; Stop closes SUMO and restores the synthetic default. London snapshots enumerate all active TLS controllers dynamically. The documented four deterministic J5 teleports in `london_rush_hour` are unchanged.
 
 ## Test
 

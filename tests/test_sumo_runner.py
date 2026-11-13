@@ -24,6 +24,12 @@ class FakeTrafficLight:
     def getNextSwitch(self, traffic_light_id: str) -> float:
         return 30.0
 
+    def getIDList(self) -> tuple[str, ...]:
+        return ("demo_01",)
+
+    def getControlledLanes(self, traffic_light_id: str) -> tuple[str, ...]:
+        return ("south_in_0", "east_in_0", "north_in_0", "west_in_0")
+
     def getPhase(self, traffic_light_id: str) -> int:
         return 0
 
@@ -61,6 +67,23 @@ class FakeVehicle:
     def getRoadID(self, vehicle_id: str) -> str:
         return "south_in"
 
+    def getLaneID(self, vehicle_id: str) -> str:
+        return "south_in_0"
+
+
+class FakeMultiTrafficLight(FakeTrafficLight):
+    def getIDList(self) -> tuple[str, ...]:
+        return ("tls_b", "tls_a")
+
+    def getControlledLanes(self, traffic_light_id: str) -> tuple[str, ...]:
+        return {
+            "tls_a": ("south_in_0", "shared_0"),
+            "tls_b": ("shared_0", "north_in_0"),
+        }[traffic_light_id]
+
+    def getPhaseName(self, traffic_light_id: str) -> str:
+        return f"{traffic_light_id}_green"
+
 
 class RunnerStateTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -85,6 +108,8 @@ class RunnerStateTests(unittest.TestCase):
         self.assertEqual(snapshot["current_phase_index"], 0)
         self.assertEqual(snapshot["traffic_light_state"], "GrGr")
         self.assertEqual(snapshot["remaining_phase_duration_s"], 18.0)
+        self.assertEqual(snapshot["scenario_selection_id"], "single_intersection")
+        self.assertIn("demo_01", snapshot["traffic_light_controllers"])
         self.assertEqual(snapshot["queue_lengths_by_approach"]["northbound_in"]["vehicles"], 2)
         self.assertTrue(all(q["vehicles"] >= 0 for q in snapshot["queue_lengths_by_approach"].values()))
 
@@ -96,6 +121,27 @@ class RunnerStateTests(unittest.TestCase):
             self.assertIsInstance(vehicle["angle_deg"], float)
             self.assertIsInstance(vehicle["speed_mps"], float)
             self.assertGreaterEqual(vehicle["speed_mps"], 0.0)
+            self.assertEqual(vehicle["lane_id"], "south_in_0")
+
+    def test_multi_controller_snapshot_deduplicates_network_queue(self) -> None:
+        runner = SumoRunner(
+            mapping_path=None,
+            scenario_selection_id="london_normal",
+            legacy_scenario_id="london-oval-kennington-v1",
+            coordinate_system="sumo_cartesian_metres_utm_zone_30",
+        )
+        runner._connection = SimpleNamespace(
+            simulation=FakeSimulation(),
+            trafficlight=FakeMultiTrafficLight(),
+            lane=FakeLane(),
+            vehicle=FakeVehicle(),
+        )
+        snapshot = runner.extract_snapshot()
+        self.assertEqual(list(snapshot["traffic_light_controllers"]), ["tls_a", "tls_b"])
+        self.assertEqual(snapshot["network_queue"]["controlled_lane_count"], 3)
+        self.assertEqual(snapshot["network_queue"]["vehicles"], 3)
+        self.assertIsNone(snapshot["traffic_light_id"])
+        self.assertEqual(snapshot["queue_lengths_by_approach"], {})
 
     def test_adaptive_adapter_only_adjusts_verified_green_duration(self) -> None:
         connection = self.runner._connection

@@ -87,24 +87,48 @@ class SumoRunner:
     def __init__(
         self,
         config_path: Path = DEFAULT_CONFIG_PATH,
-        mapping_path: Path = DEFAULT_MAPPING_PATH,
+        mapping_path: Path | None = DEFAULT_MAPPING_PATH,
         *,
         sumo_binary: str = "sumo",
         run_id: str = "single-intersection-traci",
         traci_module: ModuleType | None = None,
         control_mode: str = "fixed",
+        scenario_selection_id: str = "single_intersection",
+        legacy_scenario_id: str | None = None,
+        coordinate_system: str | None = None,
+        seed: int = 42,
+        output_directory: Path | None = None,
     ) -> None:
         self.config_path = config_path.resolve()
-        self.mapping_path = mapping_path.resolve()
-        self.mapping = load_scenario_mapping(self.mapping_path)
+        self.mapping_path = mapping_path.resolve() if mapping_path is not None else None
+        self.mapping = (
+            load_scenario_mapping(self.mapping_path) if self.mapping_path is not None else None
+        )
         self.sumo_binary = sumo_binary
         self.run_id = run_id
+        self.scenario_selection_id = scenario_selection_id
+        self.legacy_scenario_id = legacy_scenario_id or (
+            self.mapping["scenario_id"] if self.mapping is not None else scenario_selection_id
+        )
+        self.coordinate_system = coordinate_system or (
+            self.mapping["coordinate_system"]
+            if self.mapping is not None
+            else "sumo_cartesian_metres"
+        )
+        self.seed = int(seed)
+        self.output_directory = (
+            output_directory.resolve()
+            if output_directory is not None
+            else self.config_path.parent / "output"
+        )
         self._traci = traci_module
         self._connection: Any | None = None
         self._label = f"flowgency-{uuid4()}"
         if control_mode not in {"fixed", "adaptive"}:
             raise ValueError("control_mode must be fixed or adaptive")
-        if control_mode == "adaptive" and self.mapping["scenario_id"] != "single-intersection-v1":
+        if control_mode == "adaptive" and (
+            self.mapping is None or self.mapping["scenario_id"] != "single-intersection-v1"
+        ):
             raise ValueError("adaptive mode is only configured for single-intersection-v1")
         self.control_mode = control_mode
         self._adaptive_config = AdaptiveConfig()
@@ -117,7 +141,9 @@ class SumoRunner:
             raise RuntimeError("cannot change control mode while SUMO is running")
         if control_mode not in {"fixed", "adaptive"}:
             raise ValueError("control_mode must be fixed or adaptive")
-        if control_mode == "adaptive" and self.mapping["scenario_id"] != "single-intersection-v1":
+        if control_mode == "adaptive" and (
+            self.mapping is None or self.mapping["scenario_id"] != "single-intersection-v1"
+        ):
             raise ValueError("adaptive mode is only configured for single-intersection-v1")
         self.control_mode = control_mode
         self._adaptive_state = AdaptiveState()
@@ -137,13 +163,13 @@ class SumoRunner:
             raise FileNotFoundError(f"SUMO configuration not found: {self.config_path}")
 
         self._traci = self._traci or _import_traci()
-        (self.config_path.parent / "output").mkdir(parents=True, exist_ok=True)
+        self.output_directory.mkdir(parents=True, exist_ok=True)
         command = [
             self.sumo_binary,
             "-c",
             str(self.config_path),
             "--seed",
-            "42",
+            str(self.seed),
             "--no-step-log",
             "true",
             "--verbose",
@@ -172,6 +198,8 @@ class SumoRunner:
         )
         self.last_control_reason = decision.reason
         if decision.remaining_green_s is not None:
+            if self.mapping is None:
+                raise RuntimeError("adaptive control requires a verified scenario mapping")
             self.connection.trafficlight.setPhaseDuration(
                 self.mapping["sumo_traffic_light_id"], decision.remaining_green_s
             )
@@ -183,19 +211,52 @@ class SumoRunner:
     def extract_snapshot(self) -> dict[str, Any]:
         """Read normalized state without advancing the simulation."""
         connection = self.connection
-        traffic_light_id = self.mapping["sumo_traffic_light_id"]
         simulation_time = float(connection.simulation.getTime())
-        next_switch = float(connection.trafficlight.getNextSwitch(traffic_light_id))
 
-        queues = {}
-        for approach, lane_ids in self.mapping["controlled_lanes"].items():
-            queues[approach] = {
-                "vehicles": sum(
-                    int(connection.lane.getLastStepHaltingNumber(lane_id))
-                    for lane_id in lane_ids
+        lane_queues: dict[str, int] = {}
+        controllers: dict[str, dict[str, Any]] = {}
+        for traffic_light_id in sorted(connection.trafficlight.getIDList()):
+            controlled_lanes = sorted(set(connection.trafficlight.getControlledLanes(traffic_light_id)))
+            for lane_id in controlled_lanes:
+                lane_queues.setdefault(
+                    lane_id, int(connection.lane.getLastStepHaltingNumber(lane_id))
+                )
+            next_switch = float(connection.trafficlight.getNextSwitch(traffic_light_id))
+            controllers[traffic_light_id] = {
+                "traffic_light_id": traffic_light_id,
+                "current_phase_index": int(connection.trafficlight.getPhase(traffic_light_id)),
+                "current_phase_id": connection.trafficlight.getPhaseName(traffic_light_id),
+                "remaining_phase_duration_s": max(0.0, next_switch - simulation_time),
+                "traffic_light_state": connection.trafficlight.getRedYellowGreenState(
+                    traffic_light_id
                 ),
-                "measurement": "sumo_halting_number",
+                "queue_lengths_by_lane": {
+                    lane_id: {
+                        "vehicles": lane_queues[lane_id],
+                        "measurement": "sumo_halting_number",
+                    }
+                    for lane_id in controlled_lanes
+                },
+                "total_queue_vehicles": sum(lane_queues[lane_id] for lane_id in controlled_lanes),
             }
+
+        queues: dict[str, dict[str, Any]] = {}
+        traffic_light_id: str | None = None
+        if self.mapping is not None:
+            traffic_light_id = self.mapping["sumo_traffic_light_id"]
+            for approach, lane_ids in self.mapping["controlled_lanes"].items():
+                queues[approach] = {
+                    "vehicles": sum(
+                        lane_queues.setdefault(
+                            lane_id,
+                            int(connection.lane.getLastStepHaltingNumber(lane_id)),
+                        )
+                        for lane_id in lane_ids
+                    ),
+                    "measurement": "sumo_halting_number",
+                }
+
+        legacy_controller = controllers.get(traffic_light_id) if traffic_light_id else None
 
         vehicles = []
         for vehicle_id in sorted(connection.vehicle.getIDList()):
@@ -209,24 +270,40 @@ class SumoRunner:
                     "angle_deg": float(connection.vehicle.getAngle(vehicle_id)),
                     "speed_mps": float(connection.vehicle.getSpeed(vehicle_id)),
                     "road_id": connection.vehicle.getRoadID(vehicle_id),
+                    "lane_id": connection.vehicle.getLaneID(vehicle_id),
                 }
             )
 
         snapshot = {
             "schema_version": "1.0",
-            "scenario_id": self.mapping["scenario_id"],
+            "scenario_id": self.legacy_scenario_id,
+            "scenario_selection_id": self.scenario_selection_id,
             "run_id": self.run_id,
-            "intersection_id": self.mapping["intersection_id"],
+            "intersection_id": (
+                self.mapping["intersection_id"] if self.mapping is not None else "network"
+            ),
             "simulation_time_s": simulation_time,
             "traffic_light_id": traffic_light_id,
-            "current_phase_index": int(connection.trafficlight.getPhase(traffic_light_id)),
-            "current_phase_id": connection.trafficlight.getPhaseName(traffic_light_id),
-            "remaining_phase_duration_s": max(0.0, next_switch - simulation_time),
-            "queue_lengths_by_approach": queues,
-            "traffic_light_state": connection.trafficlight.getRedYellowGreenState(
-                traffic_light_id
+            "current_phase_index": (
+                legacy_controller["current_phase_index"] if legacy_controller else None
             ),
-            "coordinate_system": self.mapping["coordinate_system"],
+            "current_phase_id": (
+                legacy_controller["current_phase_id"] if legacy_controller else None
+            ),
+            "remaining_phase_duration_s": (
+                legacy_controller["remaining_phase_duration_s"] if legacy_controller else None
+            ),
+            "queue_lengths_by_approach": queues,
+            "traffic_light_state": (
+                legacy_controller["traffic_light_state"] if legacy_controller else None
+            ),
+            "coordinate_system": self.coordinate_system,
+            "traffic_light_controllers": controllers,
+            "network_queue": {
+                "vehicles": sum(lane_queues.values()),
+                "measurement": "sumo_halting_number_unique_controlled_lanes",
+                "controlled_lane_count": len(lane_queues),
+            },
             "vehicles": vehicles,
         }
         if self.control_mode == "adaptive":

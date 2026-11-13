@@ -12,15 +12,22 @@ import httpx
 
 from backend.api.app import create_app
 from backend.simulation.service import InvalidTransition, SimulationService
+from backend.simulation.scenarios import ScenarioDefinition, ScenarioNotFound
 
 
 class FakeRunner:
-    def __init__(self, operation_threads: list[str], close_events: list[int]) -> None:
+    def __init__(
+        self,
+        operation_threads: list[str],
+        close_events: list[int],
+        scenario: ScenarioDefinition,
+    ) -> None:
         self.time = 0.0
         self.started = False
         self.closed = False
         self.operation_threads = operation_threads
         self.close_events = close_events
+        self.scenario = scenario
 
     def _record(self) -> None:
         self.operation_threads.append(threading.current_thread().name)
@@ -43,6 +50,7 @@ class FakeRunner:
         return {
             "schema_version": "1.0",
             "scenario_id": "single-intersection-v1",
+            "scenario_selection_id": self.scenario.scenario_id,
             "run_id": "fake-run",
             "intersection_id": "demo_01",
             "simulation_time_s": self.time,
@@ -75,9 +83,11 @@ class ServiceFixture:
     def __init__(self) -> None:
         self.operation_threads: list[str] = []
         self.close_events: list[int] = []
+        self.created_scenarios: list[str] = []
 
-    def factory(self) -> FakeRunner:
-        return FakeRunner(self.operation_threads, self.close_events)
+    def factory(self, scenario: ScenarioDefinition) -> FakeRunner:
+        self.created_scenarios.append(scenario.scenario_id)
+        return FakeRunner(self.operation_threads, self.close_events, scenario)
 
     def service(self, speed: float = 0.1) -> SimulationService:
         return SimulationService(self.factory, default_speed=speed)
@@ -141,6 +151,21 @@ class SimulationServiceTests(unittest.TestCase):
             self.service.set_speed(0.09)
         with self.assertRaises(InvalidTransition):
             self.service.set_speed(8.0)
+
+    def test_scenario_selection_reset_stop_and_default_compatibility(self) -> None:
+        self.assertEqual(self.service.status()["scenario_id"], "single_intersection")
+        started = self.service.start(scenario_id="london_normal")
+        self.assertEqual(started["scenario_id"], "london_normal")
+        self.assertEqual(self.fixture.created_scenarios, ["london_normal"])
+        self.assertEqual(self.service.pause()["state"], "paused")
+        self.service.reset()
+        self.assertEqual(self.fixture.created_scenarios, ["london_normal", "london_normal"])
+        self.assertEqual(self.service.stop()["scenario_id"], "single_intersection")
+
+    def test_invalid_scenario_is_rejected_before_worker_start(self) -> None:
+        with self.assertRaises(ScenarioNotFound):
+            self.service.start(scenario_id="not_a_scenario")
+        self.assertEqual(self.fixture.created_scenarios, [])
 
 
 class SimulationApiTests(unittest.TestCase):

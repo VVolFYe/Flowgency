@@ -52,7 +52,15 @@ class NetworkGeometryTests(unittest.TestCase):
         self.assertGreater(len(junctions["demo_01"]["shape"]), 4)
 
         self.assertEqual(
-            self.geometry["traffic_lights"], [{"traffic_light_id": "demo_01"}]
+            self.geometry["traffic_lights"],
+            [
+                {
+                    "traffic_light_id": "demo_01",
+                    "junctions": [
+                        {"junction_id": "demo_01", "x_m": 150.0, "y_m": 150.0}
+                    ],
+                }
+            ],
         )
         links = self.geometry["controlled_links"]
         self.assertEqual({link["link_index"] for link in links}, {0, 1, 2, 3})

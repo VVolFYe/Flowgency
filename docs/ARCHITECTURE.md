@@ -40,6 +40,8 @@ Emergency mode maintains a deterministic request queue (proposed ordering: activ
 
 This module owns the SUMO process and TraCI connection, stepping, subscriptions/state reads, signal command application, coordinate conversion, and output collection. It maps stable project IDs to verified SUMO IDs. SUMO remains the only traffic physics engine.
 
+A static registry selects one repository-owned SUMO configuration per run. The same worker owns every selected runner; API handlers only enqueue lifecycle commands. Static geometry is parsed and cached per network, while WebSocket snapshots carry dynamic vehicles, deduplicated lane queues, and all TraCI-enumerated signal controllers rather than repeating road geometry.
+
 ### Vision
 
 Vision owns camera ingestion, YOLO11 detection, tracking, visible-approach aggregation, confidence, and possible emergency-light detection. It emits shared observations and runs independently of SUMO. Recorded input is preferable for a reliable demo; live TfL access remains open.
