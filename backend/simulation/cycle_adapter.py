@@ -99,7 +99,19 @@ class AdaptiveSignal:
             previous = baseline if self._plan is None else self._plan.green_durations_s
             self._plan = plan_cycle(config, queues, previous)
         if "group_id" in phase and self._plan is not None:
-            light.setPhaseDuration(self.tls_id, self._plan.green_durations_s[phase["group_id"]])
+            target = self._plan.green_durations_s[phase["group_id"]]
+            # TraCI expects *remaining* time, not total phase duration. On an
+            # observed transition one simulation step may already be spent.
+            if hasattr(light, "getSpentDuration"):
+                spent = float(light.getSpentDuration(self.tls_id))
+            else:
+                spent = float(light.getPhaseDuration(self.tls_id)) - (
+                    float(light.getNextSwitch(self.tls_id)) - float(self.connection.simulation.getTime())
+                )
+            remaining = target - spent
+            if remaining <= 0:
+                raise RuntimeError(f"green phase already exceeded its planned duration at {self.tls_id}")
+            light.setPhaseDuration(self.tls_id, remaining)
         if phase_index == 0 and self._plan is not None:
             return {"intersection_id": self.spec["intersection_id"], "queues": self._plan.measured_queues,
                     "green_durations_s": self._plan.green_durations_s, "reason": self._plan.reason}

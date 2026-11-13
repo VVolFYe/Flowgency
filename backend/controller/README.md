@@ -59,3 +59,5 @@ python3 -m backend.simulation.cycle_run --config scenarios/london_network/config
 ```
 
 Omit `--adaptive-manifest` to run the same SUMO configuration with fixed timings. The J3 manifest is explicitly experimental: the imported model has no all-red or pedestrian stages, and real-world signal safety has not been validated. A new intersection requires a new reviewed manifest; one cannot infer safe phases from camera coordinates or road names. The same adapter and planner code are reused without modification.
+
+Add `--trace-phases` to print each observed SUMO phase entry and verify actual interval lengths. TraCI's `setPhaseDuration` accepts **remaining** time, so the adapter subtracts time already spent in the green phase from the planned total before sending the command. This matters when a phase transition is first observed after a simulation step.

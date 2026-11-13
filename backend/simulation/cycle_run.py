@@ -18,6 +18,7 @@ def main() -> int:
     parser.add_argument("--config", type=Path, required=True, help="SUMO .sumocfg")
     parser.add_argument("--adaptive-manifest", type=Path, help="verified TLS/phase mapping JSON")
     parser.add_argument("--sumo-binary", default="sumo")
+    parser.add_argument("--trace-phases", action="store_true", help="print every observed TLS phase transition")
     args = parser.parse_args()
     config = args.config.resolve()
     if not config.is_file():
@@ -32,12 +33,20 @@ def main() -> int:
     try:
         signals = load_adaptive_signals(args.adaptive_manifest, connection) if args.adaptive_manifest else []
         decisions = steps = departed = arrived = collisions = teleports = 0
+        observed_phases: dict[str, int] = {}
         for signal in signals:
             signal.tick()  # align control with a phase boundary at simulation time zero
+            observed_phases[signal.tls_id] = int(connection.trafficlight.getPhase(signal.tls_id))
         while connection.simulation.getMinExpectedNumber() > 0:
             connection.simulationStep()
             steps += 1
             for signal in signals:
+                current_phase = int(connection.trafficlight.getPhase(signal.tls_id))
+                if args.trace_phases and current_phase != observed_phases[signal.tls_id]:
+                    print(json.dumps({"simulation_time_s": connection.simulation.getTime(),
+                                      "traffic_light_id": signal.tls_id, "phase_index": current_phase,
+                                      "event": "phase_entered"}), file=sys.stderr)
+                observed_phases[signal.tls_id] = current_phase
                 event = signal.tick()
                 if event is not None:
                     decisions += 1

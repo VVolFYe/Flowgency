@@ -38,6 +38,9 @@ class Light:
     def getRedYellowGreenState(self, _: str) -> str:
         return self.spec["phases"][self.phase]["state"]
 
+    def getSpentDuration(self, _: str) -> float:
+        return 0.0 if self.phase == 0 else 1.0
+
     def setPhaseDuration(self, _: str, duration: float) -> None:
         self.requests.append((self.phase, duration))
 
@@ -60,7 +63,7 @@ class CycleAdapterTests(unittest.TestCase):
         for phase in range(1, 6):
             self.light.phase = phase
             signal.tick()
-        self.assertEqual(self.light.requests, [(0, 40), (3, 20)])
+        self.assertEqual(self.light.requests, [(0, 40), (3, 19)])
 
     def test_mismatched_program_fails_before_control(self) -> None:
         self.spec["phases"][1]["state"] = "rrrr"
