@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- generated on 2026-11-13T16:02:01.988077+02:00 by Eclipse SUMO netconvert 1.27.1
+<netconvertConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/netconvertConfiguration.xsd">
+
+    <input>
+        <node-files value="demo.nod.xml"/>
+        <edge-files value="demo.edg.xml"/>
+        <connection-files value="demo.con.xml"/>
+        <tllogic-files value="demo.tll.xml"/>
+    </input>
+
+    <output>
+        <output-file value="demo.net.xml"/>
+    </output>
+
+    <processing>
+        <lefthand value="true"/>
+    </processing>
+
+    <junctions>
+        <no-turnarounds value="true"/>
+    </junctions>
+
+</netconvertConfiguration>
+-->
+
+<net version="1.20" junctionCornerDetail="5" lefthand="true" limitTurnSpeed="5.50" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/net_file.xsd">
+
+    <location netOffset="150.00,150.00" convBoundary="0.00,-0.00,300.00,300.00" origBoundary="-150.00,-150.00,150.00,150.00" projParameter="!"/>
+
+    <edge id=":demo_01_0" function="internal">
+        <lane id=":demo_01_0_0" index="0" speed="13.89" length="14.40" shape="148.40,142.80 148.40,157.20"/>
+    </edge>
+    <edge id=":demo_01_1" function="internal">
+        <lane id=":demo_01_1_0" index="0" speed="13.89" length="14.40" shape="157.20,148.40 142.80,148.40"/>
+    </edge>
+    <edge id=":demo_01_2" function="internal">
+        <lane id=":demo_01_2_0" index="0" speed="13.89" length="14.40" shape="151.60,157.20 151.60,142.80"/>
+    </edge>
+    <edge id=":demo_01_3" function="internal">
+        <lane id=":demo_01_3_0" index="0" speed="13.89" length="14.40" shape="142.80,151.60 157.20,151.60"/>
+    </edge>
+
+    <edge id="east_in" from="east" to="demo_01" priority="1">
+        <lane id="east_in_0" index="0" speed="13.89" length="142.80" shape="300.00,148.40 157.20,148.40"/>
+    </edge>
+    <edge id="east_out" from="demo_01" to="east" priority="1">
+        <lane id="east_out_0" index="0" speed="13.89" length="142.80" shape="157.20,151.60 300.00,151.60"/>
+    </edge>
+    <edge id="north_in" from="north" to="demo_01" priority="1">
+        <lane id="north_in_0" index="0" speed="13.89" length="142.80" shape="151.60,300.00 151.60,157.20"/>
+    </edge>
+    <edge id="north_out" from="demo_01" to="north" priority="1">
+        <lane id="north_out_0" index="0" speed="13.89" length="142.80" shape="148.40,157.20 148.40,300.00"/>
+    </edge>
+    <edge id="south_in" from="south" to="demo_01" priority="1">
+        <lane id="south_in_0" index="0" speed="13.89" length="142.80" shape="148.40,0.00 148.40,142.80"/>
+    </edge>
+    <edge id="south_out" from="demo_01" to="south" priority="1">
+        <lane id="south_out_0" index="0" speed="13.89" length="142.80" shape="151.60,142.80 151.60,0.00"/>
+    </edge>
+    <edge id="west_in" from="west" to="demo_01" priority="1">
+        <lane id="west_in_0" index="0" speed="13.89" length="142.80" shape="0.00,151.60 142.80,151.60"/>
+    </edge>
+    <edge id="west_out" from="demo_01" to="west" priority="1">
+        <lane id="west_out_0" index="0" speed="13.89" length="142.80" shape="142.80,148.40 0.00,148.40"/>
+    </edge>
+
+    <tlLogic id="demo_01" type="static" programID="fixed" offset="0">
+        <phase duration="30" state="GrGr" name="north_south_green"/>
+        <phase duration="3"  state="yryr" name="north_south_yellow"/>
+        <phase duration="2"  state="rrrr" name="all_red_after_north_south"/>
+        <phase duration="30" state="rGrG" name="east_west_green"/>
+        <phase duration="3"  state="ryry" name="east_west_yellow"/>
+        <phase duration="2"  state="rrrr" name="all_red_after_east_west"/>
+    </tlLogic>
+
+    <junction id="demo_01" type="traffic_light" x="150.00" y="150.00" incLanes="south_in_0 east_in_0 north_in_0 west_in_0" intLanes=":demo_01_0_0 :demo_01_1_0 :demo_01_2_0 :demo_01_3_0" shape="146.80,142.80 153.20,142.80 153.64,145.02 154.20,145.80 154.98,146.36 155.98,146.69 157.20,146.80 157.20,153.20 154.98,153.64 154.20,154.20 153.64,154.98 153.31,155.98 153.20,157.20 146.80,157.20 146.36,154.98 145.80,154.20 145.02,153.64 144.02,153.31 142.80,153.20 142.80,146.80 145.02,146.36 145.80,145.80 146.36,145.02 146.69,144.02">
+        <request index="0" response="0000" foes="1010" cont="0"/>
+        <request index="1" response="0101" foes="0101" cont="0"/>
+        <request index="2" response="0000" foes="1010" cont="0"/>
+        <request index="3" response="0101" foes="0101" cont="0"/>
+    </junction>
+    <junction id="east" type="dead_end" x="300.00" y="150.00" incLanes="east_out_0" intLanes="" shape="300.00,150.00 300.00,153.20 300.00,150.00"/>
+    <junction id="north" type="dead_end" x="150.00" y="300.00" incLanes="north_out_0" intLanes="" shape="150.00,300.00 146.80,300.00 150.00,300.00"/>
+    <junction id="south" type="dead_end" x="150.00" y="-0.00" incLanes="south_out_0" intLanes="" shape="150.00,0.00 153.20,0.00 150.00,0.00"/>
+    <junction id="west" type="dead_end" x="0.00" y="150.00" incLanes="west_out_0" intLanes="" shape="0.00,150.00 0.00,146.80 0.00,150.00"/>
+
+    <connection from="east_in" to="west_out" fromLane="0" toLane="0" via=":demo_01_1_0" tl="demo_01" linkIndex="1" dir="s" state="o"/>
+    <connection from="north_in" to="south_out" fromLane="0" toLane="0" via=":demo_01_2_0" tl="demo_01" linkIndex="2" dir="s" state="O"/>
+    <connection from="south_in" to="north_out" fromLane="0" toLane="0" via=":demo_01_0_0" tl="demo_01" linkIndex="0" dir="s" state="O"/>
+    <connection from="west_in" to="east_out" fromLane="0" toLane="0" via=":demo_01_3_0" tl="demo_01" linkIndex="3" dir="s" state="o"/>
+
+    <connection from=":demo_01_0" to="north_out" fromLane="0" toLane="0" dir="s" state="M"/>
+    <connection from=":demo_01_1" to="west_out" fromLane="0" toLane="0" dir="s" state="M"/>
+    <connection from=":demo_01_2" to="south_out" fromLane="0" toLane="0" dir="s" state="M"/>
+    <connection from=":demo_01_3" to="east_out" fromLane="0" toLane="0" dir="s" state="M"/>
+
+</net>

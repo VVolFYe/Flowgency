@@ -12,6 +12,8 @@ Define boundaries, shared design contracts, scenario conventions, collaboration 
 
 Create and validate one left-hand-traffic intersection, fixed safe signal plan, routes/demand, deterministic run command, and baseline output. Record project-to-SUMO mappings. **Exit:** repeatable SUMO run and inspectable baseline metrics.
 
+**Status:** the Phase 1.1 synthetic single-intersection baseline is complete. London geometry and adaptive control remain later phases.
+
 ### Phase 2 — Adaptive controller
 
 Implement a pure controller with configurable green bounds, congestion scoring, normal order, pedestrian/safety intervals, and anti-starvation. Add unit tests and a narrow TraCI adapter. **Exit:** adaptive and fixed modes run on the same scenario.

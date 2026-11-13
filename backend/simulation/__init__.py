@@ -1,1 +1,1 @@
-"""SUMO and TraCI integration package (implementation pending)."""
+"""SUMO process management and TraCI state extraction."""

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<tlLogics xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:noNamespaceSchemaLocation="https://sumo.dlr.de/xsd/tllogic_file.xsd">
+    <tlLogic id="demo_01" type="static" programID="fixed" offset="0">
+        <phase duration="30" state="GrGr" name="north_south_green"/>
+        <phase duration="3" state="yryr" name="north_south_yellow"/>
+        <phase duration="2" state="rrrr" name="all_red_after_north_south"/>
+        <phase duration="30" state="rGrG" name="east_west_green"/>
+        <phase duration="3" state="ryry" name="east_west_yellow"/>
+        <phase duration="2" state="rrrr" name="all_red_after_east_west"/>
+    </tlLogic>
+</tlLogics>
