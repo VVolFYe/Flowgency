@@ -48,7 +48,7 @@ class CyclePlan:
 
 
 def _finite_positive(value: float, label: str, *, allow_zero: bool = False) -> None:
-    if isinstance(value, bool) or not isfinite(value) or value < 0 or (not allow_zero and value == 0):
+    if type(value) not in (int, float) or not isfinite(value) or value < 0 or (not allow_zero and value == 0):
         raise ValueError(f"{label} must be finite and {'nonnegative' if allow_zero else 'positive'}")
 
 

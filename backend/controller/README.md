@@ -36,6 +36,6 @@ The minimum green and a fixed recurring phase order provide periodic service to 
 
 ## J3 limitation
 
-The imported J3 program has 42/3/42/3 seconds and no explicit all-red or pedestrian phases. The planner preserves those two modeled yellow phases, but it cannot certify real-world clearance or pedestrian safety. The network audit in `scenarios/london_network/SIGNAL_SAFETY_AUDIT.md` on current `origin/main` records the link groups and remaining validation. Do not activate the planner on J3 until the simulation adapter verifies that configuration against the actual SUMO program and controlled links.
+The imported J3 program has 42/3/42/3 seconds and no explicit all-red or pedestrian phases. The planner preserves those two modeled yellow phases, but it cannot certify real-world clearance or pedestrian safety. The network audit in `scenarios/london_network/SIGNAL_SAFETY_AUDIT.md` records the link groups and remaining validation. Do not activate the planner on J3 until the simulation adapter verifies that configuration against the actual SUMO program and controlled links.
 
 `adaptive.py` remains the earlier one-second green-extension policy for the synthetic `demo_01` scenario. It is already connected to TraCI and has different timing behavior. The cycle planner is a separate candidate for the validated London program; its results have not yet been compared with the fixed baseline in SUMO.
