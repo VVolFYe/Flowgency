@@ -13,7 +13,7 @@ export const WS_URL = (() => {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(`${BACKEND_URL}${path}`, { ...init, cache: "no-store" });
+    response = await fetch(`${BACKEND_URL}${path}`, { ...init, cache: "no-store", signal: init?.signal ?? AbortSignal.timeout(4000) });
   } catch {
     throw new Error(`Cannot reach the Flowgency backend at ${BACKEND_URL}`);
   }
@@ -32,7 +32,7 @@ export const api = {
   network: () => request<NetworkGeometry>("/api/simulation/network"),
   status: () => request<SimulationStatus>("/api/simulation/status"),
   snapshot: async (): Promise<SimulationSnapshot | null> => {
-    const response = await fetch(`${BACKEND_URL}/api/simulation/snapshot`, { cache: "no-store" }).catch(() => null);
+    const response = await fetch(`${BACKEND_URL}/api/simulation/snapshot`, { cache: "no-store", signal: AbortSignal.timeout(4000) }).catch(() => null);
     if (!response) throw new Error(`Cannot reach the Flowgency backend at ${BACKEND_URL}`);
     if (response.status === 404) return null;
     if (!response.ok) throw new Error(`Snapshot request failed (${response.status})`);

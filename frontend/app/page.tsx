@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { SiteNav } from "@/components/site-nav";
+import { PublicNav } from "@/components/public-nav";
 
 export default function Home() {
   return (
@@ -10,7 +10,7 @@ export default function Home() {
             <span className="grid h-10 w-10 place-items-center rounded-xl border border-[#72e9a6]/25 bg-[#72e9a6]/10 text-xl text-[#72e9a6]">⌁</span>
             <span className="font-semibold">Flowgency</span>
           </Link>
-          <SiteNav />
+          <PublicNav active="home" />
         </header>
 
         <section className="relative grid min-h-[72vh] items-center gap-12 py-20 lg:grid-cols-[1.05fr_.95fr]">
@@ -25,8 +25,8 @@ export default function Home() {
               Flowgency turns camera-grounded observations into SUMO demand, applies deterministic signal control, and makes every decision visible.
             </p>
             <div className="mt-9 flex flex-wrap gap-3">
-              <Link href="/simulation" className="rounded-xl bg-[#72e9a6] px-5 py-3 text-sm font-semibold text-[#06130c] transition hover:bg-[#91f7bf]">Launch simulation →</Link>
-              <Link href="/dashboard" className="rounded-xl border border-white/10 bg-white/[.035] px-5 py-3 text-sm text-[#d7e0e5] transition hover:bg-white/[.07]">Traffic overview</Link>
+              <Link href="/simulation" className="rounded-xl bg-[#72e9a6] px-5 py-3 text-sm font-semibold text-[#06130c] transition hover:bg-[#91f7bf]">Watch live simulation →</Link>
+              <Link href="/operator/login" className="rounded-xl border border-white/10 bg-white/[.035] px-5 py-3 text-sm text-[#d7e0e5] transition hover:bg-white/[.07]">Operator access</Link>
             </div>
           </div>
 
