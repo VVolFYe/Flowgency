@@ -18,6 +18,9 @@ class FakeSimulation:
 
 
 class FakeTrafficLight:
+    def __init__(self) -> None:
+        self.duration_requests: list[tuple[str, float]] = []
+
     def getNextSwitch(self, traffic_light_id: str) -> float:
         return 30.0
 
@@ -29,6 +32,9 @@ class FakeTrafficLight:
 
     def getRedYellowGreenState(self, traffic_light_id: str) -> str:
         return "GrGr"
+
+    def setPhaseDuration(self, traffic_light_id: str, duration: float) -> None:
+        self.duration_requests.append((traffic_light_id, duration))
 
 
 class FakeLane:
@@ -90,6 +96,16 @@ class RunnerStateTests(unittest.TestCase):
             self.assertIsInstance(vehicle["angle_deg"], float)
             self.assertIsInstance(vehicle["speed_mps"], float)
             self.assertGreaterEqual(vehicle["speed_mps"], 0.0)
+
+    def test_adaptive_adapter_only_adjusts_verified_green_duration(self) -> None:
+        connection = self.runner._connection
+        self.runner._connection = None
+        self.runner.configure_control_mode("adaptive")
+        self.runner._connection = connection
+        self.runner._apply_adaptive_control()
+        self.assertEqual(self.runner.connection.trafficlight.duration_requests, [("demo_01", 2.0)])
+        self.assertEqual(self.runner.last_control_reason, "minimum_green_protected")
+        self.assertEqual(self.runner.extract_snapshot()["control_reason"], "minimum_green_protected")
 
 
 if __name__ == "__main__":

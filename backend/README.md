@@ -48,6 +48,10 @@ Development CORS is restricted to `http://localhost:3000` and `http://127.0.0.1:
 
 `simulation_speed` means simulated seconds advanced per wall-clock second and accepts values from `0.1` through `100`. Reset starts a fresh SUMO process at time zero and leaves it paused. Stop releases SUMO and returns to `idle`.
 
+`POST /api/simulation/start` also accepts `"control_mode": "fixed"` (default) or `"adaptive"`. Adaptive mode currently supports only the verified `single_intersection` scenario. It samples halting queues each simulated second, protects a 10-second minimum green, limits green to 45 seconds, starts the opposing transition after 40 seconds without green, smooths demand and requires three sustained samples before an early change. It only adjusts the remaining duration of the active green; the scenario's 3-second yellow and 2-second all-red phases stay in SUMO. `GET /api/simulation/status` includes `control_mode`, and adaptive snapshots include `control_reason`. Reset retains the selected mode; stop returns to fixed.
+
+For a headless adaptive run: `python3 -m backend.simulation.runner --control-mode adaptive`. This policy is a simulation experiment, not a validated traffic-signal controller. London candidate mappings and pedestrian movements must be verified before extending it to that network.
+
 ## Test
 
 ```bash

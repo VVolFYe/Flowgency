@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
+from typing import AsyncIterator, Literal
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,6 +16,7 @@ from backend.simulation.service import InvalidTransition, SimulationService
 
 class SimulationOptions(BaseModel):
     simulation_speed: float = Field(default=4.0, ge=0.1, le=100.0)
+    control_mode: Literal["fixed", "adaptive"] = "fixed"
 
 
 class ResumeOptions(BaseModel):
@@ -75,7 +76,7 @@ def create_app(service: SimulationService | None = None) -> FastAPI:
 
     @app.post("/api/simulation/start")
     async def start(options: SimulationOptions = SimulationOptions()) -> dict[str, object]:
-        return await execute("start", options.simulation_speed)
+        return await execute("start", options.simulation_speed, options.control_mode)
 
     @app.post("/api/simulation/pause")
     async def pause() -> dict[str, object]:

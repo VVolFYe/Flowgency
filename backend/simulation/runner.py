@@ -13,6 +13,8 @@ from types import ModuleType
 from typing import Any, TextIO
 from uuid import uuid4
 
+from backend.controller.adaptive import AdaptiveConfig, AdaptiveState, decide
+
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SCENARIO_DIRECTORY = REPOSITORY_ROOT / "scenarios" / "single_intersection"
 DEFAULT_CONFIG_PATH = DEFAULT_SCENARIO_DIRECTORY / "demo.sumocfg"
@@ -90,6 +92,7 @@ class SumoRunner:
         sumo_binary: str = "sumo",
         run_id: str = "single-intersection-traci",
         traci_module: ModuleType | None = None,
+        control_mode: str = "fixed",
     ) -> None:
         self.config_path = config_path.resolve()
         self.mapping_path = mapping_path.resolve()
@@ -99,6 +102,26 @@ class SumoRunner:
         self._traci = traci_module
         self._connection: Any | None = None
         self._label = f"flowgency-{uuid4()}"
+        if control_mode not in {"fixed", "adaptive"}:
+            raise ValueError("control_mode must be fixed or adaptive")
+        if control_mode == "adaptive" and self.mapping["scenario_id"] != "single-intersection-v1":
+            raise ValueError("adaptive mode is only configured for single-intersection-v1")
+        self.control_mode = control_mode
+        self._adaptive_config = AdaptiveConfig()
+        self._adaptive_state = AdaptiveState()
+        self.last_control_reason: str | None = None
+
+    def configure_control_mode(self, control_mode: str) -> None:
+        """Select a mode before starting; reset per-run policy history."""
+        if self._connection is not None:
+            raise RuntimeError("cannot change control mode while SUMO is running")
+        if control_mode not in {"fixed", "adaptive"}:
+            raise ValueError("control_mode must be fixed or adaptive")
+        if control_mode == "adaptive" and self.mapping["scenario_id"] != "single-intersection-v1":
+            raise ValueError("adaptive mode is only configured for single-intersection-v1")
+        self.control_mode = control_mode
+        self._adaptive_state = AdaptiveState()
+        self.last_control_reason = None
 
     @property
     def connection(self) -> Any:
@@ -131,11 +154,27 @@ class SumoRunner:
         with contextlib.redirect_stdout(sys.stderr):
             self._traci.start(command, label=self._label, stdout=sys.stderr)
         self._connection = self._traci.getConnection(self._label)
+        if self.control_mode == "adaptive":
+            self._apply_adaptive_control()
 
     def advance(self) -> float:
         """Advance exactly one configured SUMO step and return simulation time."""
         self.connection.simulationStep()
+        if self.control_mode == "adaptive":
+            self._apply_adaptive_control()
         return float(self.connection.simulation.getTime())
+
+    def _apply_adaptive_control(self) -> None:
+        """Only change the remaining duration of a verified current green."""
+        snapshot = self.extract_snapshot()
+        decision, self._adaptive_state = decide(
+            snapshot, self._adaptive_state, self._adaptive_config
+        )
+        self.last_control_reason = decision.reason
+        if decision.remaining_green_s is not None:
+            self.connection.trafficlight.setPhaseDuration(
+                self.mapping["sumo_traffic_light_id"], decision.remaining_green_s
+            )
 
     def has_pending_vehicles(self) -> bool:
         """Return whether vehicles are active or expected from future demand."""
@@ -173,7 +212,7 @@ class SumoRunner:
                 }
             )
 
-        return {
+        snapshot = {
             "schema_version": "1.0",
             "scenario_id": self.mapping["scenario_id"],
             "run_id": self.run_id,
@@ -190,6 +229,9 @@ class SumoRunner:
             "coordinate_system": self.mapping["coordinate_system"],
             "vehicles": vehicles,
         }
+        if self.control_mode == "adaptive":
+            snapshot["control_reason"] = self.last_control_reason
+        return snapshot
 
     def run(
         self,
@@ -255,6 +297,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--mappings", type=Path, default=DEFAULT_MAPPING_PATH)
     parser.add_argument("--sumo-binary", default="sumo")
     parser.add_argument("--run-id", default="single-intersection-traci")
+    parser.add_argument("--control-mode", choices=("fixed", "adaptive"), default="fixed")
     parser.add_argument("--sample-every", type=float, default=10.0, metavar="SECONDS")
     output = parser.add_mutually_exclusive_group()
     output.add_argument(
@@ -281,6 +324,7 @@ def main(argv: list[str] | None = None) -> int:
             args.mappings,
             sumo_binary=args.sumo_binary,
             run_id=args.run_id,
+            control_mode=args.control_mode,
         )
         summary = runner.run(sample_every_s=args.sample_every, snapshot_stream=stream)
         print(json.dumps({"run_summary": summary.__dict__}, sort_keys=True), file=sys.stderr)
