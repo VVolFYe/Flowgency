@@ -10,6 +10,21 @@ export interface SimulationStatus {
   error: string | null;
 }
 
+export interface RunMetrics {
+  total_waiting_time_s: number;
+  average_waiting_time_s: number | null;
+  average_waiting_time_denominator: "departed_vehicle_count";
+  departed_vehicle_count: number;
+  arrived_vehicle_count: number;
+  active_vehicle_count: number;
+  network_queue_vehicles: number;
+  maximum_network_queue_vehicles: number;
+  total_time_loss_s: number | null;
+  average_time_loss_s: number | null;
+  time_loss_status: string;
+  waiting_time_measurement: string;
+}
+
 export interface ScenarioCandidate {
   junction_id: string;
   traffic_light_id: string | null;
@@ -125,6 +140,17 @@ export interface SimulationSnapshot {
     total_queue_vehicles: number;
   }>;
   network_queue?: QueueValue & { controlled_lane_count?: number };
+  metrics?: RunMetrics;
+  adaptive_control?: {
+    scope: string;
+    traffic_light_ids: string[];
+    last_cycle_decision: {
+      intersection_id: string;
+      queues: Record<string, number>;
+      green_durations_s: Record<string, number>;
+      reason: string;
+    } | null;
+  };
   vehicles?: Vehicle[];
 }
 

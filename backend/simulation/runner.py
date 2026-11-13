@@ -14,6 +14,8 @@ from typing import Any, TextIO
 from uuid import uuid4
 
 from backend.controller.adaptive import AdaptiveConfig, AdaptiveState, decide
+from backend.simulation.cycle_adapter import AdaptiveSignal, load_adaptive_signals
+from backend.simulation.metrics import RunMetrics
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SCENARIO_DIRECTORY = REPOSITORY_ROOT / "scenarios" / "single_intersection"
@@ -98,6 +100,7 @@ class SumoRunner:
         coordinate_system: str | None = None,
         seed: int = 42,
         output_directory: Path | None = None,
+        adaptive_manifest_path: Path | None = None,
     ) -> None:
         self.config_path = config_path.resolve()
         self.mapping_path = mapping_path.resolve() if mapping_path is not None else None
@@ -116,6 +119,11 @@ class SumoRunner:
             else "sumo_cartesian_metres"
         )
         self.seed = int(seed)
+        self.adaptive_manifest_path = (
+            adaptive_manifest_path.resolve()
+            if adaptive_manifest_path is not None
+            else None
+        )
         self.output_directory = (
             output_directory.resolve()
             if output_directory is not None
@@ -126,14 +134,22 @@ class SumoRunner:
         self._label = f"flowgency-{uuid4()}"
         if control_mode not in {"fixed", "adaptive"}:
             raise ValueError("control_mode must be fixed or adaptive")
-        if control_mode == "adaptive" and (
-            self.mapping is None or self.mapping["scenario_id"] != "single-intersection-v1"
-        ):
-            raise ValueError("adaptive mode is only configured for single-intersection-v1")
+        if control_mode == "adaptive" and not self._supports_adaptive_control():
+            raise ValueError("adaptive mode requires a verified mapping or manifest")
         self.control_mode = control_mode
         self._adaptive_config = AdaptiveConfig()
         self._adaptive_state = AdaptiveState()
+        self._adaptive_signals: list[AdaptiveSignal] = []
+        self._controlled_lane_ids: tuple[str, ...] = ()
+        self._metrics = RunMetrics()
         self.last_control_reason: str | None = None
+        self.last_cycle_decision: dict[str, Any] | None = None
+
+    def _supports_adaptive_control(self) -> bool:
+        return self.adaptive_manifest_path is not None or (
+            self.mapping is not None
+            and self.mapping["scenario_id"] == "single-intersection-v1"
+        )
 
     def configure_control_mode(self, control_mode: str) -> None:
         """Select a mode before starting; reset per-run policy history."""
@@ -141,13 +157,13 @@ class SumoRunner:
             raise RuntimeError("cannot change control mode while SUMO is running")
         if control_mode not in {"fixed", "adaptive"}:
             raise ValueError("control_mode must be fixed or adaptive")
-        if control_mode == "adaptive" and (
-            self.mapping is None or self.mapping["scenario_id"] != "single-intersection-v1"
-        ):
-            raise ValueError("adaptive mode is only configured for single-intersection-v1")
+        if control_mode == "adaptive" and not self._supports_adaptive_control():
+            raise ValueError("adaptive mode requires a verified mapping or manifest")
         self.control_mode = control_mode
         self._adaptive_state = AdaptiveState()
+        self._adaptive_signals = []
         self.last_control_reason = None
+        self.last_cycle_decision = None
 
     @property
     def connection(self) -> Any:
@@ -162,6 +178,10 @@ class SumoRunner:
         if not self.config_path.is_file():
             raise FileNotFoundError(f"SUMO configuration not found: {self.config_path}")
 
+        self._adaptive_state = AdaptiveState()
+        self._adaptive_signals = []
+        self.last_control_reason = None
+        self.last_cycle_decision = None
         self._traci = self._traci or _import_traci()
         self.output_directory.mkdir(parents=True, exist_ok=True)
         command = [
@@ -180,15 +200,59 @@ class SumoRunner:
         with contextlib.redirect_stdout(sys.stderr):
             self._traci.start(command, label=self._label, stdout=sys.stderr)
         self._connection = self._traci.getConnection(self._label)
+        self._metrics = RunMetrics()
+        self._controlled_lane_ids = tuple(
+            sorted(
+                {
+                    lane_id
+                    for traffic_light_id in self.connection.trafficlight.getIDList()
+                    for lane_id in self.connection.trafficlight.getControlledLanes(
+                        traffic_light_id
+                    )
+                }
+            )
+        )
         if self.control_mode == "adaptive":
-            self._apply_adaptive_control()
+            if self.adaptive_manifest_path is not None:
+                self._adaptive_signals = load_adaptive_signals(
+                    self.adaptive_manifest_path, self.connection
+                )
+                self._apply_cycle_adaptive_control()
+            else:
+                self._apply_adaptive_control()
 
     def advance(self) -> float:
         """Advance exactly one configured SUMO step and return simulation time."""
+        before = float(self.connection.simulation.getTime())
         self.connection.simulationStep()
+        after = float(self.connection.simulation.getTime())
+        vehicle_ids = tuple(self.connection.vehicle.getIDList())
+        network_queue = self._network_queue_vehicles()
+        self._metrics.record_step(
+            self.connection,
+            step_duration_s=after - before,
+            vehicle_ids=vehicle_ids,
+            network_queue_vehicles=network_queue,
+        )
         if self.control_mode == "adaptive":
-            self._apply_adaptive_control()
-        return float(self.connection.simulation.getTime())
+            if self._adaptive_signals:
+                self._apply_cycle_adaptive_control()
+            else:
+                self._apply_adaptive_control()
+        return after
+
+    def _network_queue_vehicles(self) -> int:
+        return sum(
+            int(self.connection.lane.getLastStepHaltingNumber(lane_id))
+            for lane_id in self._controlled_lane_ids
+        )
+
+    def _apply_cycle_adaptive_control(self) -> None:
+        for signal in self._adaptive_signals:
+            event = signal.tick()
+            if event is not None:
+                self.last_cycle_decision = event
+                self.last_control_reason = str(event["reason"])
 
     def _apply_adaptive_control(self) -> None:
         """Only change the remaining duration of a verified current green."""
@@ -258,8 +322,9 @@ class SumoRunner:
 
         legacy_controller = controllers.get(traffic_light_id) if traffic_light_id else None
 
+        vehicle_ids = tuple(sorted(connection.vehicle.getIDList()))
         vehicles = []
-        for vehicle_id in sorted(connection.vehicle.getIDList()):
+        for vehicle_id in vehicle_ids:
             x_m, y_m = connection.vehicle.getPosition(vehicle_id)
             vehicles.append(
                 {
@@ -304,10 +369,22 @@ class SumoRunner:
                 "measurement": "sumo_halting_number_unique_controlled_lanes",
                 "controlled_lane_count": len(lane_queues),
             },
+            "metrics": self._metrics.snapshot(
+                active_vehicle_count=len(vehicle_ids),
+                network_queue_vehicles=sum(lane_queues.values()),
+            ),
             "vehicles": vehicles,
         }
         if self.control_mode == "adaptive":
             snapshot["control_reason"] = self.last_control_reason
+            if self._adaptive_signals:
+                snapshot["adaptive_control"] = {
+                    "scope": "configured_controllers_only",
+                    "traffic_light_ids": [
+                        signal.tls_id for signal in self._adaptive_signals
+                    ],
+                    "last_cycle_decision": self.last_cycle_decision,
+                }
         return snapshot
 
     def run(

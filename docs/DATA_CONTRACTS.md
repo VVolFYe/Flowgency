@@ -84,6 +84,10 @@ Remaining duration may be `null`. `traffic_light_id`, `current_phase_index`, and
 
 `scenario_id` keeps its established network-contract meaning (`single-intersection-v1` or `london-oval-kennington-v1`). The additive `scenario_selection_id` is the public registry choice used by the start API. Multi-intersection snapshots add `traffic_light_controllers`, keyed by every TraCI-enumerated controller ID. Each entry includes phase index/name, state, remaining duration, unique controlled-lane queues, and a per-controller total. `network_queue` sums each controlled lane once across controllers using measurement `sumo_halting_number_unique_controlled_lanes`. The legacy single-controller fields stay populated for the synthetic scenario and are `null`/empty for London.
 
+Snapshots also include additive run-level `metrics`. `total_waiting_time_s` is accumulated once per simulation step as the number of active vehicles whose SUMO `getWaitingTime` is positive multiplied by that step's simulation-time duration. SUMO excludes intentional `<stop>` stages from this waiting state. The accumulator survives vehicle arrival and never uses the rolling-window `getAccumulatedWaitingTime`. `average_waiting_time_s` divides the total by `departed_vehicle_count`, so its denominator includes both active and completed vehicles; it is `null` before the first departure. `network_queue_vehicles` is the current deduplicated controlled-lane halt count, while `maximum_network_queue_vehicles` is the run maximum. Live time-loss fields remain `null` and explicitly defer to completed tripinfo output.
+
+An adaptive London snapshot may include `adaptive_control`, identifying only the configured controller IDs and the latest cycle-boundary queues and green allocation. It does not imply that every network controller is adaptive.
+
 For the synthetic scenario in adaptive mode, snapshots may additionally contain `control_reason`, a short machine-readable explanation such as `minimum_green_protected`, `hold_green_and_reevaluate`, `sustained_opposing_queue_advantage`, `opposing_approach_anti_starvation`, or `maximum_green_reached`. It is `null` before the first policy evaluation. This field describes the latest duration request, not a guarantee that a different phase has already begun. Fixed mode omits it.
 
 ## C. Controller decision
@@ -259,3 +263,5 @@ Geometry also includes `projection` (`proj_parameter`, `net_offset`, and `origin
 `GET /api/simulation/scenarios` lists stable public IDs and display metadata without loading SUMO. London entries expose J1–J5 candidate mappings and retain the multiple candidates for ambiguous J2 and J5.
 
 `POST /api/simulation/start` accepts optional `scenario_id`: `single_intersection`, `london_normal`, `london_rush_hour`, or `london_unbalanced`. Omission preserves the synthetic default. Static geometry may be selected explicitly with `GET /api/simulation/network?scenario_id=london_normal`; without a query it follows the active scenario and remains synthetic while idle.
+
+The same request accepts `control_mode` as `fixed` or `adaptive`. Adaptive is supported for the synthetic scenario and, experimentally, for J3 only in `london_normal` and `london_unbalanced`. Unsupported combinations are rejected rather than silently reverting to fixed timing.

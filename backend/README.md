@@ -35,6 +35,9 @@ curl -X POST http://127.0.0.1:8000/api/simulation/start \
 curl -X POST http://127.0.0.1:8000/api/simulation/start \
   -H 'Content-Type: application/json' \
   -d '{"scenario_id":"london_unbalanced","simulation_speed":4.0}'
+curl -X POST http://127.0.0.1:8000/api/simulation/start \
+  -H 'Content-Type: application/json' \
+  -d '{"scenario_id":"london_unbalanced","control_mode":"adaptive","simulation_speed":4.0}'
 curl -X POST http://127.0.0.1:8000/api/simulation/pause
 curl -X POST http://127.0.0.1:8000/api/simulation/speed \
   -H 'Content-Type: application/json' \
@@ -56,15 +59,17 @@ Development CORS is restricted to `http://localhost:3000` and `http://127.0.0.1:
 
 `simulation_speed` means simulated seconds advanced per wall-clock second and accepts values from `0.1` through `100`. Reset starts a fresh SUMO process at time zero and leaves it paused. Stop releases SUMO and returns to `idle`.
 
-`POST /api/simulation/start` also accepts `"control_mode": "fixed"` (default) or `"adaptive"`. Adaptive mode currently supports only the verified `single_intersection` scenario. It samples halting queues each simulated second, protects a 10-second minimum green, limits green to 45 seconds, starts the opposing transition after 40 seconds without green, smooths demand and requires three sustained samples before an early change. It only adjusts the remaining duration of the active green; the scenario's 3-second yellow and 2-second all-red phases stay in SUMO. `GET /api/simulation/status` includes `control_mode`, and adaptive snapshots include `control_reason`. Reset retains the selected mode; stop returns to fixed.
+`POST /api/simulation/start` also accepts `"control_mode": "fixed"` (default) or `"adaptive"`. The verified `single_intersection` policy samples halting queues each simulated second, protects a 10-second minimum green, limits green to 45 seconds, starts the opposing transition after 40 seconds without green, smooths demand and requires three sustained samples before an early change. It only adjusts the remaining duration of the active green; the scenario's 3-second yellow and 2-second all-red phases stay in SUMO. London Normal and Unbalanced additionally support the experimental J3 cycle planner described below. `GET /api/simulation/status` includes `control_mode`, and adaptive snapshots include controller decision metadata. Reset retains the selected mode; stop returns to fixed.
 
-For a headless adaptive run: `python3 -m backend.simulation.runner --control-mode adaptive`. This policy is a simulation experiment, not a validated traffic-signal controller. London candidate mappings and pedestrian movements must be verified before extending it to that network.
+For a headless synthetic adaptive run: `python3 -m backend.simulation.runner --control-mode adaptive`. Every adaptive policy is a simulation experiment, not a validated traffic-signal controller. The J3 runtime manifest is checked against SUMO before commands are sent, but real pedestrian movements and real-world clearance remain unverified.
 
 For a repeatable fixed/adaptive comparison and phase-safety audit, run `python3 -m backend.simulation.compare --scenario peak` (or `--scenario demo`). The script reports identical-demand metrics and exits nonzero on an unsafe phase trace, collision, teleport, or unfinished trip.
 
 `POST /api/simulation/speed` changes pacing through the simulation worker while the service is `running` or `paused`; it does not restart SUMO or change vehicle physics. The response is the backend-confirmed status. Invalid values are rejected with HTTP 422, and invalid lifecycle states return HTTP 409.
 
 Start defaults to `single_intersection`. The London selections are `london_normal`, `london_rush_hour`, and `london_unbalanced`. Reset restarts the active scenario; Stop closes SUMO and restores the synthetic default. London snapshots enumerate all active TLS controllers dynamically. The documented four deterministic J5 teleports in `london_rush_hour` are unchanged.
+
+Snapshots contain worker-collected cumulative waiting metrics. Waiting vehicle-seconds are integrated once per SUMO step and retained after arrival; the live average uses every departed vehicle as its denominator. Live time loss is intentionally deferred to completed tripinfo analysis. Adaptive London mode is experimental and changes only J3 (`GS_26546583`) in Normal and Unbalanced; all other controllers remain fixed and Rush Hour rejects adaptive mode.
 
 ## Test
 

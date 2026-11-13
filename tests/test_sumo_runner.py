@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
+from backend.controller.adaptive import AdaptiveState
 from backend.simulation.runner import SumoRunner, load_scenario_mapping
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -152,6 +153,15 @@ class RunnerStateTests(unittest.TestCase):
         self.assertEqual(self.runner.connection.trafficlight.duration_requests, [("demo_01", 2.0)])
         self.assertEqual(self.runner.last_control_reason, "minimum_green_protected")
         self.assertEqual(self.runner.extract_snapshot()["control_reason"], "minimum_green_protected")
+
+    def test_configuring_a_new_run_clears_pending_synthetic_transition(self) -> None:
+        self.runner._connection = None
+        self.runner._adaptive_state = AdaptiveState(
+            phase_id="north_south_green",
+            transition_pending_phase="north_south_green",
+        )
+        self.runner.configure_control_mode("adaptive")
+        self.assertIsNone(self.runner._adaptive_state.transition_pending_phase)
 
 
 if __name__ == "__main__":

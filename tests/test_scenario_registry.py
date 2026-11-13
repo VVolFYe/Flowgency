@@ -42,6 +42,14 @@ class ScenarioRegistryTests(unittest.TestCase):
         with self.assertRaises(ScenarioNotFound):
             get_scenario("unknown")
 
+    def test_adaptive_support_is_explicit(self) -> None:
+        self.assertTrue(get_scenario("single_intersection").supports_adaptive_control)
+        for scenario_id in ("london_normal", "london_unbalanced"):
+            scenario = get_scenario(scenario_id)
+            self.assertTrue(scenario.supports_adaptive_control)
+            self.assertTrue(scenario.adaptive_manifest_path.is_file())  # type: ignore[union-attr]
+        self.assertFalse(get_scenario("london_rush_hour").supports_adaptive_control)
+
 
 class LondonGeometryTests(unittest.TestCase):
     @classmethod
