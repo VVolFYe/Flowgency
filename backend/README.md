@@ -31,6 +31,9 @@ curl -X POST http://127.0.0.1:8000/api/simulation/start \
   -H 'Content-Type: application/json' \
   -d '{"simulation_speed": 4.0}'
 curl -X POST http://127.0.0.1:8000/api/simulation/pause
+curl -X POST http://127.0.0.1:8000/api/simulation/speed \
+  -H 'Content-Type: application/json' \
+  -d '{"simulation_speed": 8.0}'
 curl -X POST http://127.0.0.1:8000/api/simulation/resume \
   -H 'Content-Type: application/json' \
   -d '{"simulation_speed": 4.0}'
@@ -47,6 +50,8 @@ Geometry and vehicle positions use unchanged SUMO Cartesian metres with positive
 Development CORS is restricted to `http://localhost:3000` and `http://127.0.0.1:3000`; no wildcard origin is enabled.
 
 `simulation_speed` means simulated seconds advanced per wall-clock second and accepts values from `0.1` through `100`. Reset starts a fresh SUMO process at time zero and leaves it paused. Stop releases SUMO and returns to `idle`.
+
+`POST /api/simulation/speed` changes pacing through the simulation worker while the service is `running` or `paused`; it does not restart SUMO or change vehicle physics. The response is the backend-confirmed status. Invalid values are rejected with HTTP 422, and invalid lifecycle states return HTTP 409.
 
 ## Test
 
