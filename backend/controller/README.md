@@ -39,3 +39,23 @@ The minimum green and a fixed recurring phase order provide periodic service to 
 The imported J3 program has 42/3/42/3 seconds and no explicit all-red or pedestrian phases. The planner preserves those two modeled yellow phases, but it cannot certify real-world clearance or pedestrian safety. The network audit in `scenarios/london_network/SIGNAL_SAFETY_AUDIT.md` records the link groups and remaining validation. Do not activate the planner on J3 until the simulation adapter verifies that configuration against the actual SUMO program and controlled links.
 
 `adaptive.py` remains the earlier one-second green-extension policy for the synthetic `demo_01` scenario. It is already connected to TraCI and has different timing behavior. The cycle planner is a separate candidate for the validated London program; its results have not yet been compared with the fixed baseline in SUMO.
+
+## Generic SUMO adapter
+
+`backend/simulation/cycle_adapter.py` applies this planner to any **explicitly mapped and audited** SUMO traffic-light program. Each manifest lists the TLS/program IDs, every phase index/state/baseline duration, fixed transitions, vehicle green groups, controlled link indices, green bounds, and cycle budget. On startup it compares the manifest against TraCI's actual program and controlled links. It derives incoming lanes from the verified link indices, deduplicates them within a group, and rejects overlaps between groups. At the start of each cycle it samples SUMO halting queues, computes one plan, and changes only the duration of a green phase as that phase begins. It never writes a red/yellow/green state string or skips a phase. A mismatch stops the run before adaptive commands are sent.
+
+The first cycle is bounded against the configured fixed durations; later cycles are bounded against the previous plan. A simulation can contain multiple independent controllers in the manifest. Camera observations belong upstream: they may generate or calibrate SUMO demand, while this controller reacts to **simulated** queues. Missing camera coverage must not be converted to a zero queue or silently mapped to a SUMO lane.
+
+Run the synthetic junction with the reusable planner:
+
+```bash
+python3 -m backend.simulation.cycle_run --config scenarios/single_intersection/demo.sumocfg --adaptive-manifest scenarios/single_intersection/adaptive.json
+```
+
+For the J3 simulation experiment after checking its phase/link mapping in SUMO-GUI:
+
+```bash
+python3 -m backend.simulation.cycle_run --config scenarios/london_network/configs/unbalanced.sumocfg --adaptive-manifest scenarios/london_network/j3_adaptive.experimental.json
+```
+
+Omit `--adaptive-manifest` to run the same SUMO configuration with fixed timings. The J3 manifest is explicitly experimental: the imported model has no all-red or pedestrian stages, and real-world signal safety has not been validated. A new intersection requires a new reviewed manifest; one cannot infer safe phases from camera coordinates or road names. The same adapter and planner code are reused without modification.

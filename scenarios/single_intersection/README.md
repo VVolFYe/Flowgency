@@ -85,3 +85,5 @@ python3 -m backend.simulation.compare --scenario demo
 ```
 
 The command prints completed trips, waiting time, queues, collisions, teleports, and phase validation errors as JSON. It compares the same routes and seed in each mode. It checks complete phase intervals for the required green, yellow, all-red order and durations; the final unfinished phase is excluded from duration checks. Each run overwrites generated `output/tripinfo.xml` and `output/summary.xml`; results for both modes are retained in the printed JSON. No improvement is assumed: inspect the measured differences.
+
+`adaptive.json` is a reviewed mapping for the reusable cycle planner. To use it instead of the older per-second demo controller, run `python3 -m backend.simulation.cycle_run --config scenarios/single_intersection/demo.sumocfg --adaptive-manifest scenarios/single_intersection/adaptive.json`.
