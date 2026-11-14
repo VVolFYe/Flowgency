@@ -148,19 +148,34 @@ class GatePipelineTests(unittest.TestCase):
 
 
 class CommittedSampleTests(unittest.TestCase):
-    """The shared sample under backend/vision/samples/ must stay valid against contracts I and J."""
+    """The shared samples under backend/vision/samples/ must stay valid against contracts I and J."""
 
-    def test_youtube_30s_sample_validates(self) -> None:
-        root = Path(__file__).resolve().parents[1] / "backend" / "vision" / "samples" / "youtube_30s"
-        events = [json.loads(x) for x in (root / "events.jsonl").read_text().splitlines()]
-        counts = [json.loads(x) for x in (root / "counts.jsonl").read_text().splitlines()]
+    ROOT = Path(__file__).resolve().parents[1] / "backend" / "vision" / "samples"
+
+    def load(self, name: str) -> tuple[list[dict], list[dict]]:
+        events = [json.loads(x) for x in (self.ROOT / name / "events.jsonl").read_text().splitlines()]
+        counts = [json.loads(x) for x in (self.ROOT / name / "counts.jsonl").read_text().splitlines()]
         for e in events:
             GateEvent.model_validate(e)
         for c in counts:
             GateCounts.model_validate(c)
+        self.assertEqual([e["t_s"] for e in events], sorted(e["t_s"] for e in events))
+        return events, counts
+
+    def test_youtube_30s_sample_validates(self) -> None:
+        events, counts = self.load("youtube_30s")
         self.assertEqual([c["t_s"] for c in counts], [float(t) for t in range(31)])
         self.assertTrue(all(e["t_s"] <= 30 for e in events))
-        self.assertEqual([e["t_s"] for e in events], sorted(e["t_s"] for e in events))
+
+    def test_youtube_full_sample_validates(self) -> None:
+        events, counts = self.load("youtube_full")
+        self.assertEqual([c["t_s"] for c in counts], [float(t) for t in range(264)])
+        # one entry per track (contract I) and the 30 s sample is its exact prefix
+        entries = [e["track_id"] for e in events if e["event"] == "intersection_entered"]
+        self.assertEqual(len(entries), len(set(entries)))
+        short_events, short_counts = self.load("youtube_30s")
+        self.assertEqual(events[:len(short_events)], short_events)
+        self.assertEqual(counts[:len(short_counts)], short_counts)
 
 
 if __name__ == "__main__":

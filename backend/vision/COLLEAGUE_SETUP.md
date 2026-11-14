@@ -8,10 +8,16 @@ section "Gate mode".
 
 ## Only consuming the outputs
 
-You do not need any of the setup below. A 30 s sample is in the repository at
-`backend/vision/samples/youtube_30s/` (`events.jsonl`, `counts.jsonl`, and a
-README with its provenance). Ask the vision owner for the files of a full run.
-Read them line by line as JSON:
+You need nothing beyond a fresh clone of `feat/traffic-ai`: no setup, no
+data folder, no `UNIHACK_DIR`. Both samples are plain files in the repository,
+each with a README giving clip, model, gates, and source commit:
+
+| folder | content | use it for |
+|---|---|---|
+| `backend/vision/samples/youtube_30s/` | first 30 s (115 events, 31 counts lines) | quick development and tests |
+| `backend/vision/samples/youtube_full/` | whole clip, 264 s (985 events, 264 counts lines) | the simulation |
+
+The 30 s files are an exact prefix of the full ones. Read them line by line as JSON:
 
 - `events.jsonl`: one event per gate trigger (`approach_entered`,
   `intersection_entered`, `intersection_exited`), in time order, with `t_s`

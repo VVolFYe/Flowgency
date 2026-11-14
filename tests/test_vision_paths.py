@@ -45,7 +45,7 @@ class DataFolderTests(unittest.TestCase):
 
     def test_committed_samples_need_no_data_folder(self) -> None:
         with mock.patch.dict(os.environ, {"UNIHACK_DIR": "/nonexistent/data"}):
-            for sample in ("youtube_30s",):
+            for sample in ("youtube_30s", "youtube_full"):
                 for name in ("events.jsonl", "counts.jsonl"):
                     lines = (SAMPLES_DIR / sample / name).read_text(encoding="utf-8").splitlines()
                     self.assertTrue(lines)
