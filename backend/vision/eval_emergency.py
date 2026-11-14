@@ -27,6 +27,8 @@ STREET_PROFILE = get_profile("yolo11s_coco")  # the COCO detector used for stree
 CROP_PAD = 0.10  # per side, as in training
 MIN_CROP_SIDE = 32  # px
 POSITIVE_P = 0.5  # a single prediction counts as an emergency vote at p >= this
+GREY, RED, BLUE, WHITE = (160, 160, 160), (0, 0, 255), (255, 0, 0), (255, 255, 255)  # BGR
+BLINK_S = 0.25  # flagged boxes alternate red/blue at this period of video time
 
 
 class EmergencyVoter:
@@ -76,6 +78,29 @@ def pad_crop(frame: np.ndarray, bbox: tuple[float, float, float, float]) -> np.n
     x2, y2 = min(w, int(round(x2 + px))), min(h, int(round(y2 + py)))
     crop = frame[y1:y2, x1:x2]
     return crop if min(crop.shape[:2]) >= MIN_CROP_SIDE else None
+
+
+def draw_track(frame: np.ndarray, box: Any, flagged: bool, p: float | None, t_s: float) -> None:
+    """Thin grey box for a normal track; flashing red/blue, filled and labelled ``EMERGENCY`` for a flagged one."""
+    import cv2
+
+    x1, y1, x2, y2 = map(int, box.bbox)
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    if not flagged:
+        label = str(box.track_id) if p is None else f"{box.track_id} p={p:.2f}"
+        cv2.rectangle(frame, (x1, y1), (x2, y2), GREY, 1)
+        cv2.putText(frame, label, (x1, max(12, y1 - 4)), font, 0.45, GREY, 1, cv2.LINE_AA)
+        return
+    color = RED if int(t_s / BLINK_S) % 2 == 0 else BLUE
+    roi = frame[y1:y2, x1:x2]
+    if roi.size:
+        cv2.addWeighted(roi, 0.75, np.full_like(roi, color), 0.25, 0, dst=roi)
+    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 3)
+    label = f"EMERGENCY {box.track_id}"
+    (tw, th), base = cv2.getTextSize(label, font, 0.6, 2)
+    top = y1 - th - base - 6 if y1 - th - base - 6 >= 0 else y1  # above the box, or inside it at the frame top
+    cv2.rectangle(frame, (x1, top), (x1 + tw + 8, top + th + base + 6), color, -1)
+    cv2.putText(frame, label, (x1 + 4, top + th + 3), font, 0.6, WHITE, 2, cv2.LINE_AA)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -139,14 +164,8 @@ def main(argv: list[str] | None = None) -> int:
                     for (track_id, _), result in zip(crops, results):
                         latest_p[track_id] = float(result.probs.data[emergency_idx])
                         voter.update(track_id, latest_p[track_id], frame_index / fps)
-            for b in boxes:
-                color = (0, 0, 255) if voter.is_flagged(b.track_id) else (0, 200, 0)  # BGR red / green
-                x1, y1, x2, y2 = map(int, b.bbox)
-                label = str(b.track_id)
-                if b.track_id in latest_p:
-                    label += f" p={latest_p[b.track_id]:.2f} {voter.positives(b.track_id)}/{args.window}"
-                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-                cv2.putText(frame, label, (x1, max(12, y1 - 5)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA)
+            for b in sorted(boxes, key=lambda b: voter.is_flagged(b.track_id)):  # flagged drawn on top
+                draw_track(frame, b, voter.is_flagged(b.track_id), latest_p.get(b.track_id), frame_index / fps)
             writer.write(frame)
             frame_index += 1
     finally:
