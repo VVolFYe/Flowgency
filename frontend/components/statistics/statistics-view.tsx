@@ -1,44 +1,46 @@
 "use client";
 
 /**
- * Statistics page skeleton: loads the static index, lets the user pick a file
- * and renders it by kind. Data comes only from frontend/public/analytics/.
+ * Statistics page skeleton: loads the analytics list from the backend API
+ * (local SQLite copy of frontend/public/analytics/), lets the user pick an
+ * entry and renders it by kind.
  */
 
 import { useEffect, useState } from "react";
+import { api, ApiError } from "@/lib/api";
 import {
   isAnalyticsDocument,
-  isAnalyticsIndex,
+  isAnalyticsList,
   type AnalyticsDocument,
-  type AnalyticsIndexEntry,
+  type AnalyticsListEntry,
 } from "@/lib/contracts";
 import { SimulationStatistics } from "./simulation-sections";
 import { VisionStatistics } from "./vision-sections";
 
-const ANALYTICS_BASE = "/analytics";
+const LOADER_COMMAND = "python -m backend.analytics.load";
 
 type Load<T> = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; value: T };
 
-async function fetchJson(url: string, signal: AbortSignal): Promise<unknown> {
-  const response = await fetch(url, { cache: "no-store", signal });
-  if (!response.ok) throw new Error(`${url} returned HTTP ${response.status}`);
-  return response.json();
-}
-
-function errorMessage(reason: unknown) {
+function errorMessage(reason: unknown, what: string) {
+  if (reason instanceof ApiError && reason.status === 503) {
+    return `The analytics database has not been loaded. Run ${LOADER_COMMAND} from the repository root, then reload this page.`;
+  }
+  if (reason instanceof ApiError && reason.status === 404) {
+    return `${what} is not in the analytics database. Re-run ${LOADER_COMMAND} after regenerating the JSON files.`;
+  }
   return reason instanceof Error ? reason.message : "Unknown error";
 }
 
 export function StatisticsView() {
-  const [index, setIndex] = useState<Load<AnalyticsIndexEntry[]>>({ status: "loading" });
+  const [index, setIndex] = useState<Load<AnalyticsListEntry[]>>({ status: "loading" });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [dataset, setDataset] = useState<Load<AnalyticsDocument> | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
-    fetchJson(`${ANALYTICS_BASE}/index.json`, controller.signal)
+    api.analyticsList(controller.signal)
       .then((value) => {
-        if (!isAnalyticsIndex(value)) throw new Error("index.json does not match the analytics index contract");
+        if (!isAnalyticsList(value)) throw new Error("GET /api/analytics does not match the analytics list contract");
         setIndex({ status: "ready", value });
         if (value.length > 0) {
           setSelectedId(value[0].id);
@@ -46,7 +48,7 @@ export function StatisticsView() {
         }
       })
       .catch((reason: unknown) => {
-        if (!controller.signal.aborted) setIndex({ status: "error", message: errorMessage(reason) });
+        if (!controller.signal.aborted) setIndex({ status: "error", message: errorMessage(reason, "The analytics list") });
       });
     return () => controller.abort();
   }, []);
@@ -56,13 +58,13 @@ export function StatisticsView() {
   useEffect(() => {
     if (!entry) return;
     const controller = new AbortController();
-    fetchJson(`${ANALYTICS_BASE}/${entry.file}`, controller.signal)
+    api.analyticsEntry(entry.id, controller.signal)
       .then((value) => {
-        if (!isAnalyticsDocument(value, entry.kind)) throw new Error(`${entry.file} does not match the ${entry.kind} analytics contract`);
+        if (!isAnalyticsDocument(value, entry.kind)) throw new Error(`${entry.id} does not match the ${entry.kind} analytics contract`);
         setDataset({ status: "ready", value });
       })
       .catch((reason: unknown) => {
-        if (!controller.signal.aborted) setDataset({ status: "error", message: errorMessage(reason) });
+        if (!controller.signal.aborted) setDataset({ status: "error", message: errorMessage(reason, `“${entry.label}”`) });
       });
     return () => controller.abort();
   }, [entry]);
@@ -71,13 +73,13 @@ export function StatisticsView() {
     <div className="statistics-page">
       <header className="statistics-page-header">
         <h1 className="text-2xl font-semibold">Statistics</h1>
-        <p className="mt-1 text-sm opacity-70">Committed static results: SUMO fixed-vs-adaptive simulations and camera gate counts. Unknown values are shown as —.</p>
+        <p className="mt-1 text-sm opacity-70">Results loaded from the local analytics database: SUMO fixed-vs-adaptive simulations and camera gate counts. Unknown values are shown as —.</p>
       </header>
 
       {index.status === "loading" && <p role="status" className="mt-6 text-sm">Loading statistics index…</p>}
-      {index.status === "error" && <p role="alert" className="mt-6 text-sm">Could not load the statistics index: {index.message}</p>}
+      {index.status === "error" && <p role="alert" className="mt-6 text-sm">Could not load the statistics list: {index.message}</p>}
       {index.status === "ready" && index.value.length === 0 && (
-        <p className="mt-6 text-sm">No statistics files have been generated yet. See frontend/public/analytics/README.md.</p>
+        <p className="mt-6 text-sm">The analytics database is empty. Generate the JSON files and run {LOADER_COMMAND} (see frontend/public/analytics/README.md).</p>
       )}
 
       {index.status === "ready" && index.value.length > 0 && (

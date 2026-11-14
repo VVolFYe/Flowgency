@@ -193,8 +193,8 @@ export type StreamEnvelope =
   | { type: "snapshot"; data: SimulationSnapshot };
 
 /* ------------------------------------------------------------------ */
-/* Static analytics files (frontend/public/analytics/*.json).         */
-/* See docs/DATA_CONTRACTS.md section K. null always means unknown.   */
+/* Analytics files (frontend/public/analytics/*.json), served via    */
+/* GET /api/analytics. See DATA_CONTRACTS.md section K. null = unknown. */
 /* ------------------------------------------------------------------ */
 
 export type AnalyticsKind = "simulation" | "vision";
@@ -206,6 +206,15 @@ export interface AnalyticsIndexEntry {
   label: string;
   kind: AnalyticsKind;
   file: string;
+}
+
+/** One row of GET /api/analytics (the local SQLite copy of index.json + files). */
+export interface AnalyticsListEntry {
+  id: string;
+  label: string;
+  kind: AnalyticsKind;
+  schema_version: string | null;
+  loaded_at: string;
 }
 
 export interface PairedMetric {
@@ -397,6 +406,15 @@ export function isAnalyticsIndex(value: unknown): value is AnalyticsIndexEntry[]
     && typeof entry.label === "string"
     && (entry.kind === "simulation" || entry.kind === "vision")
     && typeof entry.file === "string" && SAFE_ANALYTICS_FILE.test(entry.file));
+}
+
+export function isAnalyticsList(value: unknown): value is AnalyticsListEntry[] {
+  return Array.isArray(value) && value.every((entry) => isRecord(entry)
+    && typeof entry.id === "string" && entry.id.length > 0
+    && typeof entry.label === "string"
+    && (entry.kind === "simulation" || entry.kind === "vision")
+    && isNullableString(entry.schema_version)
+    && typeof entry.loaded_at === "string");
 }
 
 function isPairedMetric(value: unknown): value is PairedMetric {
