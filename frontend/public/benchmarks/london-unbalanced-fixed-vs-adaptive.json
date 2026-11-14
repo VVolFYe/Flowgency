@@ -1,0 +1,102 @@
+{
+  "schema_version": "1.0",
+  "snapshot_schema_version": "1.0",
+  "benchmark": "london_fixed_vs_adaptive",
+  "scenario_id": "london_unbalanced",
+  "scenario_name": "London — Unbalanced Traffic",
+  "provenance": {
+    "authoritative_report": "scenarios/london_network/output/comparison_unbalanced/comparison_report.json",
+    "config": "scenarios/london_network/configs/unbalanced.sumocfg",
+    "network": "scenarios/london_network/london.net.xml",
+    "routes": "scenarios/london_network/demand/unbalanced.rou.xml",
+    "adaptive_manifest": "scenarios/london_network/j3_adaptive.experimental.json",
+    "seed": 20261113,
+    "expected_vehicle_count": 528,
+    "expected_vehicle_ids_sha256": "3fa3020585db4dc82f4f20d3db39f8cba753ebb0b4b827e7d9b778aef344c7db",
+    "snapshot_created_on": "2026-11-14"
+  },
+  "experiment": {
+    "fixed_label": "Fixed timing",
+    "adaptive_label": "Adaptive J3",
+    "adaptive_intersection_id": "J3",
+    "adaptive_traffic_light_id": "GS_26546583",
+    "adaptive_scope": "Only J3 is adaptive; every other London traffic-light controller remains fixed.",
+    "controlled_difference": "Both runs use the same network, routes, seed and vehicle behavior. Only J3 control differs."
+  },
+  "validation": {
+    "passed": true,
+    "matched_vehicle_count": 528,
+    "fixed": {
+      "passed": true,
+      "departed": 528,
+      "arrived": 528,
+      "completed": 528,
+      "unfinished": 0,
+      "duplicate_tripinfo_ids": 0,
+      "collisions": 0,
+      "teleports": 0,
+      "process_exit_code": 0,
+      "terminated_by_step_limit": false
+    },
+    "adaptive": {
+      "passed": true,
+      "departed": 528,
+      "arrived": 528,
+      "completed": 528,
+      "unfinished": 0,
+      "duplicate_tripinfo_ids": 0,
+      "collisions": 0,
+      "teleports": 0,
+      "process_exit_code": 0,
+      "terminated_by_step_limit": false
+    }
+  },
+  "runs": {
+    "fixed": {
+      "steps": 1291,
+      "cycle_decisions": 0
+    },
+    "adaptive": {
+      "steps": 1287,
+      "cycle_decisions": 14
+    }
+  },
+  "metrics": {
+    "total_waiting_time_s": {
+      "fixed": 31323.0,
+      "adaptive": 31699.0,
+      "absolute_improvement": -376.0,
+      "percentage_improvement": -1.2
+    },
+    "average_waiting_time_s": {
+      "fixed": 59.324,
+      "adaptive": 60.036,
+      "absolute_improvement": -0.712,
+      "percentage_improvement": -1.2
+    },
+    "total_time_loss_s": {
+      "fixed": 40763.51,
+      "adaptive": 41377.2,
+      "absolute_improvement": -613.69,
+      "percentage_improvement": -1.51
+    },
+    "average_time_loss_s": {
+      "fixed": 77.204,
+      "adaptive": 78.366,
+      "absolute_improvement": -1.162,
+      "percentage_improvement": -1.51
+    },
+    "average_trip_duration_s": {
+      "fixed": 309.794,
+      "adaptive": 310.955,
+      "absolute_improvement": -1.161,
+      "percentage_improvement": -0.37
+    }
+  },
+  "limitations": [
+    "This is one deterministic London Unbalanced scenario, not evidence of general network-wide improvement.",
+    "Adaptive control is experimental and applies only to J3 (GS_26546583).",
+    "The imported J3 model does not certify real-world pedestrian, all-red or signal-safety behavior.",
+    "Queue-evolution samples were not retained in the validated benchmark report, so no queue timeline is shown."
+  ]
+}

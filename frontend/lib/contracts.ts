@@ -146,13 +146,28 @@ export interface SimulationSnapshot {
   metrics?: RunMetrics;
   adaptive_control?: {
     scope: string;
+    active_controller_count?: number;
     traffic_light_ids: string[];
+    fixed_controller_count?: number;
+    fixed_controllers?: Record<string, string>;
     last_cycle_decision: {
       intersection_id: string;
+      traffic_light_id?: string;
+      strategy?: string;
       queues: Record<string, number>;
+      demand_scores?: Record<string, number> | null;
       green_durations_s: Record<string, number>;
       reason: string;
     } | null;
+    last_cycle_decisions?: Record<string, {
+      intersection_id: string;
+      traffic_light_id?: string;
+      strategy?: string;
+      queues: Record<string, number>;
+      demand_scores?: Record<string, number> | null;
+      green_durations_s: Record<string, number>;
+      reason: string;
+    }>;
   };
   emergency_priority?: {
     active_vehicle_id: string | null;

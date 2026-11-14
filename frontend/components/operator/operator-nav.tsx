@@ -8,6 +8,7 @@ const links = [
   { href: "/operator", label: "Overview" },
   { href: "/operator/simulation", label: "Live Simulation" },
   { href: "/operator/analytics", label: "Analytics" },
+  { href: "/operator/benchmarks", label: "Benchmarks" },
 ];
 
 export function OperatorNav() {

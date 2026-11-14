@@ -81,6 +81,7 @@ function LiveTelemetry({ operator }: { operator: boolean }) {
         </> : <>
           <div className="flex justify-between gap-3"><span className="text-[#73838d]">Controllers</span><span className="font-mono text-[#c5d0d6]">{snapshot?.traffic_light_controllers ? Object.keys(snapshot.traffic_light_controllers).length : geometry?.traffic_lights.length ?? "—"}</span></div>
           <div className="flex justify-between gap-3"><span className="text-[#73838d]">Network queue</span><span className="font-mono text-[#c5d0d6]">{snapshot?.network_queue?.vehicles ?? "—"}</span></div>
+          {snapshot?.adaptive_control && <div className="flex justify-between gap-3" title={snapshot.adaptive_control.traffic_light_ids.join(", ")}><span className="text-[#73838d]">Adaptive controllers</span><span className="font-mono text-[#c5d0d6]">{snapshot.adaptive_control.active_controller_count ?? snapshot.adaptive_control.traffic_light_ids.length}</span></div>}
         </>}
         {snapshot?.emergency_priority?.active_vehicle_id && <div className="flex justify-between gap-3 text-[#ff9b72]"><span>Emergency priority</span><span className="max-w-[165px] truncate font-mono">{snapshot.emergency_priority.active_vehicle_id}</span></div>}
         {operator && <div className="flex justify-between gap-3"><span className="text-[#73838d]">Run</span><span className="max-w-[165px] truncate font-mono text-[10px] text-[#82939d]" title={snapshot?.run_id}>{snapshot?.run_id ?? "—"}</span></div>}
@@ -167,10 +168,10 @@ function OperatorControls() {
       <label htmlFor="control-mode" className="mt-4 block text-xs text-[#6f808a]">Control mode</label>
       <select id="control-mode" value={selectedControlMode} disabled={status.state !== "idle" || commandPending !== null} onChange={(event) => setSelectedControlMode(event.target.value as ControlMode)} className="mt-2 w-full rounded-xl border border-white/10 bg-[#0b1115] px-3 py-2.5 text-sm text-[#d7e1e6] outline-none focus:border-[#70e9a6]/50 disabled:opacity-50">
         <option value="fixed">Fixed timing</option>
-        <option value="adaptive" disabled={!selectedScenario?.supports_adaptive_control}>Adaptive{selectedScenarioId.startsWith("london_") ? " — J3 only" : ""}</option>
+        <option value="adaptive" disabled={!selectedScenario?.supports_adaptive_control}>Adaptive{selectedScenarioId.startsWith("london_") ? " — network" : ""}</option>
         {selectedScenario?.supports_emergency_priority && <option value="adaptive_with_emergency_priority">Adaptive + emergency priority</option>}
       </select>
-      {selectedControlMode === "adaptive" && selectedScenarioId.startsWith("london_") && <p className="mt-2 text-[10px] leading-relaxed text-[#e5c783]">Experimental J3-only control. Imported yellow phases remain fixed; pedestrian and real-world clearance safety are not verified.</p>}
+      {selectedControlMode === "adaptive" && selectedScenarioId.startsWith("london_") && <p className="mt-2 text-[10px] leading-relaxed text-[#e5c783]">Experimental 22-controller network control. Imported yellow and clearance phases remain fixed; pedestrian and real-world safety are not verified.</p>}
       <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
         <ControlButton label="Start simulation" action="Start" primary enabled={status.state === "idle" && geometry !== null} busy={commandPending !== null} onClick={() => run("start")} />
         <ControlButton label="Pause" action="Pause" enabled={status.state === "running"} busy={commandPending !== null} onClick={() => run("pause")} />

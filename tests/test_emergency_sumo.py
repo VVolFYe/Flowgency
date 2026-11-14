@@ -29,6 +29,7 @@ class EmergencySumoTests(unittest.TestCase):
             SCENARIO / "emergency.sumocfg",
             SCENARIO / "mappings.json",
             control_mode="adaptive_with_emergency_priority",
+            output_directory=SCENARIO / "output" / "emergency",
         )
         phase_changes: list[tuple[float, str]] = []
         priority_reasons: set[str] = set()

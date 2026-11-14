@@ -84,6 +84,29 @@ def route_has_uturn(path) -> bool:
     return False
 
 
+def route_tls_ids(path) -> tuple[str, ...]:
+    """Return actual SUMO controllers crossed by consecutive route edges."""
+    traffic_lights: list[str] = []
+    for current, following in zip(path, path[1:]):
+        traffic_lights.extend(sorted({
+            connection.getTLSID()
+            for connection in current.getConnections(following)
+            if connection.getTLSID()
+        }))
+    return tuple(traffic_lights)
+
+
+def route_is_simple(path) -> bool:
+    """Reject edge loops, explicit U-turns, and unintended TLS revisits."""
+    edge_ids = [edge.getID() for edge in path]
+    traffic_lights = route_tls_ids(path)
+    return (
+        len(edge_ids) == len(set(edge_ids))
+        and len(traffic_lights) == len(set(traffic_lights))
+        and not route_has_uturn(path)
+    )
+
+
 def find_route_through(net, target, usable_edges) -> tuple[str, ...]:
     tx, ty = edge_midpoint(target)
     ranked = sorted(
@@ -102,8 +125,7 @@ def find_route_through(net, target, usable_edges) -> tuple[str, ...]:
         if (
             path
             and 100 <= cost <= 1300
-            and len({item.getID() for item in path}) == len(path)
-            and not route_has_uturn(path)
+            and route_is_simple(path)
         ):
             prefixes.append(path)
             if len(prefixes) == 20:
@@ -121,12 +143,15 @@ def find_route_through(net, target, usable_edges) -> tuple[str, ...]:
         if (
             path
             and 100 <= cost <= 1300
-            and len({item.getID() for item in path}) == len(path)
-            and not route_has_uturn(path)
+            and route_is_simple(path)
         ):
             suffix_ids = {item.getID() for item in path[1:]}
             for candidate in prefixes:
-                if not suffix_ids.intersection(item.getID() for item in candidate):
+                combined = (*candidate, *path[1:])
+                if (
+                    not suffix_ids.intersection(item.getID() for item in candidate)
+                    and route_is_simple(combined)
+                ):
                     prefix, suffix = candidate, path
                     break
             if suffix is not None:
@@ -138,6 +163,56 @@ def find_route_through(net, target, usable_edges) -> tuple[str, ...]:
         suffix = (target,)
 
     return tuple(edge.getID() for edge in (*prefix, *suffix[1:]))
+
+
+def update_route_template(
+    profile: str,
+    approach: Approach,
+    approach_index: int,
+    route: tuple[str, ...],
+) -> int:
+    """Replace one generated template without changing vehicles or departures."""
+    output = DEMAND_DIR / f"{profile}.rou.xml"
+    tree = ET.parse(output)
+    prefix = f"{profile}.{approach.target_id}.{approach_index:02d}."
+    vehicles = [
+        vehicle for vehicle in tree.getroot().findall("vehicle")
+        if vehicle.get("id", "").startswith(prefix)
+    ]
+    expected = PROFILE_COUNTS[profile].get("overrides", {}).get(
+        approach.edge_id, PROFILE_COUNTS[profile]["default"]
+    )
+    if len(vehicles) != expected:
+        raise RuntimeError(
+            f"{profile} {approach.edge_id} has {len(vehicles)} vehicles; expected {expected}"
+        )
+    previous = {
+        tuple(vehicle.find("route").get("edges", "").split())  # type: ignore[union-attr]
+        for vehicle in vehicles
+    }
+    if len(previous) != 1:
+        raise RuntimeError("selected approach does not use one shared route template")
+    if approach.edge_id not in route:
+        raise RuntimeError("replacement route does not cover the selected approach")
+
+    lines = output.read_text(encoding="utf-8").splitlines(keepends=True)
+    replacement = " ".join(route)
+    replace_next_route = False
+    replaced = 0
+    for index, line in enumerate(lines):
+        if '<vehicle id="' in line:
+            vehicle_id = line.split('<vehicle id="', 1)[1].split('"', 1)[0]
+            replace_next_route = vehicle_id.startswith(prefix)
+        elif replace_next_route and "<route edges=" in line:
+            indentation = line[: len(line) - len(line.lstrip())]
+            newline = "\n" if line.endswith("\n") else ""
+            lines[index] = f'{indentation}<route edges="{replacement}" />{newline}'
+            replace_next_route = False
+            replaced += 1
+    if replaced != expected:
+        raise RuntimeError(f"updated {replaced} route entries; expected {expected}")
+    output.write_text("".join(lines), encoding="utf-8")
+    return replaced
 
 
 def write_routes(profile: str, templates: dict[str, tuple[str, ...]], approaches: list[Approach]) -> int:
@@ -207,7 +282,7 @@ def write_config(profile: str) -> None:
     (CONFIG_DIR / f"{profile}.sumocfg").write_text(content, encoding="utf-8")
 
 
-def generate() -> None:
+def generate(approach_edge: str | None = None) -> None:
     sumolib = load_sumolib()
     net = sumolib.net.readNet(str(NET_FILE), withInternal=True)
     approaches = load_approaches()
@@ -215,6 +290,23 @@ def generate() -> None:
         edge for edge in net.getEdges(withInternal=False)
         if edge.allows("passenger") and edge.getFunction() == ""
     ]
+    if approach_edge is not None:
+        selected = [
+            (index, approach)
+            for index, approach in enumerate(approaches)
+            if approach.edge_id == approach_edge
+        ]
+        if len(selected) != 1:
+            raise RuntimeError(f"expected one mapped approach for {approach_edge}")
+        approach_index, approach = selected[0]
+        route = find_route_through(net, net.getEdge(approach.edge_id), usable_edges)
+        if not route_is_simple(tuple(net.getEdge(edge_id) for edge_id in route)):
+            raise RuntimeError("replacement route failed topology validation")
+        for profile in PROFILE_COUNTS:
+            count = update_route_template(profile, approach, approach_index, route)
+            print(f"updated {profile}: {count} vehicles for {approach.edge_id}")
+        return
+
     templates = {
         approach.edge_id: find_route_through(net, net.getEdge(approach.edge_id), usable_edges)
         for approach in approaches
@@ -229,5 +321,9 @@ def generate() -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.parse_args()
-    generate()
+    parser.add_argument(
+        "--approach-edge",
+        help="regenerate only one mapped approach template in existing demand files",
+    )
+    arguments = parser.parse_args()
+    generate(arguments.approach_edge)
