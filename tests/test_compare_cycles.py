@@ -6,7 +6,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from backend.simulation.compare_cycles import compare, read_expected_vehicle_ids, read_tripinfo, validate_run
+from backend.simulation.compare_cycles import (
+    compare,
+    manifest_metadata,
+    read_expected_vehicle_ids,
+    read_tripinfo,
+    validate_adaptive_scope,
+    validate_run,
+)
 
 
 class CompareCyclesTests(unittest.TestCase):
@@ -57,6 +64,36 @@ class CompareCyclesTests(unittest.TestCase):
             parsed = read_tripinfo(tripinfo)
             self.assertEqual(parsed["completed_ids"], {"a"})
             self.assertEqual(parsed["unfinished_ids"], [])
+
+    def test_discovery_manifest_scope_is_validated(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            manifest = Path(temporary) / "adaptive.json"
+            manifest.write_text(
+                '{"profile_id":"network_v1","discovery":{'
+                '"expected_controller_ids":["a","b","c"],'
+                '"excluded_controllers":{"c":"fixed"}}}',
+                encoding="utf-8",
+            )
+            expected = manifest_metadata(manifest)
+            self.assertEqual(expected["controller_ids"], ["a", "b"])
+            self.assertEqual(expected["controller_count"], 2)
+            self.assertEqual(
+                validate_adaptive_scope(
+                    {
+                        "adaptive_profile_id": "network_v1",
+                        "adaptive_controller_ids": ["b", "a"],
+                    },
+                    expected,
+                ),
+                [],
+            )
+            self.assertTrue(validate_adaptive_scope(
+                {
+                    "adaptive_profile_id": "wrong",
+                    "adaptive_controller_ids": ["a"],
+                },
+                expected,
+            ))
 
 
 if __name__ == "__main__":

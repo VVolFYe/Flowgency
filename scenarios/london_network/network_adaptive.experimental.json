@@ -1,0 +1,85 @@
+{
+  "schema_version": "1.0",
+  "profile_id": "london_network_pressure_v1",
+  "description": "Experimental pressure control for audited principal green stages; all transition states and durations remain owned by SUMO.",
+  "corridor_guards": [
+    {
+      "guard_id": "j5_108_to_898_phase_0",
+      "upstream_traffic_light_id": "GS_cluster_108195_6967968844",
+      "upstream_phase_index": 0,
+      "minimum_receiving_space_m": 7.5,
+      "movements": [
+        {
+          "upstream_link_index": 4,
+          "receiving_lane_id": "744514106#0_0",
+          "downstream_traffic_light_id": "GS_cluster_8982713135_8982713136",
+          "downstream_link_index": 3
+        },
+        {
+          "upstream_link_index": 6,
+          "receiving_lane_id": "744514106#0_2",
+          "downstream_traffic_light_id": "GS_cluster_8982713135_8982713136",
+          "downstream_link_index": 4
+        }
+      ]
+    }
+  ],
+  "discovery": {
+    "minimum_adjustable_green_s": 20,
+    "minimum_green_s": 10,
+    "maximum_green_adjustment_s": 12,
+    "max_change_s": 6,
+    "measurement": {
+      "approach_distance_m": 150,
+      "halting_speed_mps": 0.1,
+      "smoothing": 0.5
+    },
+    "pressure_policy": {
+      "halted_weight": 0.4,
+      "approaching_weight": 0.25,
+      "waiting_weight": 0.2,
+      "downstream_weight": 0.15,
+      "halted_scale": 4,
+      "approaching_scale": 8,
+      "waiting_cap_s": 60,
+      "deadband": 0.08,
+      "zero_demand_threshold": 0.02,
+      "allocation_gain": 1,
+      "low_demand_vehicle_limit": 3,
+      "moderate_demand_vehicle_limit": 8,
+      "high_demand_vehicle_limit": 16,
+      "low_demand_max_adjustment_s": 1,
+      "moderate_demand_max_adjustment_s": 3,
+      "high_demand_max_adjustment_s": 6,
+      "waiting_override_s": 45
+    },
+    "expected_controller_ids": [
+      "GS_110249279",
+      "GS_1828793858",
+      "GS_1937709604",
+      "GS_2066046353",
+      "GS_21516133",
+      "GS_2432160677",
+      "GS_26546583",
+      "GS_33213216",
+      "GS_3653382433",
+      "GS_672965167",
+      "GS_8413292286",
+      "GS_cluster_10218369045_4202836241_6391501625",
+      "GS_cluster_108195_6967968844",
+      "GS_cluster_11740332027_8960473844",
+      "GS_cluster_33213210_6514340395",
+      "GS_cluster_8982713135_8982713136",
+      "cluster_10691198621_12535884046_3653996498_3653996499",
+      "cluster_107094624_1685947960_1937709603_381085455",
+      "cluster_110284280_1782885567_261277486_4453915929_#3more",
+      "cluster_11703577934_21516134_7801416246_8413349116_#2more",
+      "cluster_21505288_5374083438_5374083441_5374083447_#8more",
+      "cluster_26546622_8412284684",
+      "cluster_4454358585_6956221338_6956221348_6956221355"
+    ],
+    "excluded_controllers": {
+      "GS_8413292286": "single controlled movement has no independently allocatable competing green stage"
+    }
+  }
+}

@@ -397,10 +397,10 @@ export default function SimulationPage() {
                 className="mt-2 w-full rounded-xl border border-white/10 bg-[#0b1115] px-3 py-2.5 text-sm text-[#d7e1e6] outline-none transition focus:border-[#70e9a6]/50 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <option value="fixed">Fixed timing</option>
-                <option value="adaptive" disabled={!selectedScenario?.supports_adaptive_control}>Adaptive{selectedScenarioId.startsWith("london_") ? " — J3 only" : ""}</option>
+                <option value="adaptive" disabled={!selectedScenario?.supports_adaptive_control}>Adaptive{selectedScenarioId.startsWith("london_") ? " — network" : ""}</option>
               </select>
               {selectedControlMode === "adaptive" && selectedScenarioId.startsWith("london_") && (
-                <p className="mt-2 text-[10px] leading-relaxed text-[#e5c783]">Experimental J3-only control. Imported yellow phases remain fixed; pedestrian and real-world clearance safety are not verified.</p>
+                <p className="mt-2 text-[10px] leading-relaxed text-[#e5c783]">Experimental network control adjusts only validated principal green stages. Imported yellow/clearance phases remain fixed; pedestrian and real-world safety are not verified.</p>
               )}
             </div>
             <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
@@ -540,6 +540,12 @@ export default function SimulationPage() {
                 <div className="flex justify-between"><span className="text-[#73838d]">Arrived vehicles</span><span className="font-mono text-[#c5d0d6]">{metrics?.arrived_vehicle_count ?? "—"}</span></div>
                 <div className="flex justify-between"><span className="text-[#73838d]">Current queue</span><span className="font-mono text-[#c5d0d6]">{metrics?.network_queue_vehicles ?? "—"}</span></div>
                 <div className="flex justify-between"><span className="text-[#73838d]">Maximum queue</span><span className="font-mono text-[#c5d0d6]">{metrics?.maximum_network_queue_vehicles ?? "—"}</span></div>
+                {snapshot?.adaptive_control && (
+                  <div className="flex justify-between gap-3" title={snapshot.adaptive_control.traffic_light_ids.join(", ")}>
+                    <span className="text-[#73838d]">Adaptive controllers</span>
+                    <span className="font-mono text-[#c5d0d6]">{snapshot.adaptive_control.active_controller_count ?? snapshot.adaptive_control.traffic_light_ids.length}</span>
+                  </div>
+                )}
               </div>
               <p className="mt-3 text-[10px] leading-relaxed text-[#667781]">Average denominator: every vehicle inserted so far, including active and completed trips.</p>
             </div>

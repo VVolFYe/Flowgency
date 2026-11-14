@@ -140,12 +140,34 @@ def benchmark_root(config: Path) -> Path:
     return scenario_root / "output" / f"comparison_{config.stem}"
 
 
-def config_metadata(config: Path, expected_ids: set[str], manifest: Path) -> dict[str, Any]:
+def manifest_metadata(manifest: Path) -> dict[str, Any]:
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    if "discovery" in data:
+        discovery = data["discovery"]
+        expected = set(discovery.get("expected_controller_ids", []))
+        excluded = set(discovery.get("excluded_controllers", {}))
+        controller_ids = sorted(expected - excluded)
+    else:
+        controller_ids = sorted(
+            item["traffic_light_id"] for item in data.get("controllers", [])
+        )
+    if not controller_ids:
+        raise ValueError("adaptive manifest identifies no active controllers")
+    return {
+        "profile_id": str(data.get("profile_id", "configured_controllers_only")),
+        "controller_ids": controller_ids,
+        "controller_count": len(controller_ids),
+    }
+
+
+def config_metadata(
+    config: Path, expected_ids: set[str], manifest: Path,
+    adaptive: dict[str, Any],
+) -> dict[str, Any]:
     root = ET.parse(config).getroot()
     network = root.find("./input/net-file")
     routes = root.findall("./input/route-files")
     seed = root.find("./random_number/seed")
-    manifest_data = json.loads(manifest.read_text(encoding="utf-8"))
     return {
         "config_path": str(config),
         "network_path": str((config.parent / network.attrib["value"]).resolve()) if network is not None else None,
@@ -156,10 +178,24 @@ def config_metadata(config: Path, expected_ids: set[str], manifest: Path) -> dic
             "\n".join(sorted(expected_ids)).encode("utf-8")
         ).hexdigest(),
         "adaptive_manifest_path": str(manifest),
-        "adaptive_traffic_light_ids": [
-            item["traffic_light_id"] for item in manifest_data.get("controllers", [])
-        ],
+        "adaptive_profile_id": adaptive["profile_id"],
+        "adaptive_traffic_light_ids": adaptive["controller_ids"],
+        "adaptive_controller_count": adaptive["controller_count"],
     }
+
+
+def validate_adaptive_scope(
+    run: dict[str, Any], expected: dict[str, Any]
+) -> list[str]:
+    errors: list[str] = []
+    actual_ids = run.get("adaptive_controller_ids", [])
+    if len(actual_ids) != len(set(actual_ids)):
+        errors.append("adaptive controller IDs are not unique")
+    if set(actual_ids) != set(expected["controller_ids"]):
+        errors.append("adaptive controller IDs differ from the selected manifest")
+    if run.get("adaptive_profile_id") != expected["profile_id"]:
+        errors.append("adaptive profile ID differs from the selected manifest")
+    return errors
 
 
 def run_mode(
@@ -193,6 +229,10 @@ def main() -> int:
     parser.add_argument("--sumo-binary", default="sumo")
     parser.add_argument("--max-steps", type=int, default=5000)
     parser.add_argument("--report-path", type=Path)
+    parser.add_argument("--output-directory", type=Path,
+                        help="separate ignored root for fixed/adaptive raw outputs")
+    parser.add_argument("--scenario-id", help="stable public scenario ID")
+    parser.add_argument("--benchmark-label", default="fixed_vs_adaptive")
     args = parser.parse_args()
     config = args.config.resolve()
     manifest = args.adaptive_manifest.resolve()
@@ -200,7 +240,8 @@ def main() -> int:
         parser.error("config and adaptive manifest must exist and max-steps must be positive")
 
     expected_ids = read_expected_vehicle_ids(config)
-    base = benchmark_root(config)
+    adaptive_metadata = manifest_metadata(manifest)
+    base = (args.output_directory.resolve() if args.output_directory else benchmark_root(config))
     report_path = (args.report_path or base / "comparison_report.json").resolve()
     runs: dict[str, dict[str, Any]] = {}
     tripinfos: dict[str, dict[str, Any]] = {}
@@ -213,6 +254,10 @@ def main() -> int:
             )
             tripinfos[mode] = read_tripinfo(output / "tripinfo.xml")
             validation[mode] = validate_run(runs[mode], tripinfos[mode], expected_ids)
+            if mode == "adaptive":
+                scope_errors = validate_adaptive_scope(runs[mode], adaptive_metadata)
+                validation[mode]["errors"].extend(scope_errors)
+                validation[mode]["passed"] = not validation[mode]["errors"]
         except (OSError, RuntimeError, ValueError, ET.ParseError) as exc:
             validation[mode] = {"passed": False, "errors": [str(exc)]}
 
@@ -224,9 +269,11 @@ def main() -> int:
     )
     report = {
         "schema_version": "1.0",
-        "benchmark": "london_fixed_vs_adaptive",
-        "scenario_id": "london_unbalanced",
-        "input": config_metadata(config, expected_ids, manifest),
+        "benchmark": args.benchmark_label,
+        "scenario_id": args.scenario_id or config.stem,
+        "input": config_metadata(
+            config, expected_ids, manifest, adaptive_metadata
+        ),
         "max_steps": args.max_steps,
         "validation": {"passed": valid, "runs": validation},
         "runs": {

@@ -14,7 +14,11 @@ from typing import Any, TextIO
 from uuid import uuid4
 
 from backend.controller.adaptive import AdaptiveConfig, AdaptiveState, decide
-from backend.simulation.cycle_adapter import AdaptiveSignal, load_adaptive_signals
+from backend.simulation.cycle_adapter import (
+    AdaptiveSignal,
+    collect_vehicle_observations,
+    load_adaptive_signal_set,
+)
 from backend.simulation.metrics import RunMetrics
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -140,10 +144,13 @@ class SumoRunner:
         self._adaptive_config = AdaptiveConfig()
         self._adaptive_state = AdaptiveState()
         self._adaptive_signals: list[AdaptiveSignal] = []
+        self._adaptive_profile_id: str | None = None
+        self._adaptive_fixed_controllers: dict[str, str] = {}
         self._controlled_lane_ids: tuple[str, ...] = ()
         self._metrics = RunMetrics()
         self.last_control_reason: str | None = None
         self.last_cycle_decision: dict[str, Any] | None = None
+        self.last_cycle_decisions: dict[str, dict[str, Any]] = {}
 
     def _supports_adaptive_control(self) -> bool:
         return self.adaptive_manifest_path is not None or (
@@ -162,8 +169,11 @@ class SumoRunner:
         self.control_mode = control_mode
         self._adaptive_state = AdaptiveState()
         self._adaptive_signals = []
+        self._adaptive_profile_id = None
+        self._adaptive_fixed_controllers = {}
         self.last_control_reason = None
         self.last_cycle_decision = None
+        self.last_cycle_decisions = {}
 
     @property
     def connection(self) -> Any:
@@ -180,8 +190,11 @@ class SumoRunner:
 
         self._adaptive_state = AdaptiveState()
         self._adaptive_signals = []
+        self._adaptive_profile_id = None
+        self._adaptive_fixed_controllers = {}
         self.last_control_reason = None
         self.last_cycle_decision = None
+        self.last_cycle_decisions = {}
         self._traci = self._traci or _import_traci()
         self.output_directory.mkdir(parents=True, exist_ok=True)
         command = [
@@ -214,9 +227,12 @@ class SumoRunner:
         )
         if self.control_mode == "adaptive":
             if self.adaptive_manifest_path is not None:
-                self._adaptive_signals = load_adaptive_signals(
+                loaded = load_adaptive_signal_set(
                     self.adaptive_manifest_path, self.connection
                 )
+                self._adaptive_signals = list(loaded.signals)
+                self._adaptive_profile_id = loaded.profile_id
+                self._adaptive_fixed_controllers = loaded.fixed_controllers
                 self._apply_cycle_adaptive_control()
             else:
                 self._apply_adaptive_control()
@@ -248,10 +264,23 @@ class SumoRunner:
         )
 
     def _apply_cycle_adaptive_control(self) -> None:
+        pressure_signals = [
+            signal for signal in self._adaptive_signals
+            if signal.strategy == "pressure_v1"
+        ]
+        observations = collect_vehicle_observations(
+            self.connection,
+            (signal.tls_id for signal in pressure_signals),
+            approach_distance_m=max(
+                (signal.approach_distance_m for signal in pressure_signals),
+                default=0.0,
+            ),
+        )
         for signal in self._adaptive_signals:
-            event = signal.tick()
+            event = signal.tick(observations.get(signal.tls_id, []))
             if event is not None:
                 self.last_cycle_decision = event
+                self.last_cycle_decisions[signal.tls_id] = event
                 self.last_control_reason = str(event["reason"])
 
     def _apply_adaptive_control(self) -> None:
@@ -379,11 +408,15 @@ class SumoRunner:
             snapshot["control_reason"] = self.last_control_reason
             if self._adaptive_signals:
                 snapshot["adaptive_control"] = {
-                    "scope": "configured_controllers_only",
+                    "scope": self._adaptive_profile_id or "configured_controllers_only",
+                    "active_controller_count": len(self._adaptive_signals),
                     "traffic_light_ids": [
                         signal.tls_id for signal in self._adaptive_signals
                     ],
+                    "fixed_controller_count": len(self._adaptive_fixed_controllers),
+                    "fixed_controllers": dict(self._adaptive_fixed_controllers),
                     "last_cycle_decision": self.last_cycle_decision,
+                    "last_cycle_decisions": dict(self.last_cycle_decisions),
                 }
         return snapshot
 
