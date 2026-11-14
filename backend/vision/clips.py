@@ -155,3 +155,28 @@ def iter_frames(path: Path) -> Iterator[np.ndarray]:
             yield frame
     finally:
         cap.release()
+
+
+def decoded_frame_count(path: Path) -> tuple[int, float, tuple[int, int]]:
+    """Frames that actually decode (container headers can be wrong), fps, and ``(width, height)``."""
+    cv2 = _cv2()
+    cap = cv2.VideoCapture(str(path))
+    try:
+        if not cap.isOpened():
+            raise OSError(f"cannot open video {path}")
+        fps = float(cap.get(cv2.CAP_PROP_FPS))
+        size = (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+        frames = 0
+        while cap.grab():
+            frames += 1
+    finally:
+        cap.release()
+    return frames, fps, size
+
+
+def duration_matches(frames: int, fps: float, last_t_s: float) -> bool:
+    """A video matches per-second gate outputs whose last line is ``last_t_s`` when its last frame falls in
+    that second, i.e. ``floor((frames - 1) / fps) == last_t_s`` (the rule ``run_gates`` uses for its last line)."""
+    if frames <= 0 or fps <= 0:
+        return False
+    return int((frames - 1) / fps + 1e-9) == int(last_t_s)

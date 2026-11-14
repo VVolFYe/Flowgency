@@ -7,7 +7,17 @@ import unittest
 from datetime import UTC, datetime
 from pathlib import Path
 
-from backend.vision.clips import Clip, discover_clips, format_utc, parse_clip_time_utc
+from backend.vision.clips import Clip, discover_clips, duration_matches, format_utc, parse_clip_time_utc
+
+
+class DurationMatchTests(unittest.TestCase):
+    def test_last_frame_must_fall_in_the_last_output_second(self) -> None:
+        self.assertTrue(duration_matches(6329, 23.976, 263.0))   # the youtube clip: 263.97 s, t_s 0-263
+        self.assertFalse(duration_matches(6392, 23.976, 263.0))  # its container header count (266.6 s)
+        self.assertFalse(duration_matches(720, 23.976, 263.0))   # a 30 s cut
+        self.assertTrue(duration_matches(10, 10.0, 0.0))         # frames 0-9 all in second 0
+        self.assertFalse(duration_matches(11, 10.0, 0.0))
+        self.assertFalse(duration_matches(0, 25.0, 0.0))
 
 
 class ClipTimestampTests(unittest.TestCase):

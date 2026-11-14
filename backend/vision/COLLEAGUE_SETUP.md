@@ -37,6 +37,45 @@ Rules that matter for consumers:
 - `origin_arm` on `intersection_exited` is `null` when it is not known; it is
   never guessed.
 
+## Videos (Google Drive)
+
+Drive link: <ask Vlad>
+
+The videos are **only needed for the demo**. The simulation data in
+`backend/vision/samples/` works without them.
+
+| file on Drive | goes to (relative to the repository root) |
+|---|---|
+| `clip.mp4`: the raw top-down clip | `data/youtube/clip.mp4` |
+| `youtube_gates_demo.mp4`: the gates demo (tracks, gates, live counts) | `data/vision_output/youtube/demo/youtube_gates_demo.mp4` |
+
+`data/` is the default data folder and is gitignored. If you set
+`UNIHACK_DIR`, use the same layout under that folder instead of `data/`.
+Example, from the repository root, with the files downloaded to `~/Downloads`:
+
+```bash
+mkdir -p data/youtube data/vision_output/youtube/demo
+mv ~/Downloads/clip.mp4 data/youtube/clip.mp4
+mv ~/Downloads/youtube_gates_demo.mp4 data/vision_output/youtube/demo/youtube_gates_demo.mp4
+```
+
+Check them (needs the vision venv from the next section). It prints the
+expected paths for anything missing and checks that each video is as long as
+the 264 s outputs:
+
+```bash
+~/.venvs/flowgency-vision/bin/python -m backend.vision.cli check-videos
+```
+
+- **Timing:** video time `t` (seconds from the first frame) equals `t_s` in
+  `events.jsonl` and `counts.jsonl`. Frame `n` is at `t = n / 23.976`. Both
+  videos have the same 6329 frames, so a moment in the demo and the same moment
+  in the raw clip have the same `t`.
+- **Which video to show:** the gates demo goes next to the simulation. Its panel
+  shows the `counts.jsonl` line a consumer reads at that moment. The raw clip
+  is the unannotated input.
+- The videos are MPEG-4 Part 2; play them in VLC (browsers may refuse them).
+
 ## Running the pipeline yourself
 
 Nothing below goes into git. Video, weights, caches, and outputs live in a
@@ -56,7 +95,8 @@ looked. The code refuses to write outputs to tracked repository paths.
    ~/.venvs/flowgency-vision/bin/pip install -r backend/requirements-vision.txt
    ```
 
-2. Files to obtain from the vision owner (not downloadable by the code):
+2. Files to obtain from the vision owner (not downloadable by the code; the clip is also on
+   the Drive, see "Videos (Google Drive)"):
 
    | file | put it at |
    |---|---|

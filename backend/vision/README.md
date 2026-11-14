@@ -141,6 +141,8 @@ A second, independent mode for one recorded top-down video of one intersection
 frames). It writes **contract I** gate events and **contract J** per-second
 counts (`docs/DATA_CONTRACTS.md`). The London line-counting mode above is unchanged.
 Teammate setup and consumer notes: `backend/vision/COLLEAGUE_SETUP.md`.
+Where the Google Drive videos (raw clip, gates demo) go and how to check them: `COLLEAGUE_SETUP.md`,
+section "Videos (Google Drive)".
 Both files are committed for the youtube clip: `backend/vision/samples/youtube_30s/` (first 30 s, for quick
 development) and `backend/vision/samples/youtube_full/` (264 s, for the simulation).
 
@@ -154,6 +156,7 @@ scene JSON (12 gates) -> detect (YOLO once, cached) -> process (ByteTrack -> gat
 | `detect --scene S [--no-cache]` | runs the scene's detector profile over every frame once; cached under `cache/gate_detections/<model>_imgsz<N>_floor0.10/` with a JSON sidecar (backend, weights, timing, fallback reason) |
 | `process --scene S [--sample-seconds 30]` | tracks the cached detections and writes `events.jsonl`, `counts.jsonl`, `gate_run.json` to `vision_output/<scene_id>/`; `--sample-seconds N` also writes the first N s to `sample_<N>s/` for sharing |
 | `render-gate-demo --scene S [--start-s A --end-s B] [--scale 0.667]` | 1280x720 demo: tracks coloured by arm, gates flashing on triggers, and the `counts.jsonl` line consumers would read at that moment |
+| `check-videos [--scene S]` | checks that the raw clip and gates demo are in the data folder and match the committed full-clip outputs in length; prints the expected paths if not |
 
 **Detector per scene.** The scene's `model_id` picks a profile in
 `detections.py`. Top-down: `yolo11s_visdrone` (team-trained on VisDrone,

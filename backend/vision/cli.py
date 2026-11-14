@@ -13,7 +13,7 @@ from pathlib import Path
 
 from .clips import discover_clips, format_utc
 from .config import load_camera_registry, load_cameras
-from .paths import DEFAULT_CAMERAS_JSON, VisionPaths
+from .paths import DEFAULT_CAMERAS_JSON, SCENES_DIR, VisionPaths
 
 
 def _paths() -> VisionPaths:
@@ -147,6 +147,49 @@ def cmd_render_gate_demo(args: argparse.Namespace) -> int:
                      end_frame=end, log=_log)
     _log(f"wrote {out}")
     return 0
+
+
+def cmd_check_videos(args: argparse.Namespace) -> int:
+    """Videos in place and as long as the committed full-clip outputs? Prints the expected paths if not."""
+    import json
+
+    from .clips import decoded_frame_count, duration_matches
+    from .paths import REPO_ROOT, SAMPLES_DIR
+    from .scene import load_scene
+
+    paths = _paths()
+    scene = load_scene(args.scene)
+    counts_path = args.counts or SAMPLES_DIR / f"{scene.scene_id}_full" / "counts.jsonl"
+    lines = counts_path.read_text(encoding="utf-8").splitlines()
+    last_t_s = json.loads(lines[-1])["t_s"]
+    videos = {
+        "raw clip": paths.resolve(scene.video),
+        "gates demo": paths.scene_output_dir(scene.scene_id) / "demo" / f"{scene.scene_id}_gates_demo.mp4",
+    }
+
+    def shown(path: Path) -> str:
+        try:
+            return str(path.resolve().relative_to(REPO_ROOT))
+        except ValueError:
+            return str(path)
+
+    print(f"outputs: {shown(counts_path)} has {len(lines)} lines (t_s 0-{last_t_s:.0f})")
+    ok = True
+    for name, path in videos.items():
+        if not path.exists():
+            print(f"MISSING  {name}: expected at {shown(path)}")
+            ok = False
+            continue
+        frames, fps, size = decoded_frame_count(path)
+        match = duration_matches(frames, fps, last_t_s)
+        ok &= match
+        print(f"{'OK      ' if match else 'MISMATCH'} {name}: {shown(path)}: {frames} frames at {fps:.3f} fps = "
+              f"{frames / fps:.2f} s, {size[0]}x{size[1]}"
+              + ("" if match else f" (outputs end at t_s {last_t_s:.0f}; is this the right video?)"))
+    if not ok:
+        print(f"Data folder: {shown(paths.unihack_dir)} (set UNIHACK_DIR to use another). "
+              "See 'Videos (Google Drive)' in backend/vision/COLLEAGUE_SETUP.md.")
+    return 0 if ok else 1
 
 
 def _log(message: str) -> None:
@@ -474,6 +517,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--start-s", type=float, default=0.0)
     p.add_argument("--end-s", type=float)
     p.set_defaults(func=cmd_render_gate_demo)
+
+    p = sub.add_parser("check-videos", help="gate mode: check the raw clip and gates demo are in place and match the outputs")
+    p.add_argument("--scene", type=Path, default=SCENES_DIR / "youtube.json", help="default: the youtube scene")
+    p.add_argument("--counts", type=Path, help="counts.jsonl to match (default backend/vision/samples/<scene>_full/)")
+    p.set_defaults(func=cmd_check_videos)
 
     p = sub.add_parser("replay", help="count vehicles in recorded clips and emit contract-A observations")
     p.add_argument("--camera", required=True, help="JamCam ID or 'all'")
