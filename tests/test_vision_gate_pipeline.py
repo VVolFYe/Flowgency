@@ -147,5 +147,21 @@ class GatePipelineTests(unittest.TestCase):
             write_jsonl(REPO_ROOT / "events.jsonl", [], GateEvent)
 
 
+class CommittedSampleTests(unittest.TestCase):
+    """The shared sample under backend/vision/samples/ must stay valid against contracts I and J."""
+
+    def test_youtube_30s_sample_validates(self) -> None:
+        root = Path(__file__).resolve().parents[1] / "backend" / "vision" / "samples" / "youtube_30s"
+        events = [json.loads(x) for x in (root / "events.jsonl").read_text().splitlines()]
+        counts = [json.loads(x) for x in (root / "counts.jsonl").read_text().splitlines()]
+        for e in events:
+            GateEvent.model_validate(e)
+        for c in counts:
+            GateCounts.model_validate(c)
+        self.assertEqual([c["t_s"] for c in counts], [float(t) for t in range(31)])
+        self.assertTrue(all(e["t_s"] <= 30 for e in events))
+        self.assertEqual([e["t_s"] for e in events], sorted(e["t_s"] for e in events))
+
+
 if __name__ == "__main__":
     unittest.main()

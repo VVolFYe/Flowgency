@@ -137,6 +137,7 @@ A second, independent mode for one recorded top-down video of one intersection
 frames). It writes **contract I** gate events and **contract J** per-second
 counts (`docs/DATA_CONTRACTS.md`). The London line-counting mode above is unchanged.
 Teammate setup and consumer notes: `backend/vision/COLLEAGUE_SETUP.md`.
+A 30 s sample of both files is committed at `backend/vision/samples/youtube_30s/`.
 
 ```text
 scene JSON (12 gates) -> detect (YOLO once, cached) -> process (ByteTrack -> gates) -> events.jsonl, counts.jsonl, gate_run.json

@@ -85,6 +85,9 @@ metrics.generated.json
 *.onnx
 runs/
 vision_output/
+# gate mode: detection caches and full-run logs (samples under backend/vision/samples/ stay tracked)
+*.npz
+gate_run.json
 ultralytics_config/
 backend/vision/config/*.jpg
 backend/vision/config/*.png

@@ -8,8 +8,10 @@ section "Gate mode".
 
 ## Only consuming the outputs
 
-You do not need any of the setup below. Ask the vision owner for the files of a
-run (or the `sample_30s/` pair) and read them line by line as JSON:
+You do not need any of the setup below. A 30 s sample is in the repository at
+`backend/vision/samples/youtube_30s/` (`events.jsonl`, `counts.jsonl`, and a
+README with its provenance). Ask the vision owner for the files of a full run.
+Read them line by line as JSON:
 
 - `events.jsonl`: one event per gate trigger (`approach_entered`,
   `intersection_entered`, `intersection_exited`), in time order, with `t_s`
