@@ -1,0 +1,474 @@
+FLOWGENCY AUTH0 HANDOUT
+Pentru colegi si pentru agentii AI care continua proiectul
+Generat: 2026-11-14
+
+======================================================================
+0. STAREA ACTUALA SI ACTIUNI DE SECURITATE OBLIGATORII
+======================================================================
+
+Codul Auth0 este publicat pe:
+
+  branch: feat/auth0-role-access
+  commit: 3951e83 (feat: add Auth0 role-based access)
+
+Branch-ul nu este neaparat integrat in main. Fiecare coleg trebuie sa lucreze
+de pe acest branch sau sa foloseasca versiunea rezultata dupa aprobarea PR-ului.
+
+IMPORTANT INAINTE SA DISTRIBUIM CONFIGURATIA:
+
+1. Tokenul GitHub folosit la push a fost expus intr-o conversatie. Proprietarul
+   trebuie sa-l revoce imediat din GitHub si sa genereze altul doar daca mai este
+   necesar. Tokenul vechi nu se pune in fisiere, chat-uri sau credential URLs.
+2. Auth0 Client Secret a fost afisat local in timpul unei verificari. Rotiti
+   Client Secret pentru aplicatia "Flowgency Development" din Auth0.
+3. Dupa rotire, actualizati frontend/.env.local pe fiecare laptop cu noul Client
+   Secret. Trimiteti-l numai printr-un password manager sau canal privat sigur.
+4. Fiecare coleg isi genereaza propriul AUTH0_SECRET local cu:
+
+     openssl rand -hex 32
+
+   AUTH0_SECRET nu este Auth0 Client Secret. El cripteaza sesiunea locala Next.js
+   si nu trebuie sa fie identic intre laptopuri.
+5. Nu copiati si nu comiteti niciodata frontend/.env.local, backend/.env,
+   tokenuri, parole, coduri OTP, chei TOTP sau continutul sesiunilor/cookie-urilor.
+
+Commit-ul publicat a fost scanat inainte de push si nu contine valorile reale
+Auth0, .env.local sau fisierul local cu promptul.
+
+======================================================================
+1. CE S-A IMPLEMENTAT
+======================================================================
+
+Flowgency are trei niveluri de acces:
+
+PUBLIC
+  - / si /simulation raman publice.
+  - GET-urile de stare/geometrie/scenarii si WebSocket-ul de simulare raman
+    publice pentru vizualizarea live.
+  - Publicul nu poate executa comenzi de control.
+
+ANALYST
+  - Autentificare Auth0 Passwordless Email (OTP).
+  - Permisiuni: simulation:read si analytics:read.
+  - Poate folosi /analyst, /analyst/simulation si /analyst/analytics.
+  - Interfata este read-only si nu afiseaza controalele de simulare.
+  - Nu poate intra in /operator si nu poate executa POST-uri de control.
+
+OPERATOR
+  - Autentificare cu user/parola din conexiunea Auth0 Database.
+  - MFA TOTP obligatoriu printr-un Auth0 Post-Login Action.
+  - Permisiuni: simulation:read, analytics:read, simulation:control.
+  - Poate folosi paginile Operator si comenzile start/pause/resume/speed/reset/stop.
+  - Poate deschide si paginile Analyst deoarece are permisiunile de citire.
+
+Fluxul de securitate este:
+
+  browser -> Auth0 Universal Login -> sesiune criptata Next.js
+          -> Next.js BFF command proxy -> Bearer access token -> FastAPI
+
+Tokenul Auth0 este tinut server-side in sesiunea Next.js. Nu este pus in
+localStorage si nu este trimis manual de browser direct catre FastAPI pentru
+comenzile de control.
+
+Backend-ul valideaza pentru fiecare comanda:
+
+  - semnatura RS256 prin JWKS-ul public Auth0;
+  - issuer-ul;
+  - audience-ul;
+  - expirarea si claim-urile obligatorii;
+  - prezenta permisiunii simulation:control.
+
+Raspunsuri asteptate:
+
+  401 = token absent, invalid sau expirat;
+  403 = token valid, dar lipseste simulation:control;
+  2xx = token valid si operatia a fost acceptata.
+
+Fisierele principale introduse/modificate:
+
+  frontend/lib/auth0.ts
+  frontend/lib/authorization.ts
+  frontend/proxy.ts
+  frontend/app/access/
+  frontend/app/access-pending/
+  frontend/app/access-denied/
+  frontend/app/analyst/
+  frontend/app/api/simulation/[command]/route.ts
+  backend/api/auth.py
+  backend/api/app.py
+  tests/test_api_auth.py
+  docs/AUTH0_SETUP.md
+
+Vechiul login local demonstrativ si vechile endpoint-uri locale de sesiune au
+fost eliminate. Auth0 Universal Login este acum singura sursa de autentificare.
+
+======================================================================
+2. CONFIGURATIA AUTH0 COMUNA ECHIPEI
+======================================================================
+
+In tenant exista:
+
+APLICATIE
+  Nume: Flowgency Development
+  Tip: Regular Web Application
+
+  Allowed Callback URLs:
+    http://localhost:3000/auth/callback
+
+  Allowed Logout URLs:
+    http://localhost:3000
+
+  Allowed Web Origins:
+    http://localhost:3000
+
+API
+  Nume: Flowgency API
+  Identifier/Audience: https://api.flowgency.local
+  Signing algorithm: RS256
+  Enable RBAC: activ
+  Add Permissions in the Access Token: activ
+
+PERMISIUNI API
+  simulation:read     - citire stare live
+  analytics:read      - citire analytics
+  simulation:control  - comenzi de control
+
+ROLURI
+  analyst:
+    simulation:read
+    analytics:read
+
+  operator:
+    simulation:read
+    analytics:read
+    simulation:control
+
+CONEXIUNI
+  Analyst: Auth0 Passwordless Email, connection name "email".
+  Operator: Auth0 Database, connection name "Username-Password-Authentication".
+  Ambele trebuie sa fie activate pentru aplicatia Flowgency Development.
+  Google/social login nu este necesar pentru acest flux si trebuie lasat oprit
+  daca nu exista o decizie explicita de proiect pentru el.
+
+Authentication Profile este "Identifier First". Aceasta setare a fost necesara
+pentru ca Passwordless Email sa poata fi atasat aplicatiei.
+
+MFA
+  - One-time Password/authenticator este activat ca factor.
+  - Politica MFA globala este Never; selectia se face prin Action, ca Analyst sa
+    nu primeasca MFA de Operator.
+  - Remember trusted browser trebuie dezactivat pentru acest MVP.
+
+POST-LOGIN ACTION
+  Nume folosit: Flowgency Operator MFA
+  Action-ul este deployed si adaugat intre Start si Complete in Post Login flow.
+
+  Codul Action-ului:
+
+    exports.onExecutePostLogin = async (event, api) => {
+      if (event.user.app_metadata?.use_mfa === true) {
+        api.multifactor.enable("any", {
+          allowRememberBrowser: false,
+        });
+      }
+    };
+
+Pentru fiecare Operator, in app_metadata trebuie sa existe exact:
+
+  {
+    "use_mfa": true
+  }
+
+Nu folositi user_metadata pentru aceasta decizie, deoarece utilizatorul si-ar
+putea modifica acea zona. Analyst nu primeste use_mfa=true.
+
+NOTA EMAIL:
+  Providerul implicit Auth0 Email este acceptabil numai pentru development/test.
+  Pentru productie trebuie configurat un provider de email propriu si revizuite
+  template-urile, rate limits si livrarea mesajelor.
+
+======================================================================
+3. SETUP LOCAL PENTRU FIECARE COLEG
+======================================================================
+
+PREREQUISITES
+  - Linux/WSL recomandat;
+  - Git;
+  - Node.js 22 sau mai nou;
+  - Python compatibil cu proiectul si un virtual environment;
+  - Eclipse SUMO si suportul Python TraCI conform setup-ului proiectului.
+
+Nu reinstalati sau schimbati SUMO orbeste. Verificati mai intai mediul existent,
+SUMO_HOME, versiunea si instructiunile scenariului. Repository-ul poate fi pe
+NTFS prin symlink; venv-ul poate fi tinut intr-o locatie Linux-native.
+
+A. OBTINEREA CODULUI
+
+  git fetch origin
+  git switch feat/auth0-role-access
+  git pull --ff-only
+
+Dupa merge, se poate folosi branch-ul tinta al echipei in locul celui de mai sus.
+
+B. FRONTEND
+
+  cd frontend
+  npm ci
+  cp .env.example .env.local
+
+Completati frontend/.env.local astfel, fara sa comiteti fisierul:
+
+  NEXT_PUBLIC_BACKEND_URL=http://127.0.0.1:8000
+  BACKEND_URL=http://127.0.0.1:8000
+  AUTH0_DOMAIN=<tenant-domain-fara-https>
+  AUTH0_CLIENT_ID=<client-id-ul-aplicatiei>
+  AUTH0_CLIENT_SECRET=<client-secret-rotit-primit-privat>
+  AUTH0_SECRET=<rezultatul-propriu-openssl-rand-hex-32>
+  APP_BASE_URL=http://localhost:3000
+  AUTH0_AUDIENCE=https://api.flowgency.local
+  AUTH0_ANALYST_CONNECTION=email
+  AUTH0_OPERATOR_CONNECTION=Username-Password-Authentication
+
+Reguli importante:
+  - AUTH0_DOMAIN nu contine https:// si nu are slash final.
+  - APP_BASE_URL trebuie sa fie exact http://localhost:3000.
+  - AUTH0_AUDIENCE trebuie sa fie identic in Dashboard, frontend si backend.
+  - AUTH0_ANALYST_CONNECTION si AUTH0_OPERATOR_CONNECTION sunt nume de conexiuni,
+    nu email, username sau parola.
+  - Reporniti Next.js dupa orice schimbare de environment.
+
+C. BACKEND
+
+Din radacina repository-ului, intr-un virtual environment:
+
+  python -m pip install -r backend/requirements.txt
+  cp backend/.env.example backend/.env
+
+Completati backend/.env:
+
+  AUTH0_DOMAIN=<acelasi-tenant-domain-fara-https>
+  AUTH0_AUDIENCE=https://api.flowgency.local
+
+FastAPI nu are nevoie de Client ID sau Client Secret. El foloseste cheile publice
+JWKS pentru validarea tokenurilor.
+
+D. PORNIRE
+
+Terminal 1, din radacina repository-ului:
+
+  set -a
+  source backend/.env
+  set +a
+  python -m uvicorn backend.api.app:app --host 127.0.0.1 --port 8000
+
+Asigurati si SUMO_HOME conform mediului local daca este necesar.
+
+Terminal 2:
+
+  cd frontend
+  npm run dev
+
+Deschideti:
+
+  http://localhost:3000/access
+
+======================================================================
+4. CREAREA SI ALOCAREA UTILIZATORILOR
+======================================================================
+
+ANALYST
+
+1. Utilizatorul apasa "Continue as Analyst".
+2. Introduce o adresa reala de email la care poate primi OTP-ul.
+3. La primul login, Auth0 poate crea automat identitatea Passwordless.
+4. Inainte de rol, aplicatia trebuie sa afiseze Access pending.
+5. Un administrator Auth0 intra la User Management > Users, deschide userul si
+   ii atribuie numai rolul analyst.
+6. Utilizatorul face logout si login din nou pentru a primi un token nou.
+7. Nu se seteaza use_mfa=true pentru Analyst.
+
+OPERATOR
+
+1. Administratorul creeaza un Database user real in Auth0.
+2. Ii atribuie rolul operator.
+3. Seteaza app_metadata la { "use_mfa": true }.
+4. Operatorul apasa "Operator Secure Access", foloseste parola si inroleaza TOTP
+   intr-o aplicatie Authenticator.
+5. Codurile/parolele nu se trimit colegilor sau agentilor AI.
+
+Schimbarea unui rol nu modifica tokenul deja emis. Dupa orice schimbare de rol
+sau permisiuni, utilizatorul trebuie sa faca logout si login din nou.
+
+======================================================================
+5. VERIFICAREA OBLIGATORIE PE FIECARE LAPTOP
+======================================================================
+
+A. VERIFICARI AUTOMATE
+
+Frontend:
+
+  cd frontend
+  npm run lint
+  npm run typecheck
+  npm run build
+
+Backend, din radacina si cu mediul/SUMO configurate:
+
+  python -m unittest discover -s tests -v
+
+Ultimul rezultat obtinut in implementare:
+  - lint: PASS;
+  - TypeScript typecheck: PASS;
+  - Next.js build: PASS;
+  - backend: 61 teste PASS, 1 test preexistent SKIP;
+  - git diff --check: PASS.
+
+B. SMOKE TEST BACKEND
+
+  curl -i http://127.0.0.1:8000/api/health
+
+Asteptat: HTTP 200 si {"status":"ok"}.
+
+  curl -i -X POST http://127.0.0.1:8000/api/simulation/start
+
+Asteptat fara token: HTTP 401. Daca primeste 2xx fara token, este un blocker de
+securitate si nu se face merge/demo pana nu este reparat.
+
+C. MATRICE FUNCTIONALA
+
+PUBLIC, fara login:
+  [ ] / se incarca.
+  [ ] /simulation se incarca.
+  [ ] /analyst redirectioneaza spre /access.
+  [ ] /operator redirectioneaza spre /access.
+  [ ] controalele nu sunt disponibile public.
+
+ANALYST:
+  [ ] Login prin email OTP reuseste.
+  [ ] Fara rol apare Access pending.
+  [ ] Dupa rol si relogin se deschide /analyst.
+  [ ] /analyst/simulation si /analyst/analytics functioneaza.
+  [ ] Nu apar butoane de control.
+  [ ] /operator este refuzat.
+  [ ] Un POST direct catre FastAPI cu token Analyst primeste 403.
+
+OPERATOR:
+  [ ] Login Database reuseste.
+  [ ] MFA TOTP este solicitat.
+  [ ] Remember browser nu permite evitarea MFA la urmatorul login interactiv.
+  [ ] /operator si subpaginile functioneaza.
+  [ ] start/pause/resume/speed/reset/stop functioneaza prin UI.
+  [ ] Browserul nu contine access token in localStorage/sessionStorage.
+
+NEGATIVE TEST RECOMANDAT:
+  Eliminati temporar simulation:control din rolul unui user de test, faceti
+  logout/login si confirmati ca ruta Operator si POST-urile sunt refuzate. Puneti
+  permisiunea la loc dupa test si relogati userul.
+
+D. BROWSER/NETWORK
+
+In DevTools verificati:
+  - comenzile UI merg la /api/simulation/<command> pe Next.js;
+  - browserul nu trimite manual Bearer token catre FastAPI;
+  - callback-ul revine la http://localhost:3000/auth/callback;
+  - nu apar secrete in HTML, console sau bundle-ul client.
+
+======================================================================
+6. TROUBLESHOOTING RAPID
+======================================================================
+
+"Configuration required"
+  Lipseste o variabila din frontend/.env.local. Comparati numai numele cu
+  frontend/.env.example. Nu postati valorile intr-un chat.
+
+"Callback URL mismatch"
+  Verificati exact http://localhost:3000/auth/callback in Auth0 si APP_BASE_URL.
+
+Invalid audience
+  AUTH0_AUDIENCE trebuie sa fie exact https://api.flowgency.local peste tot.
+
+Invalid issuer/JWKS sau 401
+  Verificati AUTH0_DOMAIN fara https://, accesul backendului la internet si
+  expirarea sesiunii. Backendul trebuie sa poata citi JWKS-ul public Auth0.
+
+Access pending
+  Loginul a reusit, dar userul nu are rol/permisii in token. Atribuiti rolul si
+  faceti logout/login.
+
+Access denied sau 403
+  Tokenul este valid, dar lipseste permisiunea ceruta. Verificati rolurile,
+  permisiunile API, RBAC si "Add Permissions in the Access Token".
+
+401 la comanda
+  Token absent/invalid/expirat sau sesiune Next.js expirata. Relogati userul si
+  inspectati logurile server-side fara sa printati tokenul.
+
+Email connection nu ramane activata
+  Verificati Authentication Profile = Identifier First si ca Passwordless Email
+  este activat pentru aplicatia Flowgency Development.
+
+OTP email nu ajunge
+  Verificati spam, rate limits si logurile Auth0. Providerul implicit este numai
+  pentru development; nu presupuneti ca are garantie de productie.
+
+MFA nu apare la Operator
+  Verificati: TOTP enabled, Action deployed, Action in Post Login flow,
+  app_metadata.use_mfa este boolean true, nu string si nu user_metadata.
+
+Backend disconnected
+  Verificati portul 8000, NEXT_PUBLIC_BACKEND_URL/BACKEND_URL si SUMO_HOME.
+
+======================================================================
+7. REGULI PENTRU ORICE AGENT AI CARE CONTINUA LUCRUL
+======================================================================
+
+1. Citeste integral AGENTS.md si docs/AUTH0_SETUP.md inainte de schimbari.
+2. Inspecteaza statusul Git si pastreaza modificarile utilizatorilor. Nu face
+   reset, checkout destructiv, commit, push sau PR fara autorizare explicita.
+3. Nu cere si nu afisa secrete. Nu citi sau reda .env.local decat daca este
+   absolut necesar; valideaza prin rezultate booleene/redactate.
+4. Daca un secret apare in output/conversatie, opreste publicarea, elimina-l din
+   staging/history daca este cazul si cere rotirea lui.
+5. Nu comite niciun .env real. Doar fisiere .env.example cu placeholders.
+6. Pastreaza invariantul de securitate:
+     - public GET/WS ramane read-only;
+     - toate POST-urile de control cer simulation:control;
+     - autorizarea UI nu inlocuieste autorizarea FastAPI;
+     - tokenurile raman server-side si nu ajung in browser storage.
+7. Foloseste SDK-ul @auth0/nextjs-auth0 v4. Nu reintroduce exemple v3 precum
+   pages/api/auth/[auth0] sau presupuneri de environment incompatibile.
+8. Nu adauga Auth0 Management API credentials doar pentru automatizarea setupului.
+   Configurarea tenantului si rolurilor ramane manuala pentru MVP.
+9. Nu transforma valori necunoscute de trafic in zero si nu modifica fizica SUMO,
+   controlerul sau contractele comune ca efect secundar al unei lucrari Auth0.
+10. Daca schimbi contractele shared, actualizeaza docs/DATA_CONTRACTS.md.
+11. Ruleaza cea mai mica verificare relevanta, apoi lint, typecheck, build si
+    testele backend cand riscul o cere. Raporteaza exact ce a rulat si ce nu.
+12. Nu declara integrarea functionala doar fiindca build-ul trece. Verifica si
+    matricea Public/Analyst/Operator cu useri reali de test.
+
+======================================================================
+8. DEFINITION OF DONE PENTRU MERGE/DEMO
+======================================================================
+
+Treaba este considerata completa numai daca:
+
+  [ ] GitHub tokenul expus este revocat.
+  [ ] Auth0 Client Secret este rotit.
+  [ ] Fiecare laptop are un AUTH0_SECRET propriu.
+  [ ] Niciun secret nu apare in Git history sau fisiere urmarite.
+  [ ] PR-ul este revizuit si branch-ul corect este folosit de echipa.
+  [ ] Lint, typecheck, build si testele backend trec.
+  [ ] Public poate doar citi.
+  [ ] Analyst poate citi, dar nu controla.
+  [ ] Operator poate controla numai dupa parola + MFA.
+  [ ] FastAPI raspunde 401 fara token si 403 fara permisiune.
+  [ ] Logout/login reflecta corect modificarile de rol.
+  [ ] Email OTP si TOTP au fost testate de pe cel putin un al doilea laptop.
+  [ ] Providerul implicit de email este tratat ca development-only.
+  [ ] Documentatia ramane sincronizata cu orice schimbare ulterioara.
+
+Sursa tehnica principala pentru detalii suplimentare:
+
+  docs/AUTH0_SETUP.md
+

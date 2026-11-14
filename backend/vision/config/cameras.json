@@ -1,0 +1,155 @@
+{
+  "schema_version": "1.0",
+  "cameras": [
+    {
+      "intersection_id": "J1",
+      "camera_id": "JamCams_00001.04503",
+      "frame_size": [
+        352,
+        288
+      ],
+      "reference_frame": "vision_output/reference_frames/JamCams_00001.04503__20261112_230652_f000.jpg",
+      "approaches": [
+        {
+          "approach_id": "westbound_in",
+          "line": [
+            [
+              194.3,
+              65.3
+            ],
+            [
+              181.3,
+              73.3
+            ]
+          ],
+          "inbound_point": [
+            196.0,
+            78.7
+          ],
+          "sumo_edge_id": null,
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "intersection_id": "J2",
+      "camera_id": "JamCams_00001.04339",
+      "frame_size": [
+        352,
+        288
+      ],
+      "reference_frame": "vision_output/reference_frames/JamCams_00001.04339__20261113_173908_f000.jpg",
+      "approaches": [
+        {
+          "approach_id": "northeastbound_in",
+          "line": [
+            [
+              181.7,
+              122.0
+            ],
+            [
+              229.7,
+              126.0
+            ]
+          ],
+          "inbound_point": [
+            197.3,
+            143.3
+          ],
+          "sumo_edge_id": null,
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "intersection_id": "J3",
+      "camera_id": "JamCams_00001.04523",
+      "frame_size": [
+        352,
+        288
+      ],
+      "reference_frame": "vision_output/reference_frames/JamCams_00001.04523__20261112_225634_f000.jpg",
+      "approaches": [
+        {
+          "approach_id": "southbound_in",
+          "line": [
+            [
+              212.3,
+              158.3
+            ],
+            [
+              261.3,
+              158.0
+            ]
+          ],
+          "inbound_point": [
+            230.3,
+            184.7
+          ],
+          "sumo_edge_id": null,
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "intersection_id": "J4",
+      "camera_id": "JamCams_00001.04611",
+      "frame_size": [
+        352,
+        288
+      ],
+      "reference_frame": "vision_output/reference_frames/JamCams_00001.04611__20261113_173909_f000.jpg",
+      "approaches": [
+        {
+          "approach_id": "northbound_in",
+          "line": [
+            [
+              129.7,
+              62.3
+            ],
+            [
+              168.7,
+              61.0
+            ]
+          ],
+          "inbound_point": [
+            155.0,
+            76.7
+          ],
+          "sumo_edge_id": null,
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "intersection_id": "J5",
+      "camera_id": "JamCams_00001.04345",
+      "frame_size": [
+        352,
+        288
+      ],
+      "reference_frame": "vision_output/reference_frames/JamCams_00001.04345__20261112_225532_f000.jpg",
+      "approaches": [
+        {
+          "approach_id": "southbound_in",
+          "line": [
+            [
+              180.7,
+              79.3
+            ],
+            [
+              200.7,
+              79.0
+            ]
+          ],
+          "inbound_point": [
+            188.0,
+            97.0
+          ],
+          "sumo_edge_id": null,
+          "notes": ""
+        }
+      ]
+    }
+  ]
+}

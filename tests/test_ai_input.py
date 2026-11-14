@@ -7,6 +7,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from pydantic import ValidationError
+
+from backend.models.gates import (
+    GateCounts,
+    GateCountsInput,
+    GateEvent,
+    GateEventInput,
+)
 from backend.simulation.ai_input import JsonlValidationError, build_timeline
 
 
@@ -78,6 +86,47 @@ class AiInputUnitTests(unittest.TestCase):
         self.assertEqual(first.approaches["east"].new_arrival_track_ids, (44,))
         self.assertEqual(first.approaches["east"].sumo_incoming_edge_id, "east_in")
         self.assertEqual(first.in_intersection, 5)
+
+    def test_strict_producer_and_tolerant_consumer_models_are_separate(self) -> None:
+        event = event_record(
+            44, 0.542, future_emergency={"vehicle_type": "ambulance"}
+        )
+        counts = count_record(0.0, extra=True)
+
+        with self.assertRaises(ValidationError):
+            GateEvent.model_validate(event)
+        with self.assertRaises(ValidationError):
+            GateCounts.model_validate(counts)
+
+        consumed_event = GateEventInput.model_validate(event)
+        consumed_counts = GateCountsInput.model_validate(counts)
+        self.assertEqual(
+            consumed_event.model_extra,
+            {"future_emergency": {"vehicle_type": "ambulance"}},
+        )
+        self.assertEqual(
+            consumed_counts.approaches["north"].model_extra,
+            {"future_confidence": 0.9},
+        )
+
+    def test_tolerant_models_still_reject_malformed_known_fields(self) -> None:
+        malformed_event = event_record(44, 0.542)
+        malformed_event["track_id"] = "44"
+        malformed_counts = count_record(0.0)
+        malformed_counts["approaches"]["north"]["vehicles_on_approach"] = -1  # type: ignore[index]
+        with self.assertRaises(ValidationError):
+            GateEventInput.model_validate(malformed_event)
+        with self.assertRaises(ValidationError):
+            GateCountsInput.model_validate(malformed_counts)
+
+    def test_tolerant_event_preserves_origin_arm_semantics(self) -> None:
+        missing_origin = event_record(44, 0.542)
+        missing_origin["event"] = "intersection_exited"
+        with self.assertRaises(ValidationError):
+            GateEventInput.model_validate(missing_origin)
+        unexpected_origin = event_record(44, 0.542, origin_arm=None)
+        with self.assertRaises(ValidationError):
+            GateEventInput.model_validate(unexpected_origin)
 
     def test_missing_arm_remains_unknown_but_arrival_is_retained(self) -> None:
         first = count_record(0.0)

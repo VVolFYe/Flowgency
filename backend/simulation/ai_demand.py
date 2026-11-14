@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
 
-from backend.models.gates import GateEvent
+from backend.models.gates import GateEventInput
 from backend.simulation.ai_input import (
     DEFAULT_MAPPING_PATH,
     DEFAULT_SCENARIO_MAPPING_PATH,
@@ -137,7 +137,7 @@ def generate_demand(
     if timeline.points[0].t_s != 0:
         raise JsonlValidationError("counts input must include the initial t_s=0 observation")
     routes = derive_straight_routes(network_path, timeline.mapping, scenario_mapping_path)
-    events = read_jsonl(events_path, GateEvent)
+    events = read_jsonl(events_path, GateEventInput)
     arrival_events = [event for event in events if event.event == "approach_entered"]
     arrivals = [
         Arrival(

@@ -1,0 +1,11 @@
+"use client";
+
+import Link from "next/link";
+import { ConnectionBadge, formatTime } from "@/components/simulation/simulation-workspace";
+import { useSimulation } from "@/components/simulation/simulation-provider";
+
+export default function AnalystOverviewPage() {
+  const { status, snapshot, connection, error, history } = useSimulation();
+  const queues = Object.values(snapshot?.queue_lengths_by_approach ?? {}).map((value) => value?.vehicles).filter((value): value is number => value != null);
+  return <div><div className="flex flex-wrap items-end justify-between gap-4"><div><p className="eyebrow">Analyst workspace</p><h1 className="mt-2 text-4xl font-semibold tracking-[-.045em]">Overview</h1><p className="mt-2 text-sm text-[#81909a]">Live read-only SUMO state and current-session analytics.</p></div><ConnectionBadge connection={connection} stale={connection !== "connected" && snapshot !== null} /></div>{error && <div className="mt-5 rounded-xl border border-[#ff6670]/25 bg-[#ff6670]/10 px-4 py-3 text-sm text-[#ffabb1]">{error}</div>}<section className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{[["Simulation state", status.state], ["Simulation time", formatTime(snapshot?.simulation_time_s ?? status.simulation_time_s)], ["Active vehicles", snapshot?.vehicles?.length ?? "—"], ["Largest current queue", queues.length ? Math.max(...queues) : "—"]].map(([label, value]) => <article key={label} className="surface rounded-2xl p-5"><p className="text-xs text-[#788892]">{label}</p><p className="mt-7 truncate font-mono text-2xl capitalize text-[#dce5e9]">{value}</p></article>)}</section><section className="mt-4 grid gap-4 md:grid-cols-2"><Link href="/analyst/simulation" className="surface-interactive surface rounded-[24px] p-6"><p className="eyebrow">Live simulation</p><h2 className="mt-3 text-xl font-medium">Inspect map and telemetry →</h2><p className="mt-2 text-sm text-[#81909a]">Geometry, vehicles, queues and signal state without run controls.</p></Link><Link href="/analyst/analytics" className="surface-interactive surface rounded-[24px] p-6"><p className="eyebrow">Current browser session</p><h2 className="mt-3 text-xl font-medium">Inspect data evolution →</h2><p className="mt-2 text-sm text-[#81909a]">{history.length ? `${history.length} real snapshots collected.` : "Waiting for real snapshot data."}</p></Link></section></div>;
+}

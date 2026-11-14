@@ -11,7 +11,7 @@ from typing import Any, Iterable, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
-from backend.models.gates import Arm, GateCounts, GateEvent
+from backend.models.gates import Arm, GateCountsInput, GateEventInput
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -160,7 +160,9 @@ def load_arm_mapping(
     return result
 
 
-def _require_ordered(records: Iterable[GateCounts | GateEvent], label: str) -> None:
+def _require_ordered(
+    records: Iterable[GateCountsInput | GateEventInput], label: str
+) -> None:
     previous = -1.0
     for record in records:
         if record.t_s < previous:
@@ -175,8 +177,8 @@ def build_timeline(
     scenario_mapping_path: Path = DEFAULT_SCENARIO_MAPPING_PATH,
 ) -> ObservationTimeline:
     """Build count observations plus event-derived arrivals in video-time intervals."""
-    counts = read_jsonl(counts_path, GateCounts)
-    events = read_jsonl(events_path, GateEvent)
+    counts = read_jsonl(counts_path, GateCountsInput)
+    events = read_jsonl(events_path, GateEventInput)
     mapping = load_arm_mapping(mapping_path, scenario_mapping_path)
     _require_ordered(counts, "count")
     _require_ordered(events, "event")

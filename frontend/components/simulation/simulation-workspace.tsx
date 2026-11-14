@@ -185,20 +185,21 @@ function OperatorControls() {
   );
 }
 
-export function SimulationWorkspace({ access }: { access: "public" | "operator" }) {
+export function SimulationWorkspace({ access }: { access: "public" | "analyst" | "operator" }) {
   const { geometry, selectedScenario, selectedScenarioId, status, snapshot, connection, loading, error, dismissError } = useSimulation();
   const operator = access === "operator";
+  const protectedViewer = access !== "public";
   const stale = connection !== "connected" && snapshot !== null;
   return (
     <div>
-      <div className="mb-5 flex flex-wrap items-end justify-between gap-4"><div><p className="eyebrow">{operator ? "Operator workspace" : "Public live view"}</p><h1 className="mt-2 text-3xl font-semibold tracking-[-.04em]">Live Simulation</h1>{operator ? <p className="mt-2 text-xs text-[#6f808a]">Authoritative SUMO simulation · {BACKEND_URL}</p> : selectedScenario && <p className="mt-2 max-w-2xl text-xs leading-5 text-[#71818a]">{selectedScenario.display_name} · {selectedScenario.description}</p>}</div><ConnectionBadge connection={connection} stale={stale} /></div>
+      <div className="mb-5 flex flex-wrap items-end justify-between gap-4"><div><p className="eyebrow">{operator ? "Operator workspace" : protectedViewer ? "Analyst workspace" : "Public live view"}</p><h1 className="mt-2 text-3xl font-semibold tracking-[-.04em]">Live Simulation</h1>{operator ? <p className="mt-2 text-xs text-[#6f808a]">Authoritative SUMO simulation · {BACKEND_URL}</p> : selectedScenario && <p className="mt-2 max-w-2xl text-xs leading-5 text-[#71818a]">{selectedScenario.display_name} · {selectedScenario.description}</p>}</div><ConnectionBadge connection={connection} stale={stale} /></div>
       {error && <div role="alert" className="mb-4 flex items-start justify-between gap-4 rounded-xl border border-[#ff6670]/25 bg-[#ff6670]/10 px-4 py-3 text-sm text-[#ffabb1]"><span>{error}</span><button type="button" onClick={dismissError} className="text-xs uppercase tracking-wider text-[#ffccd0]">Dismiss</button></div>}
       <section className={`grid gap-4 ${operator ? "xl:grid-cols-[260px_minmax(0,1fr)_285px]" : "lg:grid-cols-[minmax(0,1fr)_285px]"}`}>
         {operator && <OperatorControls />}
         <div className={`surface order-1 min-h-[480px] rounded-[24px] p-2 shadow-2xl shadow-black/30 ${operator ? "xl:order-2 xl:h-[calc(100vh-176px)] xl:min-h-[620px]" : "lg:h-[calc(100vh-180px)] lg:min-h-[600px]"}`}>
           {geometry ? <SimulationCanvas key={geometry.scenario_selection_id ?? selectedScenarioId} geometry={geometry} scenario={selectedScenario} snapshot={snapshot} status={status} connection={connection} /> : <div className="grid h-full min-h-[470px] place-items-center rounded-[20px] bg-[#0b1115] px-6 text-center text-sm text-[#81909a]">{loading ? "Loading SUMO network geometry…" : "Network geometry unavailable while the backend is disconnected."}</div>}
         </div>
-        <aside className="order-3 grid content-start gap-4 sm:grid-cols-2 lg:grid-cols-1"><VoiceAlerts alerts={snapshot?.voice_alerts ?? []} runId={snapshot?.run_id ?? null} simulationTime={snapshot?.simulation_time_s ?? null} /><LiveTelemetry operator={operator} />{operator ? <><Queues /><RunMetrics /><SnapshotDetails /></> : <><RunMetrics /><div className="surface rounded-[20px] p-4"><p className="font-mono text-[10px] uppercase tracking-[.2em] text-[#667781]">About this view</p><p className="mt-3 text-sm leading-6 text-[#8b9aa3]">This read-only feed shows geometry, vehicles and signals produced by the server-owned SUMO simulation. Public viewers cannot change the run.</p></div></>}</aside>
+        <aside className="order-3 grid content-start gap-4 sm:grid-cols-2 lg:grid-cols-1"><VoiceAlerts alerts={snapshot?.voice_alerts ?? []} runId={snapshot?.run_id ?? null} simulationTime={snapshot?.simulation_time_s ?? null} /><LiveTelemetry operator={operator} />{protectedViewer ? <><Queues /><RunMetrics /><SnapshotDetails /></> : <><RunMetrics /><div className="surface rounded-[20px] p-4"><p className="font-mono text-[10px] uppercase tracking-[.2em] text-[#667781]">About this view</p><p className="mt-3 text-sm leading-6 text-[#8b9aa3]">This read-only feed shows geometry, vehicles and signals produced by the server-owned SUMO simulation. Public viewers cannot change the run.</p></div></>}</aside>
       </section>
     </div>
   );

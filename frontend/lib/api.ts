@@ -15,12 +15,12 @@ export const WS_URL = (() => {
   return url.toString();
 })();
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(path: string, init?: RequestInit, baseUrl = BACKEND_URL): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(`${BACKEND_URL}${path}`, { ...init, cache: "no-store", signal: init?.signal ?? AbortSignal.timeout(4000) });
+    response = await fetch(`${baseUrl}${path}`, { ...init, cache: "no-store", signal: init?.signal ?? AbortSignal.timeout(4000) });
   } catch {
-    throw new Error(`Cannot reach the Flowgency backend at ${BACKEND_URL}`);
+    throw new Error(baseUrl ? `Cannot reach the Flowgency backend at ${BACKEND_URL}` : "Cannot reach the authenticated command proxy");
   }
   if (!response.ok) {
     let detail = `${response.status} ${response.statusText}`;
@@ -65,10 +65,10 @@ export const api = {
         : command === "resume" && simulationSpeed !== undefined
           ? JSON.stringify({ simulation_speed: simulationSpeed })
           : undefined,
-    }),
+    }, ""),
   setSpeed: (simulationSpeed: number) => request<SimulationStatus>("/api/simulation/speed", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ simulation_speed: simulationSpeed }),
-  }),
+  }, ""),
 };

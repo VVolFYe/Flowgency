@@ -8,6 +8,8 @@ from math import ceil, floor, isfinite
 from pathlib import Path
 from typing import Any, Iterable
 
+from backend.controller.gap import has_service_gap
+
 from backend.controller.cycle_planner import (
     CycleConfig,
     CyclePlan,
@@ -142,6 +144,7 @@ class AdaptiveSignal:
         self.groups = specification["groups"]
         self.strategy = specification.get("strategy", "queue_proportional_v1")
         self._phase_seen: int | None = None
+        self._gap_since = None
         self._plan = None
         self._lanes: dict[str, tuple[str, ...]] = {}
         self._downstream_lanes: dict[str, tuple[str, ...]] = {}
@@ -218,9 +221,9 @@ class AdaptiveSignal:
             for position, first in enumerate(self._lanes.values())
             for second in list(self._lanes.values())[position + 1 :]
         )
-        if shared_lanes and self.strategy != "pressure_v1":
+        if shared_lanes and self.strategy == "queue_proportional_v1":
             raise ValueError("incoming lane belongs to multiple groups")
-        if self.strategy not in {"queue_proportional_v1", "pressure_v1"}:
+        if self.strategy not in {"queue_proportional_v1", "pressure_v1", "gap_v1"}:
             raise ValueError(f"unknown adaptive strategy {self.strategy}")
 
     def _validate_corridor_guards(self) -> None:
@@ -504,6 +507,41 @@ class AdaptiveSignal:
         """Observe one step and apply a plan only at verified phase entries."""
         light = self.connection.trafficlight
         phase_index = int(light.getPhase(self.tls_id))
+        if self.strategy == "gap_v1":
+            if self._phase_seen != phase_index:
+                if self._phase_seen is not None and phase_index != (self._phase_seen + 1) % len(self.phases):
+                    raise RuntimeError(f"unexpected phase transition for {self.tls_id}")
+                self._phase_seen = phase_index
+                self._gap_since = None
+            phase = self.phases[phase_index]
+            if "group_id" not in phase:
+                return None
+            state = light.getRedYellowGreenState(self.tls_id)
+            if state != phase["state"]:
+                raise RuntimeError(f"unexpected signal state for {self.tls_id}")
+            if not has_service_gap(state, vehicle_observations or ()):
+                self._gap_since = None
+                return None
+            now = self.connection.simulation.getTime()
+            if self._gap_since is None:
+                self._gap_since = now
+            group = next(g for g in self.groups if g["phase_index"] == phase_index)
+            remaining = light.getNextSwitch(self.tls_id) - now
+            spent = phase["duration_s"] - remaining
+            if now - self._gap_since >= 3 and spent >= group["min_green_s"] and remaining > 1:
+                light.setPhaseDuration(self.tls_id, 1)
+                return {
+                    "intersection_id": self.spec["intersection_id"],
+                    "traffic_light_id": self.tls_id,
+                    "strategy": self.strategy,
+                    "queues": {
+                        gid: sum(self.connection.lane.getLastStepHaltingNumber(lane) for lane in lanes)
+                        for gid, lanes in self._lanes.items()
+                    },
+                    "green_durations_s": {group["group_id"]: spent + 1},
+                    "reason": "green_gap_with_competing_demand",
+                }
+            return None
         if self._phase_seen is None and phase_index != 0:
             if self.strategy == "pressure_v1":
                 self._record_pressure_sample(vehicle_observations or [])
@@ -601,7 +639,7 @@ def _derive_controller_spec(
         "intersection_id": traffic_light_id,
         "traffic_light_id": traffic_light_id,
         "program_id": program_id,
-        "strategy": "pressure_v1",
+        "strategy": discovery.get("strategy", "pressure_v1"),
         "green_budget_s": sum(phases[group["phase_index"]]["duration_s"] for group in groups),
         "max_change_s": float(discovery.get("max_change_s", 6.0)),
         "measurement": dict(discovery.get("measurement", {})),
@@ -647,6 +685,9 @@ def load_adaptive_signal_set(path: Path, connection: Any) -> AdaptiveLoadResult:
     if unknown_guard_sources:
         raise ValueError("corridor guard upstream controller is not audited")
     signals: list[AdaptiveSignal] = []
+    protected = {g["upstream_traffic_light_id"] for g in corridor_guards} | {
+        m["downstream_traffic_light_id"] for g in corridor_guards for m in g["movements"]
+    }
     fixed: dict[str, str] = {}
     for traffic_light_id in sorted(expected):
         if traffic_light_id not in actual:
@@ -658,7 +699,7 @@ def load_adaptive_signal_set(path: Path, connection: Any) -> AdaptiveLoadResult:
                 signals.append(AdaptiveSignal(
                     _derive_controller_spec(
                         traffic_light_id,
-                        discovery,
+                        {**discovery, "strategy": "pressure_v1"} if traffic_light_id in protected else discovery,
                         connection,
                         [
                             guard for guard in corridor_guards

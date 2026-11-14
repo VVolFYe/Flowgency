@@ -286,7 +286,7 @@ class SumoRunner:
     def _apply_cycle_adaptive_control(self) -> None:
         pressure_signals = [
             signal for signal in self._adaptive_signals
-            if signal.strategy == "pressure_v1"
+            if signal.strategy in {"pressure_v1", "gap_v1"}
         ]
         observations = collect_vehicle_observations(
             self.connection,

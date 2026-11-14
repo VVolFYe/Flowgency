@@ -2,6 +2,7 @@
 
 import { ConnectionBadge, formatTime } from "@/components/simulation/simulation-workspace";
 import { useSimulation, type HistoryPoint } from "@/components/simulation/simulation-provider";
+import { usePathname } from "next/navigation";
 
 const COLORS = ["#70e9a6", "#71c7ec", "#f0bc55", "#dc78f0", "#ff7f86", "#a4d47c"];
 
@@ -43,7 +44,8 @@ function valueMax(values: Array<number | null>) {
   return known.length ? Math.max(...known) : null;
 }
 
-export default function OperatorAnalyticsPage() {
+export default function SessionAnalytics() {
+  const workspace = usePathname().startsWith("/analyst") ? "Analyst" : "Operator";
   const { history, status, snapshot, connection } = useSimulation();
   const approaches = Array.from(new Set(history.flatMap((point) => Object.keys(point.queues))));
   const currentVehicles = snapshot?.vehicles ? snapshot.vehicles.length : null;
@@ -54,7 +56,7 @@ export default function OperatorAnalyticsPage() {
   const vehicleSeries = [{ label: "Active vehicles", color: "#70e9a6", value: (point: HistoryPoint) => point.vehicleCount }];
   return (
     <div>
-      <div className="flex flex-wrap items-end justify-between gap-4"><div><p className="eyebrow">Operator analytics</p><h1 className="mt-2 text-4xl font-semibold tracking-[-.045em]">Current browser session</h1><p className="mt-2 max-w-3xl text-sm leading-6 text-[#81909a]">Real WebSocket snapshots only. The series resets when a new <span className="font-mono">run_id</span> appears and is not persisted beyond this browser session.</p></div><ConnectionBadge connection={connection} stale={connection !== "connected" && snapshot !== null} /></div>
+      <div className="flex flex-wrap items-end justify-between gap-4"><div><p className="eyebrow">{workspace} analytics</p><h1 className="mt-2 text-4xl font-semibold tracking-[-.045em]">Current browser session</h1><p className="mt-2 max-w-3xl text-sm leading-6 text-[#81909a]">Real WebSocket snapshots only. The series resets when a new <span className="font-mono">run_id</span> appears and is not persisted beyond this browser session.</p></div><ConnectionBadge connection={connection} stale={connection !== "connected" && snapshot !== null} /></div>
       <section className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         {[
           ["Current vehicles", currentVehicles ?? "—"], ["Max vehicles", maxVehicles ?? "—"],

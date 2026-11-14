@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Flowgency · Traffic Simulation",
-  description: "Public live SUMO view and protected Operator control center",
+  description: "Public SUMO view with protected Analyst and Operator workspaces",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
