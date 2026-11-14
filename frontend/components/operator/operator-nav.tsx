@@ -9,6 +9,7 @@ export function OperatorNav({ workspace }: { workspace: "analyst" | "operator" }
     { href: `/${workspace}`, label: "Overview" },
     { href: `/${workspace}/simulation`, label: "Live Simulation" },
     { href: `/${workspace}/analytics`, label: "Analytics" },
+    { href: `/${workspace}/statistics`, label: "Statistics" },
     ...(workspace === "operator" ? [{ href: "/operator/benchmarks", label: "Benchmarks" }] : []),
   ];
 
