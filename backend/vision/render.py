@@ -85,7 +85,7 @@ def compose(
         x1, y1, x2, y2 = (int(v * scale) for v in box.bbox)
         counted = counter is not None and counter.is_counted(box.track_id)
         cv2.rectangle(view, (x1, y1), (x2, y2), colour, 3 if counted else 2, cv2.LINE_AA)
-        cx, cy = (int(v * scale) for v in box.contact_point)
+        cx, cy = (int(v * scale) for v in box.point(camera.counting_point))
         cv2.circle(view, (cx, cy), 4, (255, 255, 255), -1, cv2.LINE_AA)
         label = f"#{box.track_id} {box.class_name} {box.confidence:.2f}" + (" +" if counted else "")
         _text(view, label, (x1, max(y1 - 5, 14)), 0.45, colour)
@@ -95,7 +95,7 @@ def compose(
     _text(top, f"{camera.intersection_id}  {camera.camera_id}   clip {clip.name}   "
                f"window end {format_utc(clip.observed_at_utc)} (approx.)", (8, 20), 0.5)
     _text(top, f"frame {frame_index + 1}/{frame_count}   {model_label}   "
-               "counting: bottom-centre crosses line in arrow direction", (8, 42), 0.45, (200, 200, 200))
+               f"counting: {camera.counting_point.replace('_', '-')} crosses line in arrow direction", (8, 42), 0.45, (200, 200, 200))
     if counter is not None:
         result = counter.result()
         parts = []

@@ -67,6 +67,23 @@ still count. Outbound crossings are ignored; a track first seen already past the
 line is never counted for that approach. Its class is the majority class over
 the track's whole life in the clip (ties: higher summed confidence, then name).
 COCO `car`, `motorcycle`, `bus`, `truck`, `bicycle` map to the same contract keys.
+The counting point is per camera (`counting_point` in `cameras.json`):
+`bottom_center` (default, all JamCams) or `center` (top-down views).
+
+**Duplicate suppression.** One vehicle can flip between two box extents with
+different labels (a whole-vehicle `truck` box and a smaller `car` box over its
+front). Before 2026-11-14 this was counted twice: per-class NMS kept both boxes
+in the same frame, and when the box shrank ByteTrack started a new track and
+later re-activated the old one, so two track IDs crossed the line (traced in
+the J3 and J4 demos). Now NMS ignores labels and also drops a lower-scored box
+when at least 85 % of the smaller box lies inside the other, and
+`track_filter.DuplicateTrackFilter` maps a newborn track ID onto the track it
+duplicates (nested inside a visible track, or overlapping a track lost at most
+6 frames earlier). On the 53/50/50 cached clips this lowered the inbound totals
+from 47 to 43 (yolo11m), 37 to 35 (yolo11s) and 30 to 26 (yolo11n). Every
+changed yolo11m/yolo11s clip was inspected and each removed count was a
+duplicate; 3 of the 4 changed yolo11n clips were not inspected. No ground truth was labelled
+yet, so the effect on accuracy is not measured.
 
 **Observation fields.**
 

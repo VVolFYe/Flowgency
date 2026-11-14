@@ -14,6 +14,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
+from .detections import CountingPoint
 from .paths import MAPPING_CANDIDATES_JSON
 
 CONFIG_SCHEMA_VERSION = "1.0"
@@ -80,6 +81,8 @@ class CameraConfig(BaseModel):
     camera_id: Annotated[str, Field(min_length=1)]
     frame_size: tuple[Annotated[int, Field(gt=0)], Annotated[int, Field(gt=0)]]
     reference_frame: str | None = None
+    # Street-level JamCams count at the box bottom-centre (road contact point).
+    counting_point: CountingPoint = "bottom_center"
     approaches: tuple[ApproachConfig, ...] = ()
 
     @model_validator(mode="after")

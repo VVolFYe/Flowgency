@@ -132,7 +132,7 @@ def process_clip(
             raise ValueError(f"decoded {len(frames)} frames, scan saw {scan.frame_count}")
         if tuple(frames[0].shape[1::-1]) != tuple(camera.frame_size):
             raise ValueError(f"frame size {frames[0].shape[1::-1]} != configured {camera.frame_size}")
-        counter = LineCrossingCounter(counting_lines(camera))
+        counter = LineCrossingCounter(counting_lines(camera), camera.counting_point)
         tracker.begin_clip(clip.key, clip.path.stat().st_size)
         corrupt = set(scan.corrupt_frames)
         try:

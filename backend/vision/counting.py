@@ -7,7 +7,9 @@ line and an ``inbound_point`` on the side vehicles move *towards* when entering
 the intersection ("downstream"). A track is counted for an approach when its
 road contact point (bottom-centre of its box) moves from the upstream side (or
 exactly on the line) to the downstream side, and that movement crosses the
-segment within its extent. Movements are measured between consecutive
+segment within its extent. The counting point is configurable per camera
+(``counting_point``): bottom-centre by default, box centre for top-down views.
+Movements are measured between consecutive
 *observations* of the track, so short tracker gaps still count.
 
 * Outbound crossings (downstream -> upstream) are ignored.
@@ -23,6 +25,8 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
+
+from .detections import counting_point
 
 VEHICLE_CLASSES = ("car", "motorcycle", "bus", "truck", "bicycle")
 
@@ -40,6 +44,9 @@ class TrackedBox:
     def contact_point(self) -> Point:
         x1, _, x2, y2 = self.bbox
         return ((x1 + x2) / 2.0, y2)
+
+    def point(self, mode: str = "bottom_center") -> Point:
+        return counting_point(self.bbox, mode)
 
 
 def _cross(o: Point, a: Point, b: Point) -> float:
@@ -127,11 +134,13 @@ class CountResult:
 class LineCrossingCounter:
     """Feed per-frame tracked boxes, then read the per-approach counts."""
 
-    def __init__(self, lines: Sequence[CountingLine]) -> None:
+    def __init__(self, lines: Sequence[CountingLine], counting_point: str = "bottom_center") -> None:
         ids = [line.approach_id for line in lines]
         if len(set(ids)) != len(ids):
             raise ValueError("duplicate approach IDs")
         self.lines = tuple(lines)
+        self.counting_point = counting_point
+        TrackedBox(0, "car", 0.0, (0.0, 0.0, 1.0, 1.0)).point(counting_point)  # validate mode early
         self._tracks: dict[int, _TrackStats] = {}
         self._crossings: dict[tuple[int, str], int] = {}
 
@@ -145,7 +154,7 @@ class LineCrossingCounter:
             stats.class_conf[box.class_name] += box.confidence
             stats.conf_sum += box.confidence
             stats.observations += 1
-            point = box.contact_point
+            point = box.point(self.counting_point)
             for line in self.lines:
                 stats.first_side.setdefault(line.approach_id, line.side(point))
                 key = (box.track_id, line.approach_id)

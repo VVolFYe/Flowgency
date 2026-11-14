@@ -17,6 +17,13 @@ reused across confidence thresholds and line edits:
 
 ``conf`` is therefore the detector score threshold: detections below it never
 reach ByteTrack (Ultralytics' own tracking default is 0.1).
+
+NMS is class-agnostic (``agnostic_nms=True`` at predict time, and
+:func:`~backend.vision.detections.agnostic_nms` again after the confidence
+filter so detections cached before this fix are cleaned too), and ByteTrack
+output passes through :class:`~backend.vision.track_filter.DuplicateTrackFilter`.
+Together they fix London double counts where one vehicle flipped between a
+``truck`` and a nested ``car`` box and got two track IDs (see both modules).
 """
 
 from __future__ import annotations
@@ -29,7 +36,9 @@ from typing import Any
 import numpy as np
 
 from .counting import VEHICLE_CLASSES, TrackedBox
+from .detections import agnostic_nms
 from .paths import VisionPaths
+from .track_filter import DuplicateTrackFilter
 
 TRACKER_CONFIG = "bytetrack.yaml"
 DETECTION_FLOOR = 0.25
@@ -117,11 +126,11 @@ class VehicleTracker:
         imgsz: int = 640,
         device: str = "cpu",
         use_cache: bool = True,
+        model: Any = None,
     ) -> None:
+        """``model`` injects a ready predictor (tests); otherwise weights are loaded by name."""
         if not 0.0 < conf < 1.0:
             raise ValueError("conf must be in (0, 1)")
-        weights = ensure_weights(paths, model_name)
-        from ultralytics import YOLO
         from ultralytics.utils import YAML, IterableSimpleNamespace
         from ultralytics.utils.checks import check_yaml
 
@@ -130,7 +139,12 @@ class VehicleTracker:
         self.imgsz = imgsz
         self.device = device
         self.floor = min(conf, DETECTION_FLOOR)
-        self.model: Any = YOLO(str(weights), task="detect")
+        if model is None:
+            weights = ensure_weights(paths, model_name)
+            from ultralytics import YOLO
+
+            model = YOLO(str(weights), task="detect")
+        self.model: Any = model
         names: dict[int, str] = self.model.names
         self.class_ids = sorted(i for i, n in names.items() if n in VEHICLE_CLASSES)
         missing = set(VEHICLE_CLASSES) - {names[i] for i in self.class_ids}
@@ -143,6 +157,8 @@ class VehicleTracker:
             cache_root = paths.output_dir / "cache" / "detections" / f"{Path(model_name).stem}_imgsz{imgsz}_floor{self.floor:.2f}"
         self.cache = DetectionCache(cache_root)
         self._tracker: Any = None
+        self._dedupe = DuplicateTrackFilter()
+        self._calls = 0
         self._clip: tuple[str, int] | None = None
         self._cached: dict[int, np.ndarray] | None = None
         self._fresh: dict[int, np.ndarray] = {}
@@ -161,6 +177,8 @@ class VehicleTracker:
         from ultralytics.trackers.byte_tracker import BYTETracker
 
         self._tracker = BYTETracker(args=self._tracker_cfg)  # track_buffer 30 frames = 1.2 s at 25 fps
+        self._dedupe = DuplicateTrackFilter()
+        self._calls = 0
         self._clip = (clip_key, size) if clip_key else None
         self._cached = self.cache.load(clip_key, size) if clip_key else None
         self._cached_s = self.cache.last_detect_s if self._cached is not None else None
@@ -181,7 +199,8 @@ class VehicleTracker:
 
     def detect(self, frame: Any) -> np.ndarray:
         result = self.model.predict(
-            frame, conf=self.floor, classes=self.class_ids, imgsz=self.imgsz, device=self.device, verbose=False
+            frame, conf=self.floor, classes=self.class_ids, imgsz=self.imgsz, device=self.device,
+            agnostic_nms=True, verbose=False,
         )[0]
         return result.boxes.data.cpu().numpy().astype(np.float32).reshape(-1, 6)
 
@@ -199,7 +218,7 @@ class VehicleTracker:
             self._fresh_s += time.perf_counter() - started
             if frame_index is not None:
                 self._fresh[frame_index] = dets
-        dets = dets[dets[:, 4] >= self.conf]
+        dets = agnostic_nms(dets[dets[:, 4] >= self.conf])
         boxes = Boxes(dets, frame.shape[:2])
         tracks = self._tracker.update(boxes, frame)
         height, width = frame.shape[:2]
@@ -211,4 +230,6 @@ class VehicleTracker:
                 float(min(max(x2, 0.0), width)), float(min(max(y2, 0.0), height)),
             )
             out.append(TrackedBox(int(track_id), self.names[int(cls)], float(score), bbox))
-        return out
+        self._calls += 1
+        # The filter's gap is in frames; without an index, count calls instead.
+        return self._dedupe.update(self._calls - 1 if frame_index is None else frame_index, out)

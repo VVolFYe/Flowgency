@@ -18,6 +18,7 @@ from backend.vision.config import (
     save_cameras,
     validate_approach_id,
 )
+from backend.vision.paths import DEFAULT_CAMERAS_JSON
 
 
 def approach(**overrides) -> dict:
@@ -72,6 +73,15 @@ class ConfigTests(unittest.TestCase):
             path.write_text("{not json", encoding="utf-8")
             with self.assertRaises(ConfigError):
                 load_cameras(path)
+
+    def test_counting_point_defaults_to_bottom_centre(self) -> None:
+        committed = load_cameras(DEFAULT_CAMERAS_JSON)
+        self.assertTrue(committed.cameras)
+        self.assertTrue(all(c.counting_point == "bottom_center" for c in committed.cameras))
+        camera = CameraConfig(intersection_id="J1", camera_id="c", frame_size=(352, 288), counting_point="center")
+        self.assertEqual(camera.counting_point, "center")
+        with self.assertRaises(ValidationError):
+            CameraConfig(intersection_id="J1", camera_id="c", frame_size=(352, 288), counting_point="top")
 
     def test_registry_from_mapping_candidates(self) -> None:
         registry = load_camera_registry()
