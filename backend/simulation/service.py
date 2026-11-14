@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import copy
+import logging
+import os
 import queue
 import threading
 import time
@@ -14,6 +16,9 @@ from uuid import uuid4
 
 from .runner import SumoRunner
 from .scenarios import DEFAULT_SCENARIO_ID, ScenarioDefinition, get_scenario
+from backend.voice.alerts import VoiceAlertPolicy
+
+LOGGER = logging.getLogger(__name__)
 
 
 class SimulationState(StrEnum):
@@ -49,6 +54,7 @@ class SimulationService:
         *,
         default_speed: float = 4.0,
         command_timeout_s: float = 10.0,
+        voice_policy: VoiceAlertPolicy | None = None,
     ) -> None:
         self._runner_factory = runner_factory or self._default_runner_factory
         self._default_speed = self._validate_speed(default_speed)
@@ -63,6 +69,9 @@ class SimulationService:
         self._error: str | None = None
         self._worker: threading.Thread | None = None
         self._worker_started = threading.Event()
+        self._voice_policy = voice_policy or VoiceAlertPolicy(
+            language=os.getenv("FLOWGENCY_VOICE_LANGUAGE", "en")
+        )
 
     @staticmethod
     def _default_runner_factory(scenario: ScenarioDefinition) -> SumoRunner:
@@ -170,6 +179,21 @@ class SimulationService:
         with self._lock:
             return copy.deepcopy(self._latest_snapshot)
 
+    def voice_alert(self, event_id: str) -> dict[str, Any] | None:
+        """Look up emitted text; callers cannot submit arbitrary TTS prompts."""
+        with self._lock:
+            return self._voice_policy.get(event_id)
+
+    def _attach_voice_alerts(self, snapshot: dict[str, Any]) -> dict[str, Any]:
+        """Keep optional voice processing outside the traffic-control path."""
+        try:
+            with self._lock:
+                self._voice_policy.observe(snapshot)
+        except Exception:
+            LOGGER.exception("voice alert generation failed")
+            snapshot["voice_alerts"] = []
+        return snapshot
+
     def _submit(
         self,
         name: str,
@@ -225,7 +249,7 @@ class SimulationService:
                         if runner is None:
                             raise RuntimeError("running state has no SUMO runner")
                         runner.advance()
-                        snapshot = runner.extract_snapshot()
+                        snapshot = self._attach_voice_alerts(runner.extract_snapshot())
                         self._set_state(SimulationState.RUNNING, snapshot=snapshot)
                         if not runner.has_pending_vehicles():
                             runner.close()
@@ -272,7 +296,7 @@ class SimulationService:
                 if command.control_mode != "fixed":
                     runner.configure_control_mode(command.control_mode or "fixed")
                 runner.start()
-                snapshot = runner.extract_snapshot()
+                snapshot = self._attach_voice_alerts(runner.extract_snapshot())
             except BaseException:
                 runner.close()
                 raise
@@ -315,7 +339,7 @@ class SimulationService:
                 if self._control_mode != "fixed":
                     runner.configure_control_mode(self._control_mode)
                 runner.start()
-                snapshot = runner.extract_snapshot()
+                snapshot = self._attach_voice_alerts(runner.extract_snapshot())
             except BaseException:
                 runner.close()
                 raise

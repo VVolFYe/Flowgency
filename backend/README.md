@@ -4,22 +4,38 @@ The Phase 1.3 backend runs one local SUMO process behind a dedicated simulation 
 
 ## Dependencies
 
-The current machine already provides compatible FastAPI, Uvicorn, Pydantic, Starlette, and HTTPX versions under Python 3.14.7. No installation was required. For a clean developer environment, create a virtual environment in a Linux-native developer directory outside this NTFS repository, then install the repository manifest:
+Create a virtual environment in a Linux-native developer directory outside this NTFS repository. Install the backend dependencies and the SUMO version used to generate the London network:
 
 ```bash
-python3 -m venv /path/on/linux/flowgency-venv
-/path/on/linux/flowgency-venv/bin/pip install -r backend/requirements.txt
+python3 -m venv "$HOME/.venvs/flowgency-sumo-1.27.1"
+"$HOME/.venvs/flowgency-sumo-1.27.1/bin/python" -m pip install -r backend/requirements.txt 'eclipse-sumo==1.27.1'
 ```
 
-SUMO 1.27.1 and its bundled Python tools must be installed separately. Set `SUMO_HOME` when they are not under a standard Linux path.
+The London network was generated with SUMO 1.27.1. Ubuntu 24.04's `apt` package
+provides SUMO 1.18, which cannot load this network: it reports unknown vehicle
+classes such as `scooter` and `drone`, then TraCI reports `Connection closed by
+SUMO`. Check the active binary with `sumo --version`; use the virtual environment
+above for both the SUMO binary and its matching Python tools.
 
 ## Run locally
 
 From the repository root:
 
 ```bash
+cp -n .env.example .env
+# Edit .env and set ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID for voice audio.
+source "$HOME/.venvs/flowgency-sumo-1.27.1/bin/activate"
+set -a
+source .env
+set +a
+export SUMO_HOME="$(python -c 'import sumo; print(sumo.SUMO_HOME)')"
+sumo --version  # Must report 1.27.1 for the London scenarios.
 python3 -m uvicorn backend.api.app:app --host 127.0.0.1 --port 8000
 ```
+
+The backend reads these values from its process environment; it does not load
+`.env` automatically. The `source` step must run in the same shell that starts
+Uvicorn. `.env` is ignored by Git; `.env.example` contains no credentials.
 
 Useful requests:
 
@@ -66,6 +82,17 @@ For a visible emergency demo, select **Emergency priority demo** in the browser 
 ```bash
 python3 -m backend.simulation.runner --config scenarios/single_intersection/emergency.sumocfg --control-mode adaptive_with_emergency_priority
 ```
+
+Traffic-triggered voice captions are included in simulation snapshots; no
+scenario-selection, Start/Stop, or pause action triggers speech. The browser's
+**Enable voice** button requests MP3 audio from the backend only for new traffic
+alerts. To test ElevenLabs, set `ELEVENLABS_API_KEY` and
+`ELEVENLABS_VOICE_ID` in the backend process environment before starting
+Uvicorn. Optional `ELEVENLABS_MODEL_ID` defaults to `eleven_multilingual_v2`;
+`FLOWGENCY_VOICE_LANGUAGE=ro` selects Romanian captions and speech (English is
+the default). Keep the API key out of the frontend and Git. Without these
+settings, captions still work and audio requests return 503. See
+[`docs/VOICE_ALERTS.md`](../docs/VOICE_ALERTS.md) for the exact triggers.
 
 For a headless synthetic adaptive run: `python3 -m backend.simulation.runner --control-mode adaptive`. Every adaptive policy is a simulation experiment, not a validated traffic-signal controller. The J3 runtime manifest is checked against SUMO before commands are sent, but real pedestrian movements and real-world clearance remain unverified.
 

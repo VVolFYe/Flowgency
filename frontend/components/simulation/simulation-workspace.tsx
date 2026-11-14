@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { SimulationCanvas } from "@/components/simulation-canvas";
+import { VoiceAlerts } from "@/components/voice-alerts";
 import { BACKEND_URL } from "@/lib/api";
 import type { ServiceState } from "@/lib/contracts";
 import {
@@ -197,7 +198,7 @@ export function SimulationWorkspace({ access }: { access: "public" | "operator" 
         <div className={`surface order-1 min-h-[480px] rounded-[24px] p-2 shadow-2xl shadow-black/30 ${operator ? "xl:order-2 xl:h-[calc(100vh-176px)] xl:min-h-[620px]" : "lg:h-[calc(100vh-180px)] lg:min-h-[600px]"}`}>
           {geometry ? <SimulationCanvas key={geometry.scenario_selection_id ?? selectedScenarioId} geometry={geometry} scenario={selectedScenario} snapshot={snapshot} status={status} connection={connection} /> : <div className="grid h-full min-h-[470px] place-items-center rounded-[20px] bg-[#0b1115] px-6 text-center text-sm text-[#81909a]">{loading ? "Loading SUMO network geometry…" : "Network geometry unavailable while the backend is disconnected."}</div>}
         </div>
-        <aside className="order-3 grid content-start gap-4 sm:grid-cols-2 lg:grid-cols-1"><LiveTelemetry operator={operator} />{operator ? <><Queues /><RunMetrics /><SnapshotDetails /></> : <><RunMetrics /><div className="surface rounded-[20px] p-4"><p className="font-mono text-[10px] uppercase tracking-[.2em] text-[#667781]">About this view</p><p className="mt-3 text-sm leading-6 text-[#8b9aa3]">This read-only feed shows geometry, vehicles and signals produced by the server-owned SUMO simulation. Public viewers cannot change the run.</p></div></>}</aside>
+        <aside className="order-3 grid content-start gap-4 sm:grid-cols-2 lg:grid-cols-1"><VoiceAlerts alerts={snapshot?.voice_alerts ?? []} runId={snapshot?.run_id ?? null} simulationTime={snapshot?.simulation_time_s ?? null} /><LiveTelemetry operator={operator} />{operator ? <><Queues /><RunMetrics /><SnapshotDetails /></> : <><RunMetrics /><div className="surface rounded-[20px] p-4"><p className="font-mono text-[10px] uppercase tracking-[.2em] text-[#667781]">About this view</p><p className="mt-3 text-sm leading-6 text-[#8b9aa3]">This read-only feed shows geometry, vehicles and signals produced by the server-owned SUMO simulation. Public viewers cannot change the run.</p></div></>}</aside>
       </section>
     </div>
   );

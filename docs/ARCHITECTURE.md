@@ -18,6 +18,10 @@ SUMO --TraCI--> simulation state -> controller --TraCI---------+
 3. `backend/api` publishes bounded state snapshots over WebSocket. The frontend may interpolate for display but does not simulate traffic or become the source of truth.
 4. SUMO output and controller event logs are aggregated into comparable scenario metrics.
 
+Optional spoken demo alerts are specified in [VOICE_ALERTS.md](VOICE_ALERTS.md).
+They are derived from confirmed simulation state changes and rendered through
+a backend text-to-speech adapter; speech never drives the controller.
+
 ## Component responsibilities
 
 ### Frontend
@@ -42,7 +46,7 @@ This module owns the SUMO process and TraCI connection, stepping, subscriptions/
 
 A static registry selects one repository-owned SUMO configuration per run. The same worker owns every selected runner; API handlers only enqueue lifecycle commands. Static geometry is parsed and cached per network, while WebSocket snapshots carry dynamic vehicles, deduplicated lane queues, and all TraCI-enumerated signal controllers rather than repeating road geometry.
 
-The worker also integrates cumulative vehicle waiting once per authoritative simulation step and retains it after vehicles arrive. London Normal and Unbalanced can use an experimental network pressure profile that validates the live SUMO programs, enables only structurally eligible controllers, changes verified green dwell durations at phase boundaries, and leaves every yellow, mixed transition, clearance, and unsupported controller under SUMO's fixed program. The worker reports the active and fixed-fallback controller sets. London Rush Hour remains fixed-only, and the historical J3-only profile remains available for benchmark provenance.
+The worker also integrates cumulative vehicle waiting once per authoritative simulation step and retains it after vehicles arrive. London Normal, Rush Hour, and Unbalanced can use an experimental network pressure profile that validates the live SUMO programs, enables only structurally eligible controllers, changes verified green dwell durations at phase boundaries, and leaves every yellow, mixed transition, clearance, and unsupported controller under SUMO's fixed program. The worker reports the active and fixed-fallback controller sets. The historical J3-only profile remains available for benchmark provenance.
 
 ### Vision
 
