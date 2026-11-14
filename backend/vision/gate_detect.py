@@ -29,6 +29,7 @@ import numpy as np
 
 from .detections import BackendChoice, DetectorProfile, choose_backend, vehicle_class_ids
 from .paths import VisionPaths
+from .weights import REGISTRY, fetch_weights
 
 DETECTION_FLOOR = 0.10  # = ByteTrack track_low_thresh; nothing below it is ever used
 CACHE_VERSION = 1
@@ -50,20 +51,18 @@ class GateDetector:
         onnx_path = paths.weights_dir / profile.onnx_weights if profile.onnx_weights else None
         choice = choose_backend(
             profile, frame_size,
-            onnx_file_exists=bool(onnx_path and onnx_path.exists()),
+            onnx_file_exists=bool(onnx_path and (onnx_path.exists() or onnx_path.name in REGISTRY)),
             onnxruntime_available=importlib.util.find_spec("onnxruntime") is not None,
         )
         if choice.backend == "onnx":
-            actual = _onnx_input_hw(paths.weights_dir / choice.weights)
+            actual = _onnx_input_hw(fetch_weights(paths, choice.weights))
             if actual != choice.imgsz:
                 choice = BackendChoice("pt", profile.weights, profile.imgsz,
                                        f"{choice.weights} input is {actual}, profile says {choice.imgsz}; "
                                        f"using {profile.weights}")
         if choice.fallback_reason:
             log(f"detector fallback: {choice.fallback_reason}")
-        weights = paths.weights_dir / choice.weights
-        if not weights.exists():
-            raise FileNotFoundError(paths.missing(f"weights for profile {profile.model_id}", weights))
+        weights = fetch_weights(paths, choice.weights, f"weights for profile {profile.model_id}")
         self.choice = choice
         self.model: Any = YOLO(str(weights), task="detect")
         self.names: dict[int, str] = dict(self.model.names)

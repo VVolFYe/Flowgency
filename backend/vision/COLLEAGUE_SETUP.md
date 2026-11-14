@@ -95,16 +95,18 @@ looked. The code refuses to write outputs to tracked repository paths.
    ~/.venvs/flowgency-vision/bin/pip install -r backend/requirements-vision.txt
    ```
 
-2. Files to obtain from the vision owner (not downloadable by the code; the clip is also on
-   the Drive, see "Videos (Google Drive)"):
+2. The clip is not downloadable by the code: get it from the vision owner or the Drive (see
+   "Videos (Google Drive)") and put it at `$UNIHACK_DIR/youtube/clip.mp4`.
 
-   | file | put it at |
+   Team weights are downloaded automatically on first use from the `weights-v1` GitHub
+   release and checked against their sha256 (`backend/vision/weights.py`):
+
+   | file | lands at |
    |---|---|
-   | the clip | `$UNIHACK_DIR/youtube/clip.mp4` |
    | team-trained VisDrone weights | `$UNIHACK_DIR/weights/yolo11s_visdrone.pt` |
-   | its 544x960 ONNX export (optional, faster) | `$UNIHACK_DIR/weights/yolo11s_visdrone_544x960.onnx` |
+   | its 544x960 ONNX export (faster) | `$UNIHACK_DIR/weights/yolo11s_visdrone_544x960.onnx` |
 
-   Without the ONNX file (or without `onnxruntime`) the `.pt` is used and a
+   Without `onnxruntime` the `.pt` is used and a
    `detector fallback:` line says why. The same happens for a video whose aspect
    ratio is not 16:9. VisDrone-derived weights are non-commercial
    (CC BY-NC-SA 3.0).

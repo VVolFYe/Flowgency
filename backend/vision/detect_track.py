@@ -39,6 +39,7 @@ from .counting import VEHICLE_CLASSES, TrackedBox
 from .detections import agnostic_nms
 from .paths import VisionPaths
 from .track_filter import DuplicateTrackFilter
+from .weights import REGISTRY, fetch_weights
 
 TRACKER_CONFIG = "bytetrack.yaml"
 DETECTION_FLOOR = 0.25
@@ -72,6 +73,8 @@ def ensure_weights(paths: VisionPaths, model_name: str) -> Path:
     if model_name in RENAMED_WEIGHTS:
         raise ValueError(f"{model_name} was renamed; use {RENAMED_WEIGHTS[model_name]}")
     configure_ultralytics(paths)
+    if model_name in REGISTRY:  # team weights from the GitHub release, sha256-checked
+        return fetch_weights(paths, model_name)
     target = paths.weights_dir / model_name
     if not target.exists():
         from ultralytics.utils.downloads import attempt_download_asset
