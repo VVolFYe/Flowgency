@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, replace
+from math import ceil, floor, isfinite
 from pathlib import Path
 from typing import Any, Iterable
 
 from backend.controller.cycle_planner import (
     CycleConfig,
+    CyclePlan,
     DemandObservation,
     FixedPhase,
     GreenGroup,
@@ -16,6 +18,80 @@ from backend.controller.cycle_planner import (
     plan_cycle,
     plan_pressure_cycle,
 )
+
+
+def quantize_pressure_plan(
+    plan: CyclePlan,
+    config: CycleConfig,
+    previous_green_s: dict[str, float],
+    step_s: float,
+) -> CyclePlan:
+    """Jointly align pressure greens to SUMO's step without changing budget."""
+    if not isfinite(step_s) or step_s <= 0:
+        raise ValueError("SUMO step duration must be finite and positive")
+    budget_units = round(config.green_budget_s / step_s)
+    if abs(budget_units * step_s - config.green_budget_s) > 1e-7:
+        raise ValueError("green budget is not aligned to the SUMO step duration")
+    for phase in config.fixed_phases:
+        phase_units = round(phase.duration_s / step_s)
+        if abs(phase_units * step_s - phase.duration_s) > 1e-7:
+            raise ValueError("fixed transition phase is not aligned to the SUMO step duration")
+
+    group_ids = [group.group_id for group in config.groups]
+    if set(previous_green_s) != set(group_ids):
+        raise ValueError("previous durations must include every pressure group")
+    lower_units: list[int] = []
+    upper_units: list[int] = []
+    target_units: list[float] = []
+    for group in config.groups:
+        lower = group.min_green_s
+        upper = group.max_green_s
+        if config.max_change_s is not None:
+            previous = previous_green_s[group.group_id]
+            lower = max(lower, previous - config.max_change_s)
+            upper = min(upper, previous + config.max_change_s)
+        lower_units.append(ceil((lower - 1e-9) / step_s))
+        upper_units.append(floor((upper + 1e-9) / step_s))
+        target_units.append(plan.green_durations_s[group.group_id] / step_s)
+    if sum(lower_units) > budget_units or sum(upper_units) < budget_units:
+        raise ValueError("green budget is infeasible after timestep alignment")
+
+    # Starting at all lower bounds, allocate each remaining step to the group
+    # with the smallest incremental squared error. This is deterministic,
+    # budget-exact joint rounding rather than independent per-stage rounding.
+    allocated = list(lower_units)
+    for _ in range(budget_units - sum(allocated)):
+        candidates = [
+            (
+                (allocated[index] + 1 - target_units[index]) ** 2
+                - (allocated[index] - target_units[index]) ** 2,
+                index,
+            )
+            for index in range(len(allocated))
+            if allocated[index] < upper_units[index]
+        ]
+        if not candidates:
+            raise ValueError("cannot preserve green budget during timestep alignment")
+        allocated[min(candidates)[1]] += 1
+
+    greens = {
+        group_id: round(units * step_s, 9)
+        for group_id, units in zip(group_ids, allocated)
+    }
+    phases = dict(plan.phase_durations_s)
+    phases.update({
+        group.phase_id: greens[group.group_id] for group in config.groups
+    })
+    changed = any(
+        abs(greens[group_id] - plan.green_durations_s[group_id]) > 1e-7
+        for group_id in group_ids
+    )
+    return replace(
+        plan,
+        green_durations_s=greens,
+        phase_durations_s=phases,
+        reason=(f"{plan.reason};timestep_quantized" if changed else plan.reason),
+    )
 
 
 @dataclass(frozen=True)
@@ -394,6 +470,12 @@ class AdaptiveSignal:
             plan = plan_pressure_cycle(
                 config, observations, baseline, previous,
                 PressurePolicy(**self.spec.get("pressure_policy", {})),
+            )
+            plan = quantize_pressure_plan(
+                plan,
+                config,
+                previous,
+                float(self.connection.simulation.getDeltaT()),
             )
             details = {
                 group_id: {

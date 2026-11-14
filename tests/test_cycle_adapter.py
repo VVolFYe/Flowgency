@@ -8,8 +8,12 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from backend.controller.cycle_planner import CyclePlan
-from backend.simulation.cycle_adapter import AdaptiveSignal, load_adaptive_signal_set
+from backend.controller.cycle_planner import CycleConfig, CyclePlan, FixedPhase, GreenGroup
+from backend.simulation.cycle_adapter import (
+    AdaptiveSignal,
+    load_adaptive_signal_set,
+    quantize_pressure_plan,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "scenarios" / "single_intersection" / "adaptive.json"
@@ -134,7 +138,11 @@ class OccupancyLanes:
 class NetworkDiscoveryTests(unittest.TestCase):
     def setUp(self) -> None:
         self.light = DiscoveryLight()
-        self.connection = SimpleNamespace(trafficlight=self.light, lane=OccupancyLanes())
+        self.connection = SimpleNamespace(
+            trafficlight=self.light,
+            lane=OccupancyLanes(),
+            simulation=SimpleNamespace(getDeltaT=lambda: 1.0),
+        )
         self.manifest = {
             "schema_version": "1.0",
             "profile_id": "test_pressure",
@@ -268,7 +276,10 @@ class CorridorGuardTests(unittest.TestCase):
         connection = SimpleNamespace(
             trafficlight=CorridorLight(downstream_switch_s),
             lane=CorridorLanes(occupancy),
-            simulation=SimpleNamespace(getTime=lambda: 0.0),
+            simulation=SimpleNamespace(
+                getTime=lambda: 0.0,
+                getDeltaT=lambda: 1.0,
+            ),
         )
         return AdaptiveSignal(spec, connection)
 
@@ -323,6 +334,80 @@ class CorridorGuardTests(unittest.TestCase):
         )
         self.assertEqual(plan.green_durations_s["phase_0"], 30.0)
         self.assertTrue(outcomes)
+
+
+class PressurePlanQuantizationTests(unittest.TestCase):
+    @staticmethod
+    def config(
+        baselines: tuple[float, ...], *, max_change_s: float = 6.0
+    ) -> CycleConfig:
+        groups = tuple(
+            GreenGroup(f"g{index}", f"p{index}", 20.0, 54.0)
+            for index in range(len(baselines))
+        )
+        return CycleConfig(
+            "quantized",
+            groups,
+            (FixedPhase("clearance", 6.0),),
+            sum(baselines),
+            tuple([group.phase_id for group in groups] + ["clearance"]),
+            max_change_s=max_change_s,
+        )
+
+    @staticmethod
+    def plan(values: tuple[float, ...]) -> CyclePlan:
+        greens = {f"g{index}": value for index, value in enumerate(values)}
+        phases = {f"p{index}": value for index, value in enumerate(values)}
+        phases["clearance"] = 6.0
+        return CyclePlan(
+            "quantized",
+            greens,
+            phases,
+            tuple([f"p{index}" for index in range(len(values))] + ["clearance"]),
+            {f"g{index}": 0 for index in range(len(values))},
+            "fractional_pressure",
+        )
+
+    def test_joint_rounding_of_42_6_and_41_4_preserves_budget(self) -> None:
+        config = self.config((42.0, 42.0))
+        result = quantize_pressure_plan(
+            self.plan((42.6, 41.4)), config, {"g0": 42.0, "g1": 42.0}, 1.0
+        )
+        self.assertEqual(result.green_durations_s, {"g0": 43.0, "g1": 41.0})
+        self.assertEqual(sum(result.green_durations_s.values()), 84.0)
+        self.assertEqual(result.phase_durations_s["clearance"], 6.0)
+
+    def test_joint_rounding_of_33_33_and_32_67(self) -> None:
+        config = self.config((33.0, 33.0))
+        result = quantize_pressure_plan(
+            self.plan((33.33, 32.67)), config, {"g0": 33.0, "g1": 33.0}, 1.0
+        )
+        self.assertEqual(result.green_durations_s, {"g0": 33.0, "g1": 33.0})
+        self.assertEqual(sum(result.green_durations_s.values()), 66.0)
+
+    def test_three_stage_rounding_is_joint_and_budget_exact(self) -> None:
+        config = self.config((27.0, 27.0, 27.0))
+        result = quantize_pressure_plan(
+            self.plan((27.4, 26.4, 27.2)),
+            config,
+            {"g0": 27.0, "g1": 27.0, "g2": 27.0},
+            1.0,
+        )
+        self.assertEqual(result.green_durations_s, {"g0": 28.0, "g1": 26.0, "g2": 27.0})
+        self.assertEqual(sum(result.green_durations_s.values()), 81.0)
+
+    def test_repeated_cycles_preserve_slew_and_minimum_service(self) -> None:
+        config = self.config((42.0, 42.0), max_change_s=1.0)
+        first = quantize_pressure_plan(
+            self.plan((48.0, 36.0)), config, {"g0": 43.0, "g1": 41.0}, 1.0
+        )
+        second = quantize_pressure_plan(
+            self.plan((48.0, 36.0)), config, first.green_durations_s, 1.0
+        )
+        self.assertEqual(first.green_durations_s, {"g0": 44.0, "g1": 40.0})
+        self.assertEqual(second.green_durations_s, {"g0": 45.0, "g1": 39.0})
+        self.assertTrue(all(value >= 20.0 for value in second.green_durations_s.values()))
+        self.assertEqual(sum(second.green_durations_s.values()), 84.0)
 
 
 if __name__ == "__main__":
