@@ -15,6 +15,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 VISION_DIR = Path(__file__).resolve().parent
 DEFAULT_CAMERAS_JSON = VISION_DIR / "config" / "cameras.json"
+SCENES_DIR = VISION_DIR / "config" / "scenes"
 MAPPING_CANDIDATES_JSON = REPO_ROOT / "scenarios" / "london_network" / "mapping_candidates.json"
 DEFAULT_UNIHACK_DIR = Path("/home/coro/Desktop/unihack")
 
@@ -54,6 +55,10 @@ class VisionPaths:
     @property
     def eval_dir(self) -> Path:
         return self.output_dir / "eval"
+
+    def scene_output_dir(self, scene_id: str) -> Path:
+        """Gate-mode outputs for one scene (events, counts, previews, demos)."""
+        return self.output_dir / scene_id
 
     @property
     def ultralytics_config_dir(self) -> Path:

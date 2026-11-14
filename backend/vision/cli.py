@@ -43,6 +43,37 @@ def cmd_draw_lines(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_draw_gates(args: argparse.Namespace) -> int:
+    from .clips import probe
+    from .draw_gates import default_scene, run_draw_gates
+    from .pipeline import ensure_outside_repo
+    from .scene import load_scene
+
+    paths = _paths()
+    scene_path: Path = args.scene
+    if scene_path.exists():
+        scene = load_scene(scene_path)
+        video = args.video or paths.resolve(scene.video)
+    else:
+        if args.video is None:
+            raise SystemExit(f"{scene_path} does not exist yet; pass --video to create it")
+        video = args.video
+        info = probe(video)
+        try:
+            stored = paths.relative(video)
+        except ValueError:
+            stored = str(video.resolve())
+        scene = default_scene(scene_path.stem, stored, (info.width, info.height))
+        _log(f"new scene {scene.scene_id}: view top_down, counting point center, model {scene.model_id}, "
+             "right-hand traffic (edit the JSON to change)")
+    if not video.exists():
+        raise SystemExit(f"video {video} not found")
+    preview = ensure_outside_repo(paths.scene_output_dir(scene.scene_id) / f"{scene.scene_id}_gates.jpg")
+    run_draw_gates(scene=scene, scene_path=scene_path, video_path=video, preview_path=preview,
+                   scale=args.scale, start_frame=args.frame)
+    return 0
+
+
 def _log(message: str) -> None:
     print(message, file=sys.stderr, flush=True)
 
@@ -341,6 +372,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--clip", help="start at this clip stem (YYYYMMDD_HHMMSS); default latest daytime clip")
     p.add_argument("--scale", type=int, default=3, help="display upscale factor (default 3)")
     p.set_defaults(func=cmd_draw_lines)
+
+    p = sub.add_parser("draw-gates", help="draw the 12 gate polygons of a gate-mode scene")
+    p.add_argument("--scene", type=Path, required=True,
+                   help="scene file, e.g. backend/vision/config/scenes/youtube.json (created if missing)")
+    p.add_argument("--video", type=Path, help="video to draw on (default: the scene's video)")
+    p.add_argument("--scale", type=float, default=0.7, help="display scale (default 0.7 = 1344x756 for 1080p)")
+    p.add_argument("--frame", type=int, help="start frame (default: the scene's reference frame, else 0)")
+    p.set_defaults(func=cmd_draw_gates)
 
     p = sub.add_parser("replay", help="count vehicles in recorded clips and emit contract-A observations")
     p.add_argument("--camera", required=True, help="JamCam ID or 'all'")
