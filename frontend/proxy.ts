@@ -1,15 +1,14 @@
-import { NextResponse, type NextRequest } from "next/server";
-import { OPERATOR_SESSION_COOKIE, verifyOperatorSession } from "@/lib/operator-auth";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
+import { auth0, auth0Configured } from "@/lib/auth0";
 
 export async function proxy(request: NextRequest) {
-  if (request.nextUrl.pathname === "/operator/login") return NextResponse.next();
-  const session = await verifyOperatorSession(request.cookies.get(OPERATOR_SESSION_COOKIE)?.value);
-  if (session) return NextResponse.next();
-  const login = new URL("/operator/login", request.url);
-  login.searchParams.set("next", request.nextUrl.pathname);
-  return NextResponse.redirect(login);
+  if (!auth0Configured() && request.nextUrl.pathname.startsWith("/auth/")) {
+    return NextResponse.redirect(new URL("/auth/configuration", request.url));
+  }
+  return auth0.middleware(request);
 }
 
 export const config = {
-  matcher: ["/operator/:path*"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt).*)"],
 };
