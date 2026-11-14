@@ -32,6 +32,8 @@ The Next.js App Router application will provide Dashboard, Simulation Lab, and A
 
 FastAPI owns HTTP commands, WebSocket lifecycle, serialization, and orchestration. Initially it may run alongside one simulation worker in one local deployment. It exposes shared schemas, not raw TraCI objects, and should coalesce snapshots if clients cannot keep up.
 
+Auth0 protects the mutation boundary without changing simulation contracts. Next.js keeps the Auth0 access token in its encrypted server session and forwards it through a same-origin command proxy. FastAPI validates the RS256 token against tenant JWKS, issuer, audience, expiration, and the `simulation:control` permission. Public GET endpoints and the read-only WebSocket remain available for the public visualization.
+
 ### Controller
 
 The controller consumes normalized intersection state and configuration and returns a decision. Its core remains pure Python so timing rules can be tested without SUMO.

@@ -6,9 +6,11 @@ import asyncio
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Literal
 
-from fastapi import FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect, status
+from fastapi import Depends, FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+
+from backend.api.auth import Auth0TokenVerifier, require_permission
 
 from backend.simulation.geometry import get_scenario_geometry
 from backend.simulation.scenarios import (
@@ -34,7 +36,10 @@ class SpeedOptions(BaseModel):
     simulation_speed: float = Field(ge=0.1, le=100.0)
 
 
-def create_app(service: SimulationService | None = None) -> FastAPI:
+def create_app(
+    service: SimulationService | None = None,
+    auth0_verifier: Auth0TokenVerifier | None = None,
+) -> FastAPI:
     simulation = service or SimulationService()
     speech = VoiceSynthesis()
 
@@ -52,9 +57,11 @@ def create_app(service: SimulationService | None = None) -> FastAPI:
         allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
         allow_credentials=False,
         allow_methods=["GET", "POST"],
-        allow_headers=["Content-Type"],
+        allow_headers=["Authorization", "Content-Type"],
     )
     app.state.simulation_service = simulation
+    app.state.auth0_verifier = auth0_verifier or Auth0TokenVerifier()
+    control_permission = Depends(require_permission("simulation:control"))
 
     async def execute(operation: str, *args: object) -> dict[str, object]:
         method = getattr(simulation, operation)
@@ -109,29 +116,29 @@ def create_app(service: SimulationService | None = None) -> FastAPI:
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
         return Response(audio, media_type="audio/mpeg", headers={"Cache-Control": "no-store"})
 
-    @app.post("/api/simulation/start")
+    @app.post("/api/simulation/start", dependencies=[control_permission])
     async def start(options: SimulationOptions = SimulationOptions()) -> dict[str, object]:
         return await execute(
             "start", options.simulation_speed, options.control_mode, options.scenario_id
         )
 
-    @app.post("/api/simulation/pause")
+    @app.post("/api/simulation/pause", dependencies=[control_permission])
     async def pause() -> dict[str, object]:
         return await execute("pause")
 
-    @app.post("/api/simulation/resume")
+    @app.post("/api/simulation/resume", dependencies=[control_permission])
     async def resume(options: ResumeOptions = ResumeOptions()) -> dict[str, object]:
         return await execute("resume", options.simulation_speed)
 
-    @app.post("/api/simulation/speed")
+    @app.post("/api/simulation/speed", dependencies=[control_permission])
     async def set_speed(options: SpeedOptions) -> dict[str, object]:
         return await execute("set_speed", options.simulation_speed)
 
-    @app.post("/api/simulation/reset")
+    @app.post("/api/simulation/reset", dependencies=[control_permission])
     async def reset() -> dict[str, object]:
         return await execute("reset")
 
-    @app.post("/api/simulation/stop")
+    @app.post("/api/simulation/stop", dependencies=[control_permission])
     async def stop() -> dict[str, object]:
         return await execute("stop")
 

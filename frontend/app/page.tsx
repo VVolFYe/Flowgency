@@ -47,7 +47,7 @@ export default function Home() {
             <p className="mt-8 max-w-[590px] text-base leading-7 text-[#98a6ad] sm:text-lg sm:leading-8">From camera-grounded observations to live SUMO decisions. Flowgency makes adaptive traffic control visible, deterministic and easy to explain.</p>
             <div className="mt-10 flex flex-wrap items-center gap-3">
               <Link href="/simulation" className="rounded-xl bg-[#7cf2ad] px-5 py-3.5 text-sm font-semibold text-[#07140c] transition hover:-translate-y-0.5 hover:bg-[#98f7be]">Watch live simulation <span aria-hidden="true">↗</span></Link>
-              <Link href="/operator/login" className="rounded-xl border border-white/10 bg-[#10171b] px-5 py-3.5 text-sm font-medium text-[#d6e0e4] transition hover:border-white/20 hover:bg-[#151e23]">Operator access</Link>
+              <Link href="/access" className="rounded-xl border border-white/10 bg-[#10171b] px-5 py-3.5 text-sm font-medium text-[#d6e0e4] transition hover:border-white/20 hover:bg-[#151e23]">Analyst / Operator access</Link>
             </div>
             <dl className="mt-12 flex flex-wrap gap-x-10 gap-y-5 border-t border-white/[.08] pt-6">
               <div><dt className="font-mono text-[9px] uppercase tracking-[.18em] text-[#667780]">Control</dt><dd className="mt-1 text-sm text-[#c6d1d6]">Deterministic</dd></div>
