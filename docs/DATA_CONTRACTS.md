@@ -314,3 +314,9 @@ Each schema `1.0` record is an observation at video time `t_s`, not wall-clock t
 For the synthetic MVP, each mapped incoming edge uses its single verified `dir="s"` connection. Turns are neither inferred nor generated. The camera-to-SUMO orientation remains unverified. Vehicles observed at `t_s=0` are recorded in summary metadata and are not inserted because their positions and arrival times are unknown.
 
 Generated `.rou.xml` and summary JSON are runtime artifacts, not shared API payloads or tracked scenario definitions. They are not connected to a running SUMO worker in Phase 2A.
+
+## M. Isolated fixed-control AI experiment
+
+`backend.simulation.ai_fixed_run` generates Phase 2A demand, writes an isolated runtime `.sumocfg`, and invokes stock SUMO using the unchanged `demo_01` static fixed program. It never applies AI `intersection_entered` or `intersection_exited` timestamps to simulated vehicles.
+
+The report distinguishes planned AI video timestamps from actual SUMO insertion times. With the existing one-second simulation step, delays up to one step include timestep quantization; delays beyond one step indicate additional insertion-capacity pressure. Tripinfo provides completed-trip waiting time and time loss. Collision output and per-step summary telemetry provide collision and teleport counts. The run continues to its documented maximum simulation time, and incomplete or failed insertions remain explicit validation failures.

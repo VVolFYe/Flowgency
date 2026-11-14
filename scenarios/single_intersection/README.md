@@ -122,3 +122,15 @@ python3 -m backend.simulation.ai_demand \
 ```
 
 The generator creates only event-derived arrivals. Initial `t_s=0` observations remain summary metadata. It derives and validates the four straight connections from `demo.net.xml`; it does not infer turns, start SUMO, or modify `demo.rou.xml`.
+
+Run the generated demand with the existing fixed signal program in an isolated temporary directory:
+
+```bash
+python3 -m backend.simulation.ai_fixed_run \
+  --counts ~/flowgency_ai_samples/counts.jsonl \
+  --events ~/flowgency_ai_samples/events.jsonl \
+  --output-directory /tmp/flowgency_ai_fixed \
+  --max-simulation-time 1800
+```
+
+The directory receives the generated demand, runtime config, SUMO tripinfo/summary/collision files, per-vehicle insertion accounting, logs, and `fixed_run_summary.json`. Use `--overwrite` to replace those runtime artifacts. The checked-in route/config files are never selected as outputs.
