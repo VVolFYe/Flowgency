@@ -48,7 +48,9 @@ class FetchWeightsTest(unittest.TestCase):
 
     def test_registry_urls_match_file_names(self) -> None:
         for name, entry in weights.REGISTRY.items():
-            self.assertRegex(entry.url, rf"^{weights.RELEASES_URL}/weights-v\d+/{name}$")
+            self.assertRegex(entry.url, r"^https://github\.com/[\w.-]+/[\w.-]+/releases/download/[\w.-]+/[\w.-]+$")
+            if entry.url.startswith(weights.RELEASES_URL):  # team weights keep their file name
+                self.assertRegex(entry.url, rf"^{weights.RELEASES_URL}/weights-v\d+/{name}$")
             self.assertRegex(entry.sha256, "^[0-9a-f]{64}$")
 
 
