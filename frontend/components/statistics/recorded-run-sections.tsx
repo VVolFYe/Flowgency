@@ -1,15 +1,18 @@
-/** Sections for a run recorded from Live Simulation (DATA_CONTRACTS.md K.5). Skeleton styling. */
+/** Sections for a run recorded from Live Simulation (DATA_CONTRACTS.md O.5). Skeleton styling. */
 
-import type { RecordedRun, RecordedRunPair, RecordedRunSample, RecordedRunSummary } from "@/lib/contracts";
+import type { ControllerMode, NetworkId, RecordedRun, RecordedRunPair, RecordedRunSample, RecordedRunSummary, TrafficProfile } from "@/lib/contracts";
 import { LineChart, type LineSeries } from "./charts";
 import { formatClock, formatNumber, formatSignedNumber, formatWithUnit, UNKNOWN } from "./format";
 import { StatisticsSection, tableClass } from "./section";
 
-const MODE_LABELS: Record<string, string> = {
-  fixed: "Fixed-time",
-  adaptive: "Adaptive",
-  adaptive_with_emergency_priority: "Adaptive + emergency priority",
+// Display names as served by GET /api/simulation/configuration-options.
+const MODE_LABELS: Record<ControllerMode, string> = {
+  fixed_timing: "Fixed Timing",
+  adaptive_network: "Adaptive Network",
+  adaptive_emergency_priority: "Adaptive Network + Emergency Priority",
 };
+const NETWORK_LABELS: Record<NetworkId, string> = { single_intersection: "Single Intersection", london: "London Network" };
+const PROFILE_LABELS: Record<TrafficProfile, string> = { normal: "Normal", rush_hour: "Rush Hour", unbalanced: "Unbalanced" };
 
 const STATUS_LABELS = { finished: "Finished", stopped: "Stopped", error: "Error" } as const;
 
@@ -25,8 +28,8 @@ const KPIS: Array<{ key: SummaryKey; label: string; unit: string; digits: number
   { key: "average_time_loss_s", label: "Average time loss", unit: "s", digits: 2 },
 ];
 
-export function modeLabel(mode: string) {
-  return MODE_LABELS[mode] ?? mode;
+export function modeLabel(mode: ControllerMode) {
+  return MODE_LABELS[mode];
 }
 
 function formatTimestamp(value: string) {
@@ -64,8 +67,11 @@ export function RunInfoSection({ run }: { run: RecordedRun }) {
   return (
     <StatisticsSection id="run-info" title="Last simulation" description="Recorded from Live Simulation. Queues are SUMO state (sumo_halting_number), not camera observations.">
       <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm">
-        <dt>Scenario</dt><dd>{info.scenario_id}</dd>
-        <dt>Control mode</dt><dd>{modeLabel(info.control_mode)}</dd>
+        <dt>Network</dt><dd>{NETWORK_LABELS[info.network]}</dd>
+        <dt>Traffic profile</dt><dd>{PROFILE_LABELS[info.traffic_profile]}</dd>
+        <dt>Controller mode</dt><dd>{modeLabel(info.controller_mode)}</dd>
+        <dt>Emergency vehicles</dt><dd>{info.emergency_vehicles_enabled ? "Enabled" : "Disabled"}</dd>
+        <dt>Run scenario id</dt><dd>{info.scenario_id}</dd>
         <dt>Status</dt><dd>{STATUS_LABELS[info.status]}</dd>
         <dt>Simulated duration</dt><dd>{formatDuration(info.sim_duration_s)}</dd>
         <dt>Ended at</dt><dd>{formatTimestamp(info.ended_at)}</dd>
@@ -163,8 +169,8 @@ function difference(fixed: number | null, adaptive: number | null) {
 }
 
 export function RunComparisonSection({ fixed, adaptive }: { fixed: RecordedRun; adaptive: RecordedRun }) {
-  const fixedLabel = modeLabel(fixed.run.control_mode);
-  const adaptiveLabel = modeLabel(adaptive.run.control_mode);
+  const fixedLabel = modeLabel(fixed.run.controller_mode);
+  const adaptiveLabel = modeLabel(adaptive.run.controller_mode);
   const partial = fixed.run.status !== "finished" || adaptive.run.status !== "finished";
   const overlay = (title: string, pick: (sample: RecordedRunSample) => number | null) => (
     <LineChart title={title} xLabel="simulation time" yLabel="vehicles" formatX={formatClock}

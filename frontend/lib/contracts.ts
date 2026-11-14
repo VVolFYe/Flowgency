@@ -234,7 +234,7 @@ export type StreamEnvelope =
 
 /* ------------------------------------------------------------------ */
 /* Analytics files (frontend/public/analytics/*.json), served via    */
-/* GET /api/analytics. See DATA_CONTRACTS.md section K. null = unknown. */
+/* GET /api/analytics. See DATA_CONTRACTS.md section O. null = unknown. */
 /* ------------------------------------------------------------------ */
 
 export type AnalyticsKind = "simulation" | "vision";
@@ -578,17 +578,25 @@ export function isAnalyticsDocument(value: unknown, kind: AnalyticsKind): value 
 
 /* ------------------------------------------------------------------ */
 /* Recorded Live Simulation runs (SQLite `runs` table), served via    */
-/* GET /api/analytics/runs/*. See DATA_CONTRACTS.md K.5. null = unknown. */
+/* GET /api/analytics/runs/*. See DATA_CONTRACTS.md O.5. null = unknown. */
 /* ------------------------------------------------------------------ */
 
 export const RECORDED_RUN_STATUSES = ["finished", "stopped", "error"] as const;
+const NETWORK_IDS: readonly NetworkId[] = ["single_intersection", "london"];
+const TRAFFIC_PROFILES: readonly TrafficProfile[] = ["normal", "rush_hour", "unbalanced"];
+const CONTROLLER_MODES: readonly ControllerMode[] = ["fixed_timing", "adaptive_network", "adaptive_emergency_priority"];
 export type RecordedRunStatus = (typeof RECORDED_RUN_STATUSES)[number];
 
 export interface RecordedRunInfo {
   run_id: string;
   scenario_id: string;
   legacy_scenario_id: string | null;
-  control_mode: string;
+  /** Same value as controller_mode (the runs.control_mode column). */
+  control_mode: ControllerMode;
+  network: NetworkId;
+  traffic_profile: TrafficProfile;
+  controller_mode: ControllerMode;
+  emergency_vehicles_enabled: boolean;
   status: RecordedRunStatus;
   started_at: string;
   ended_at: string;
@@ -655,6 +663,7 @@ export interface RecordedRun {
 }
 
 export interface RecordedRunPair {
+  /** Resolved scenario id, with "_emergency" when emergency vehicles were enabled. */
   scenario_id: string;
   fixed: RecordedRun | null;
   adaptive: RecordedRun | null;
@@ -665,7 +674,11 @@ function isRecordedRunInfo(value: unknown): value is RecordedRunInfo {
     && typeof value.run_id === "string"
     && typeof value.scenario_id === "string"
     && isNullableString(value.legacy_scenario_id)
-    && typeof value.control_mode === "string"
+    && (CONTROLLER_MODES as readonly unknown[]).includes(value.control_mode)
+    && (NETWORK_IDS as readonly unknown[]).includes(value.network)
+    && (TRAFFIC_PROFILES as readonly unknown[]).includes(value.traffic_profile)
+    && (CONTROLLER_MODES as readonly unknown[]).includes(value.controller_mode)
+    && typeof value.emergency_vehicles_enabled === "boolean"
     && (RECORDED_RUN_STATUSES as readonly unknown[]).includes(value.status)
     && typeof value.started_at === "string"
     && typeof value.ended_at === "string"
