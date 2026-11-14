@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import io
 import shutil
 import sqlite3
+import sys
+import types
 import tempfile
 import unittest
 from contextlib import closing
@@ -119,6 +122,77 @@ class AnalyticsLoaderTests(unittest.TestCase):
         with self.assertRaises(db.AnalyticsDatabaseMissing):
             db.list_entries(self.database)
         self.assertFalse(self.database.exists())
+
+
+# Placeholder only; nothing here connects to a network.
+FAKE_URL = "postgresql://flowgency:not-a-real-password@db.example.invalid:5432/analytics"
+
+
+def fake_psycopg(failure_message: str) -> types.ModuleType:
+    """A stand-in psycopg whose connect() fails with a message echoing the URL, as libpq can."""
+    module = types.ModuleType("psycopg")
+
+    class Error(Exception):
+        pass
+
+    class OperationalError(Error):
+        pass
+
+    def connect(*_: object, **__: object) -> None:
+        raise OperationalError(failure_message)
+
+    module.Error, module.OperationalError, module.connect = Error, OperationalError, connect  # type: ignore[attr-defined]
+    return module
+
+
+class DialectTests(unittest.TestCase):
+    """Offline: dialect detection, placeholder translation, and that the URL never leaks."""
+
+    def test_detect_dialect(self) -> None:
+        for value in (FAKE_URL, "postgres://u:p@h/d", "  PostgreSQL://h/d"):
+            self.assertEqual(db.detect_dialect(value), "postgres", value)
+        for value in ("data/analytics.sqlite3", "/abs/path.sqlite3", Path("postgresql://x"), "sqlite:///x.db"):
+            self.assertEqual(db.detect_dialect(value), "sqlite", value)
+
+    def test_resolve_from_environment(self) -> None:
+        with mock.patch.dict("os.environ", {db.DB_ENV_VAR: FAKE_URL}):
+            target = db.resolve()
+            self.assertEqual((target.dialect, target.path), ("postgres", None))
+            with self.assertRaises(ValueError):
+                db.db_path()
+        self.assertEqual(db.resolve("x.sqlite3"), db.Target("sqlite", path=db.REPOSITORY_ROOT / "x.sqlite3"))
+
+    def test_placeholder_translation(self) -> None:
+        self.assertEqual(
+            db.to_postgres("SELECT payload FROM runs WHERE scenario_id = ? AND control_mode IN (?, ?)"),
+            "SELECT payload FROM runs WHERE scenario_id = %s AND control_mode IN (%s, %s)",
+        )
+        self.assertEqual(db.to_postgres("SELECT 5 % 2 WHERE a = ?"), "SELECT 5 %% 2 WHERE a = %s")
+        self.assertEqual(db.ORDER_COLUMN, {"sqlite": "rowid", "postgres": "seq"})
+
+    def test_url_is_hidden_in_str_and_repr(self) -> None:
+        target = db.resolve(FAKE_URL)
+        for text in (str(target), repr(target)):
+            self.assertNotIn("not-a-real-password", text)
+
+    def test_missing_psycopg_is_unavailable_without_url(self) -> None:
+        with mock.patch.dict(sys.modules, {"psycopg": None}), self.assertRaises(db.AnalyticsDatabaseUnavailable) as caught:
+            db.list_entries(FAKE_URL)
+        self.assertNotIn("not-a-real-password", str(caught.exception))
+
+    def test_connection_failure_hides_url_from_message_and_chain(self) -> None:
+        with mock.patch.dict(sys.modules, {"psycopg": fake_psycopg(f"invalid dsn: {FAKE_URL}")}):
+            with self.assertRaises(db.AnalyticsDatabaseUnavailable) as caught:
+                db.latest_run_payload(FAKE_URL)
+            self.assertNotIn("not-a-real-password", str(caught.exception))
+            self.assertIsNone(caught.exception.__cause__)
+            self.assertTrue(caught.exception.__suppress_context__)
+
+            stderr, stdout = io.StringIO(), io.StringIO()
+            with mock.patch("sys.stderr", stderr), mock.patch("sys.stdout", stdout):
+                code = load.main(["--db", FAKE_URL, "--index", str(ROOT / "frontend" / "public" / "analytics" / "index.json")])
+            self.assertEqual(code, 1)
+            self.assertNotIn("not-a-real-password", stderr.getvalue() + stdout.getvalue())
 
 
 if __name__ == "__main__":

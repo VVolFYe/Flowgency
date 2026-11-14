@@ -8,7 +8,6 @@ routes are declared before ``/{entry_id}`` so they can never be shadowed by it.
 from __future__ import annotations
 
 import json
-import sqlite3
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
 
@@ -30,7 +29,7 @@ def _unavailable(exc: Exception) -> HTTPException:
 def list_analytics() -> list[dict[str, object]]:
     try:
         return db.list_entries()
-    except (db.AnalyticsDatabaseMissing, sqlite3.DatabaseError) as exc:
+    except db.AnalyticsDatabaseUnavailable as exc:
         raise _unavailable(exc) from exc
 
 
@@ -38,7 +37,7 @@ def list_analytics() -> list[dict[str, object]]:
 def get_latest_run() -> Response:
     try:
         payload = db.latest_run_payload()
-    except (db.AnalyticsDatabaseMissing, sqlite3.DatabaseError) as exc:
+    except db.AnalyticsDatabaseUnavailable as exc:
         raise _unavailable(exc) from exc
     if payload is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no simulation run recorded yet")
@@ -50,7 +49,7 @@ def get_latest_run_pair(scenario_id: str = Query(min_length=1)) -> Response:
     try:
         fixed = db.latest_run_payload_for(scenario_id, ("fixed",))
         adaptive = db.latest_run_payload_for(scenario_id, db.ADAPTIVE_MODES)
-    except (db.AnalyticsDatabaseMissing, sqlite3.DatabaseError) as exc:
+    except db.AnalyticsDatabaseUnavailable as exc:
         raise _unavailable(exc) from exc
     body = {
         "scenario_id": scenario_id,
@@ -64,7 +63,7 @@ def get_latest_run_pair(scenario_id: str = Query(min_length=1)) -> Response:
 def get_analytics(entry_id: str) -> Response:
     try:
         payload = db.get_payload(entry_id)
-    except (db.AnalyticsDatabaseMissing, sqlite3.DatabaseError) as exc:
+    except db.AnalyticsDatabaseUnavailable as exc:
         raise _unavailable(exc) from exc
     if payload is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"unknown analytics id '{entry_id}'")

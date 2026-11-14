@@ -92,7 +92,7 @@ def read_entries(index_path: Path) -> tuple[list[Entry], list[str]]:
     return entries, warnings
 
 
-def load(index_path: Path, database: str | Path | None = None) -> tuple[Path, list[Entry], list[str]]:
+def load(index_path: Path, database: str | Path | None = None) -> tuple[db.Target, list[Entry], list[str]]:
     entries, warnings = read_entries(index_path)  # validate everything before writing
     path = db.init_db(database)
     for entry in entries:
@@ -106,12 +106,14 @@ def load(index_path: Path, database: str | Path | None = None) -> tuple[Path, li
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--db", help=f"database path (default ${db.DB_ENV_VAR} or {db.DEFAULT_DB})")
+    parser.add_argument(
+        "--db", help=f"SQLite path or postgresql:// URL (default ${db.DB_ENV_VAR} or {db.DEFAULT_DB})"
+    )
     parser.add_argument("--index", type=Path, default=DEFAULT_INDEX, help="analytics index.json")
     args = parser.parse_args(argv)
     try:
         path, entries, warnings = load(args.index.resolve(), args.db)
-    except (LoadError, OSError) as exc:
+    except (LoadError, OSError, db.AnalyticsDatabaseUnavailable) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     for warning in warnings:
