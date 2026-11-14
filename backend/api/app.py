@@ -10,6 +10,8 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Response, WebSocket,
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, StrictBool
 
+from backend.analytics.runs import save_run
+from backend.api.analytics import router as analytics_router
 from backend.api.auth import Auth0TokenVerifier, require_permission
 
 from backend.simulation.geometry import get_network_selection_geometry
@@ -46,7 +48,7 @@ def create_app(
     service: SimulationService | None = None,
     auth0_verifier: Auth0TokenVerifier | None = None,
 ) -> FastAPI:
-    simulation = service or SimulationService()
+    simulation = service or SimulationService(run_sink=save_run)
     speech = VoiceSynthesis()
 
     @asynccontextmanager
@@ -68,6 +70,7 @@ def create_app(
     app.state.simulation_service = simulation
     app.state.auth0_verifier = auth0_verifier or Auth0TokenVerifier()
     control_permission = Depends(require_permission("simulation:control"))
+    app.include_router(analytics_router)
 
     async def execute(operation: str, *args: object) -> dict[str, object]:
         method = getattr(simulation, operation)

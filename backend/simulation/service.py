@@ -15,6 +15,7 @@ from typing import Any, Callable
 from uuid import uuid4
 
 from .runner import SumoRunner
+from backend.analytics.runs import RunRecorder
 from .scenarios import (
     DEFAULT_CONTROLLER_MODE,
     DEFAULT_NETWORK,
@@ -51,6 +52,7 @@ class _Command:
 
 
 RunnerFactory = Callable[[ScenarioDefinition], SumoRunner]
+RunSink = Callable[[dict[str, Any]], None]
 
 
 class SimulationService:
@@ -63,6 +65,7 @@ class SimulationService:
         default_speed: float = 4.0,
         command_timeout_s: float = 10.0,
         voice_policy: VoiceAlertPolicy | None = None,
+        run_sink: RunSink | None = None,
     ) -> None:
         self._runner_factory = runner_factory or self._default_runner_factory
         self._default_speed = self._validate_speed(default_speed)
@@ -79,6 +82,9 @@ class SimulationService:
         self._voice_policy = voice_policy or VoiceAlertPolicy(
             language=os.getenv("FLOWGENCY_VOICE_LANGUAGE", "en")
         )
+        # Optional run recording (worker thread only). Without a sink nothing is recorded.
+        self._run_sink = run_sink
+        self._recorder: RunRecorder | None = None
 
     @staticmethod
     def _default_runner_factory(scenario: ScenarioDefinition) -> SumoRunner:
@@ -236,6 +242,51 @@ class SimulationService:
             snapshot["voice_alerts"] = []
         return snapshot
 
+    def _begin_run(
+        self,
+        runner: SumoRunner,
+        snapshot: dict[str, Any],
+        scenario: ScenarioDefinition,
+        configuration: SimulationConfiguration,
+    ) -> None:
+        """Start in-memory recording; never raises into the simulation."""
+        self._recorder = None
+        if self._run_sink is None:
+            return
+        try:
+            run_id = snapshot.get("run_id") or getattr(runner, "run_id", None) or f"service-{uuid4()}"
+            # Run identity: the resolved scenario, plus "_emergency" when emergency vehicles run.
+            scenario_id = scenario.scenario_id + (
+                "_emergency" if configuration.emergency_vehicles_enabled else ""
+            )
+            self._recorder = RunRecorder(
+                run_id=str(run_id),
+                scenario_id=scenario_id,
+                configuration=configuration.as_dict(),
+                initial_snapshot=snapshot,
+            )
+        except Exception:
+            LOGGER.exception("run recording could not start")
+
+    def _observe_run(self, snapshot: dict[str, Any]) -> None:
+        if self._recorder is None:
+            return
+        try:
+            self._recorder.observe(snapshot)
+        except Exception:
+            LOGGER.exception("run recording failed; this run will not be saved")
+            self._recorder = None
+
+    def _end_run(self, status: str, error: str | None = None) -> None:
+        """Write the recorded run once; a failure is logged and never raised."""
+        recorder, self._recorder = self._recorder, None
+        if recorder is None or self._run_sink is None:
+            return
+        try:
+            self._run_sink(recorder.finish(status, error=error))
+        except Exception:
+            LOGGER.exception("could not save simulation run %s", recorder.run_id)
+
     def _submit(
         self,
         name: str,
@@ -291,10 +342,12 @@ class SimulationService:
                         runner.advance()
                         snapshot = self._attach_voice_alerts(runner.extract_snapshot())
                         self._set_state(SimulationState.RUNNING, snapshot=snapshot)
+                        self._observe_run(snapshot)
                         if not runner.has_pending_vehicles():
                             runner.close()
                             runner = None
                             self._set_state(SimulationState.FINISHED)
+                            self._end_run("finished")
                         continue
                 else:
                     command = self._commands.get()
@@ -311,6 +364,7 @@ class SimulationService:
                             runner.close()
                             runner = None
                         self._set_state(SimulationState.ERROR, error=str(exc))
+                        self._end_run("error", error=str(exc))
             except BaseException as exc:
                 if runner is not None:
                     try:
@@ -318,6 +372,7 @@ class SimulationService:
                     finally:
                         runner = None
                 self._set_state(SimulationState.ERROR, error=str(exc))
+                self._end_run("error", error=str(exc))
 
         if runner is not None:
             runner.close()
@@ -351,6 +406,7 @@ class SimulationService:
             self._speed = command.speed or self._default_speed
             self._active_configuration = configuration
             self._set_state(SimulationState.RUNNING, snapshot=snapshot, error=None)
+            self._begin_run(runner, snapshot, scenario, configuration)
             return runner, True
 
         if command.name == "pause":
@@ -378,6 +434,7 @@ class SimulationService:
         if command.name == "reset":
             if state is SimulationState.IDLE:
                 raise InvalidTransition("cannot reset an idle simulation")
+            self._end_run("stopped")
             if runner is not None:
                 runner.close()
             if self._active_configuration is None:
@@ -399,11 +456,13 @@ class SimulationService:
                 raise
             self._speed = self._default_speed
             self._set_state(SimulationState.PAUSED, snapshot=snapshot, error=None)
+            self._begin_run(runner, snapshot, scenario, self._active_configuration)
             return runner, True
 
         if command.name == "stop":
             if state is SimulationState.IDLE:
                 raise InvalidTransition("cannot stop an idle simulation")
+            self._end_run("stopped")
             if runner is not None:
                 runner.close()
                 runner = None
@@ -413,6 +472,7 @@ class SimulationService:
             return runner, True
 
         if command.name == "shutdown":
+            self._end_run("stopped")
             if runner is not None:
                 runner.close()
                 runner = None

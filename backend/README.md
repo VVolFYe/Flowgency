@@ -23,19 +23,20 @@ From the repository root:
 
 ```bash
 cp -n .env.example .env
+cp -n backend/.env.example backend/.env
 # Edit .env and set ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID for voice audio.
+# Edit backend/.env for Auth0 and, optionally, FLOWGENCY_ANALYTICS_DB (see below).
 source "$HOME/.venvs/flowgency-sumo-1.27.1/bin/activate"
-set -a
-source .env
-set +a
+set -a; source .env; source backend/.env; set +a
 export SUMO_HOME="$(python -c 'import sumo; print(sumo.SUMO_HOME)')"
 sumo --version  # Must report 1.27.1 for the London scenarios.
 python3 -m uvicorn backend.api.app:app --host 127.0.0.1 --port 8000
 ```
 
 The backend reads these values from its process environment; it does not load
-`.env` automatically. The `source` step must run in the same shell that starts
-Uvicorn. `.env` is ignored by Git; `.env.example` contains no credentials.
+`.env` files automatically. The `source` step must run in the same shell that
+starts Uvicorn. Both `.env` files are ignored by Git; the `.env.example` files
+contain no credentials.
 
 Useful requests:
 
@@ -103,6 +104,35 @@ For a repeatable fixed/adaptive comparison and phase-safety audit, run `python3 
 Start defaults to Single Intersection + Normal + Fixed Timing + Emergency Vehicles Disabled. Reset restarts the active configuration; Stop closes SUMO and clears active state while the frontend keeps the editable selected configuration. London snapshots enumerate all active TLS controllers dynamically. Corrected Rush Hour routes completed the validated Fixed/Network Adaptive paired benchmark with 690 arrivals and no collisions or teleports in either mode.
 
 Snapshots contain worker-collected cumulative waiting metrics. Waiting vehicle-seconds are integrated once per SUMO step and retained after arrival; the live average uses every departed vehicle as its denominator. Live time loss is intentionally deferred to completed tripinfo analysis. Adaptive London mode is experimental and uses the audited 22-controller network profile in Normal, Rush Hour, and Unbalanced. Emergency priority is available on both networks and is restricted to verified controlled traffic-light IDs.
+
+## Analytics database (team Postgres or local SQLite)
+
+The Statistics data (loaded analytics files and recorded simulation runs) lives in the database named by `FLOWGENCY_ANALYTICS_DB`:
+
+- **Team Postgres (shared):** a `postgresql://` URL. Ask a teammate for it privately. It contains a password, so never send it through Git, issues or chat logs that end up in the repository.
+- **Local SQLite (fallback):** if the variable is unset, the backend uses `data/analytics.sqlite3` in the repository (gitignored).
+
+New teammates install the driver once with `pip install -r backend/requirements.txt` (it includes `psycopg[binary]`).
+
+Linux/macOS: put the URL in `backend/.env` in **single quotes**. The file is read with `source`, which runs it as shell code, so an unquoted `&` or `$` in the URL or password would break the line:
+
+```bash
+FLOWGENCY_ANALYTICS_DB='postgresql://USER:PASSWORD@HOST:5432/DBNAME?sslmode=require'
+```
+
+Then `set -a; source .env; source backend/.env; set +a` in the shell that runs the loader and Uvicorn.
+
+Windows PowerShell (current session only):
+
+```powershell
+$env:FLOWGENCY_ANALYTICS_DB = 'postgresql://USER:PASSWORD@HOST:5432/DBNAME?sslmode=require'
+python -m uvicorn backend.api.app:app --host 127.0.0.1 --port 8000
+# Back to local SQLite: Remove-Item Env:FLOWGENCY_ANALYTICS_DB
+```
+
+Fill an empty database once with `python -m backend.analytics.load`. It creates the tables, then upserts `frontend/public/analytics/index.json`.
+
+The Postgres database is shared by the whole team, so the Statistics page's "Last simulation" is the latest run recorded from **any** PC, and every teammate's runs land there. Each request opens its own connection, with a 5 s connect timeout. If the database is unreachable or not loaded, the analytics routes return 503. The URL is never logged or printed; the loader reports it as `hosted Postgres (URL hidden)`.
 
 ## Test
 

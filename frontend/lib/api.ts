@@ -16,6 +16,14 @@ export const WS_URL = (() => {
   return url.toString();
 })();
 
+/** Non-2xx backend response; `status` lets callers distinguish 404/503 from other failures. */
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit, baseUrl = BACKEND_URL): Promise<T> {
   let response: Response;
   try {
@@ -29,7 +37,7 @@ async function request<T>(path: string, init?: RequestInit, baseUrl = BACKEND_UR
       const body = (await response.json()) as { detail?: string };
       if (body.detail) detail = body.detail;
     } catch { /* response was not JSON */ }
-    throw new Error(detail);
+    throw new ApiError(detail, response.status);
   }
   return response.json() as Promise<T>;
 }
@@ -41,6 +49,14 @@ export const api = {
     { signal },
   ),
   status: () => request<SimulationStatus>("/api/simulation/status"),
+  // Analytics responses are typed unknown: callers validate them with the guards in contracts.ts.
+  analyticsList: (signal?: AbortSignal) => request<unknown>("/api/analytics", { signal }),
+  analyticsEntry: (id: string, signal?: AbortSignal) => request<unknown>(`/api/analytics/${encodeURIComponent(id)}`, { signal }),
+  latestRun: (signal?: AbortSignal) => request<unknown>("/api/analytics/runs/latest", { signal }),
+  latestRunPair: (scenarioId: string, signal?: AbortSignal) => request<unknown>(
+    `/api/analytics/runs/latest-pair?scenario_id=${encodeURIComponent(scenarioId)}`,
+    { signal },
+  ),
   snapshot: async (): Promise<SimulationSnapshot | null> => {
     const response = await fetch(`${BACKEND_URL}/api/simulation/snapshot`, { cache: "no-store", signal: AbortSignal.timeout(4000) }).catch(() => null);
     if (!response) throw new Error(`Cannot reach the Flowgency backend at ${BACKEND_URL}`);

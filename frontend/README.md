@@ -4,9 +4,10 @@ Next.js control center for the server-owned SUMO simulation. The browser reads n
 
 ## Run
 
-Start the backend from the repository root:
+Start the backend from the repository root (details, Windows commands and the analytics database setup are in `backend/README.md`):
 
 ```bash
+set -a; source .env; source backend/.env; set +a   # FLOWGENCY_ANALYTICS_DB unset = local SQLite
 python3 -m uvicorn backend.api.app:app --host 127.0.0.1 --port 8000
 ```
 
