@@ -24,7 +24,12 @@ Open <http://localhost:3000>. Port 3000 is required by the backend's development
 
 The simulation page loads its scenario list from the backend. Select the synthetic intersection or a London demand profile while the service is idle, then Start. The selected network uses actual SUMO Cartesian geometry; use the mouse wheel to zoom, drag to pan, and **Fit network** to restore the full extent. Scenario selection is locked during active and paused runs.
 
-Control mode is selected before Start. **Emergency priority demo** defaults to `adaptive_with_emergency_priority` and highlights the declared ambulance, fire brigade, and police vehicles. London adaptive mode is intentionally limited to the audited J3 experimental controller in Normal and Unbalanced; Rush Hour remains fixed-only. Live metrics report cumulative vehicle-seconds waiting, average waiting per departed vehicle, arrivals, and current/maximum controlled-lane queues.
+Control mode is selected before Start. **Emergency priority demo** defaults to `adaptive_with_emergency_priority` and highlights the declared ambulance, fire brigade, and police vehicles. London adaptive mode uses the audited experimental 22-controller network profile in Normal, Rush Hour, and Unbalanced. Emergency priority remains synthetic-only. Live metrics report cumulative vehicle-seconds waiting, average waiting per departed vehicle, arrivals, and current/maximum controlled-lane queues.
+
+The simulation view also displays traffic alert captions. Click **Enable voice**
+to hear new alerts through the backend's optional ElevenLabs integration; the
+button itself and simulation controls do not speak. Backend credentials and
+message triggers are documented in [`docs/VOICE_ALERTS.md`](../docs/VOICE_ALERTS.md).
 
 Road geometry is drawn on a static canvas layer while live SUMO vehicles and signal lamps use a separate animation layer. London lamps are positioned at the end of their actual controlled incoming lanes and read the character at each connection's SUMO link index; they never reduce a mixed controller state to one color. Hover a lamp for its controller, link index, state semantics, lane, destination, and movement. Neutral controller markers remain as a fallback before live state is available.
 

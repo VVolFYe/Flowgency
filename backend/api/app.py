@@ -6,7 +6,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Literal
 
-from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect, status
+from fastapi import Depends, FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -19,6 +19,7 @@ from backend.simulation.scenarios import (
     list_scenarios,
 )
 from backend.simulation.service import InvalidTransition, SimulationService
+from backend.voice.tts import VoiceSynthesis
 
 
 class SimulationOptions(BaseModel):
@@ -40,6 +41,7 @@ def create_app(
     auth0_verifier: Auth0TokenVerifier | None = None,
 ) -> FastAPI:
     simulation = service or SimulationService()
+    speech = VoiceSynthesis()
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -102,6 +104,17 @@ def create_app(
             return get_scenario_geometry(selected)
         except ScenarioNotFound as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    @app.get("/api/voice/alerts/{event_id}/audio")
+    async def voice_audio(event_id: str) -> Response:
+        alert = simulation.voice_alert(event_id)
+        if alert is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="voice alert not found")
+        try:
+            audio = await asyncio.to_thread(speech.render, alert["text"])
+        except RuntimeError as exc:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+        return Response(audio, media_type="audio/mpeg", headers={"Cache-Control": "no-store"})
 
     @app.post("/api/simulation/start", dependencies=[control_permission])
     async def start(options: SimulationOptions = SimulationOptions()) -> dict[str, object]:

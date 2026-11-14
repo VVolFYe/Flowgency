@@ -87,11 +87,13 @@ Remaining duration may be `null`. `traffic_light_id`, `current_phase_index`, and
 
 Snapshots also include additive run-level `metrics`. `total_waiting_time_s` is accumulated once per simulation step as the number of active vehicles whose SUMO `getWaitingTime` is positive multiplied by that step's simulation-time duration. SUMO excludes intentional `<stop>` stages from this waiting state. The accumulator survives vehicle arrival and never uses the rolling-window `getAccumulatedWaitingTime`. `average_waiting_time_s` divides the total by `departed_vehicle_count`, so its denominator includes both active and completed vehicles; it is `null` before the first departure. `network_queue_vehicles` is the current deduplicated controlled-lane halt count, while `maximum_network_queue_vehicles` is the run maximum. Live time-loss fields remain `null` and explicitly defer to completed tripinfo output.
 
-An adaptive London snapshot may include `adaptive_control`, identifying only the configured controller IDs and the latest cycle-boundary queues and green allocation. It does not imply that every network controller is adaptive.
+An adaptive London snapshot may include `adaptive_control`. `scope` identifies the versioned control profile; `active_controller_count` and `traffic_light_ids` identify controllers that passed live program validation. `fixed_controllers` maps controllers left on their imported fixed program to an explicit reason. `last_cycle_decision` remains the latest backward-compatible decision, while `last_cycle_decisions` retains the latest decision per active TLS. Pressure-profile decisions may add normalized `demand_scores` and raw bounded demand observations. These fields never imply that an omitted or rejected controller is adaptive.
 
 For the synthetic scenario in adaptive mode, snapshots may additionally contain `control_reason`, a short machine-readable explanation such as `minimum_green_protected`, `hold_green_and_reevaluate`, `sustained_opposing_queue_advantage`, `opposing_approach_anti_starvation`, or `maximum_green_reached`. It is `null` before the first policy evaluation. This field describes the latest duration request, not a guarantee that a different phase has already begun. Fixed mode omits it.
 
 The synthetic emergency mode adds `hold_compatible_green_for_emergency`, `minimum_green_protected_before_emergency`, and `request_normal_clearance_for_emergency` reasons, plus `emergency_priority` with nullable `active_vehicle_id`, `active_approach`, and `reason`. Vehicle snapshots include `is_emergency`, derived from declared SUMO type IDs `ambulance`, `fire_brigade`, and `police`; it is not a YOLO inference.
+
+Snapshots now also carry a bounded `voice_alerts` list (up to 12 recent items) for traffic events only. It is empty before the first event. Each item has `event_id` (opaque, stable within a run), `run_id`, `message_id`, `text`, `language` (`en` or `ro`), `simulation_time_s`, and `priority` (`emergency` or `routine`). The producer deduplicates state transitions, so repeated snapshots do not create new events. The current IDs are `emergency.requested`, `emergency.already_green`, and `emergency.green_confirmed`. `traffic.congestion_sustained` is implemented but disabled until a calibrated scenario threshold exists. Adaptive plan changes and the end of an emergency request do not produce voice alerts. No lifecycle or UI-control action produces a voice alert. This list is presentation data and has no effect on signal decisions.
 
 ## C. Controller decision
 
@@ -197,6 +199,12 @@ WebSocket messages use a small envelope so status notifications and unchanged ve
 
 `type` is currently `status` or `snapshot`. For `snapshot`, `data` is the complete SUMO intersection state contract rather than the abbreviated example above.
 
+`GET /api/voice/alerts/{event_id}/audio` returns `audio/mpeg` for a recent,
+server-emitted alert ID. It returns 404 for an unknown or expired ID and 503 if
+the backend ElevenLabs configuration or provider is unavailable. The browser
+cannot submit arbitrary speech text. ElevenLabs credentials stay server-side;
+captions in `voice_alerts` remain available when audio is disabled or fails.
+
 ## G. Static SUMO network geometry
 
 `GET /api/simulation/network` returns cached geometry parsed from the scenario network without starting SUMO or using TraCI:
@@ -267,4 +275,4 @@ Geometry also includes `projection` (`proj_parameter`, `net_offset`, and `origin
 
 `POST /api/simulation/start` accepts optional `scenario_id`: `single_intersection`, `single_intersection_emergency`, `london_normal`, `london_rush_hour`, or `london_unbalanced`. Omission preserves the synthetic default. Omitted `control_mode` selects the scenario default: `fixed` normally, `adaptive_with_emergency_priority` for `single_intersection_emergency`. Static geometry may be selected explicitly with `GET /api/simulation/network?scenario_id=london_normal`; without a query it follows the active scenario and remains synthetic while idle.
 
-The same request accepts `control_mode` as `fixed`, `adaptive`, or `adaptive_with_emergency_priority`. Adaptive is supported for the synthetic scenario and, experimentally, for J3 only in `london_normal` and `london_unbalanced`. Emergency priority is supported only for the synthetic mapping. Unsupported combinations are rejected rather than silently reverting to fixed timing.
+The same request accepts `control_mode` as `fixed`, `adaptive`, or `adaptive_with_emergency_priority`. Adaptive is supported for the synthetic scenario and, experimentally, by the validated 22-controller network profile in `london_normal`, `london_rush_hour`, and `london_unbalanced`. The active controller count, controller IDs, and fixed fallbacks are reported in `adaptive_control`. Emergency priority is a separate mode supported only by the verified synthetic emergency scenario and is not enabled for London. Unsupported combinations are rejected rather than silently reverting to fixed timing. The historical J3-only manifest and benchmark remain separate for comparison.

@@ -6,6 +6,9 @@ export async function proxy(request: NextRequest) {
   if (!auth0Configured() && request.nextUrl.pathname.startsWith("/auth/")) {
     return NextResponse.redirect(new URL("/auth/configuration", request.url));
   }
+  if (request.nextUrl.pathname === "/analytics") {
+    return NextResponse.redirect(new URL("/operator/benchmarks", request.url));
+  }
   return auth0.middleware(request);
 }
 
