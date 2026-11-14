@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, BACKEND_URL, WS_URL } from "@/lib/api";
 import { SiteNav } from "@/components/site-nav";
 import { SimulationCanvas } from "@/components/simulation-canvas";
+import { VoiceAlerts } from "@/components/voice-alerts";
 import type {
   NetworkGeometry,
   ServiceState,
@@ -452,6 +453,7 @@ export default function SimulationPage() {
           </div>
 
           <aside className="order-3 grid content-start gap-4 sm:grid-cols-2 xl:grid-cols-1">
+            <VoiceAlerts alerts={snapshot?.voice_alerts ?? []} runId={snapshot?.run_id ?? null} simulationTime={snapshot?.simulation_time_s ?? null} />
             <div className="rounded-[20px] border border-white/[.07] bg-[#10171c] p-4">
               <p className="font-mono text-[10px] uppercase tracking-[.2em] text-[#667781]">Live telemetry</p>
               <div className="mt-5 grid grid-cols-2 gap-3">

@@ -67,6 +67,17 @@ For a visible emergency demo, select **Emergency priority demo** in the browser 
 python3 -m backend.simulation.runner --config scenarios/single_intersection/emergency.sumocfg --control-mode adaptive_with_emergency_priority
 ```
 
+Traffic-triggered voice captions are included in simulation snapshots; no
+scenario-selection, Start/Stop, or pause action triggers speech. The browser's
+**Enable voice** button requests MP3 audio from the backend only for new traffic
+alerts. To test ElevenLabs, set `ELEVENLABS_API_KEY` and
+`ELEVENLABS_VOICE_ID` in the backend process environment before starting
+Uvicorn. Optional `ELEVENLABS_MODEL_ID` defaults to `eleven_multilingual_v2`;
+`FLOWGENCY_VOICE_LANGUAGE=ro` selects Romanian captions and speech (English is
+the default). Keep the API key out of the frontend and Git. Without these
+settings, captions still work and audio requests return 503. See
+[`docs/VOICE_ALERTS.md`](../docs/VOICE_ALERTS.md) for the exact triggers.
+
 For a headless synthetic adaptive run: `python3 -m backend.simulation.runner --control-mode adaptive`. Every adaptive policy is a simulation experiment, not a validated traffic-signal controller. The J3 runtime manifest is checked against SUMO before commands are sent, but real pedestrian movements and real-world clearance remain unverified.
 
 For a repeatable fixed/adaptive comparison and phase-safety audit, run `python3 -m backend.simulation.compare --scenario peak` (or `--scenario demo`). The script reports identical-demand metrics and exits nonzero on an unsafe phase trace, collision, teleport, or unfinished trip.

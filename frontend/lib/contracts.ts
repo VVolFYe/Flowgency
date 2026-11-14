@@ -119,6 +119,16 @@ export interface Vehicle {
 
 export interface QueueValue { vehicles: number; measurement: string }
 
+export interface VoiceAlert {
+  event_id: string;
+  run_id: string;
+  message_id: string;
+  text: string;
+  language: "en" | "ro";
+  simulation_time_s: number;
+  priority: "emergency" | "routine";
+}
+
 export interface SimulationSnapshot {
   schema_version: string;
   scenario_id: string;
@@ -159,6 +169,7 @@ export interface SimulationSnapshot {
     active_approach: string | null;
     reason: string | null;
   };
+  voice_alerts?: VoiceAlert[];
   vehicles?: Vehicle[];
 }
 

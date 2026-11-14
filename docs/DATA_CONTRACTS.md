@@ -93,6 +93,8 @@ For the synthetic scenario in adaptive mode, snapshots may additionally contain 
 
 The synthetic emergency mode adds `hold_compatible_green_for_emergency`, `minimum_green_protected_before_emergency`, and `request_normal_clearance_for_emergency` reasons, plus `emergency_priority` with nullable `active_vehicle_id`, `active_approach`, and `reason`. Vehicle snapshots include `is_emergency`, derived from declared SUMO type IDs `ambulance`, `fire_brigade`, and `police`; it is not a YOLO inference.
 
+Snapshots now also carry a bounded `voice_alerts` list (up to 12 recent items) for traffic events only. It is empty before the first event. Each item has `event_id` (opaque, stable within a run), `run_id`, `message_id`, `text`, `language` (`en` or `ro`), `simulation_time_s`, and `priority` (`emergency` or `routine`). The producer deduplicates state transitions, so repeated snapshots do not create new events. The current IDs are `emergency.requested`, `emergency.already_green`, `emergency.green_confirmed`, `emergency.request_ended`, and `adaptive.plan_selected`. `traffic.congestion_sustained` is implemented but disabled until a calibrated scenario threshold exists. No lifecycle or UI-control action produces a voice alert. This list is presentation data and has no effect on signal decisions.
+
 ## C. Controller decision
 
 ```json
@@ -196,6 +198,12 @@ WebSocket messages use a small envelope so status notifications and unchanged ve
 ```
 
 `type` is currently `status` or `snapshot`. For `snapshot`, `data` is the complete SUMO intersection state contract rather than the abbreviated example above.
+
+`GET /api/voice/alerts/{event_id}/audio` returns `audio/mpeg` for a recent,
+server-emitted alert ID. It returns 404 for an unknown or expired ID and 503 if
+the backend ElevenLabs configuration or provider is unavailable. The browser
+cannot submit arbitrary speech text. ElevenLabs credentials stay server-side;
+captions in `voice_alerts` remain available when audio is disabled or fails.
 
 ## G. Static SUMO network geometry
 

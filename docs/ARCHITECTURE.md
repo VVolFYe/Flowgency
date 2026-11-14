@@ -18,6 +18,10 @@ SUMO --TraCI--> simulation state -> controller --TraCI---------+
 3. `backend/api` publishes bounded state snapshots over WebSocket. The frontend may interpolate for display but does not simulate traffic or become the source of truth.
 4. SUMO output and controller event logs are aggregated into comparable scenario metrics.
 
+Optional spoken demo alerts are specified in [VOICE_ALERTS.md](VOICE_ALERTS.md).
+They are derived from confirmed simulation state changes and rendered through
+a backend text-to-speech adapter; speech never drives the controller.
+
 ## Component responsibilities
 
 ### Frontend
