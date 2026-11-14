@@ -89,9 +89,11 @@ The command prints completed trips, waiting time, queues, collisions, teleports,
 
 `adaptive.json` is a reviewed mapping for the reusable cycle planner. To use it instead of the older per-second demo controller, run `python3 -m backend.simulation.cycle_run --config scenarios/single_intersection/demo.sumocfg --adaptive-manifest scenarios/single_intersection/adaptive.json`.
 
-## Emergency priority demo
+## Emergency vehicle overlay and priority
 
-Choose `single_intersection_emergency` in the browser, or run `python3 -m backend.simulation.runner --config scenarios/single_intersection/emergency.sumocfg --control-mode adaptive_with_emergency_priority`. The additional vehicles have distinct SUMO type IDs, shapes, and colors. The browser highlights those IDs. Only the configured synthetic incoming edges are eligible for priority; leaving the incoming edge and junction releases the request. On an opposing green, the normal 10-second minimum still applies, then SUMO's 3-second yellow and 2-second all-red run unchanged. On a compatible green, the normal 45-second maximum may be exceeded while the emergency vehicle passes. This is a simulation experiment with no pedestrian phases, not a real-world signal plan.
+The current API resolves independent selectors to `normal.sumocfg`, `rush_hour.sumocfg`, and `unbalanced.sumocfg`, plus their `_emergency` variants. Normal reuses the balanced 10-second flows. Rush Hour uses balanced 5-second flows. Unbalanced deterministically gives north/south four times the east/west demand (5-second versus 20-second periods). `emergency_vehicles.rou.xml` is loaded only when Emergency Vehicles is enabled and adds two stable ambulance IDs on valid, conflicting approaches at simulation second 35.
+
+In the browser, select a traffic profile, enable **Emergency Vehicles**, and choose the controller independently. For a direct priority run, use `python3 -m backend.simulation.runner --config scenarios/single_intersection/normal_emergency.sumocfg --control-mode adaptive_with_emergency_priority`. The additional vehicles have distinct SUMO type IDs, shapes, and colors. The browser highlights those IDs. Only the configured incoming edges are eligible for priority; leaving the incoming edge and junction releases the request. On an opposing green, the normal 10-second minimum still applies, then SUMO's 3-second yellow and 2-second all-red run unchanged. On a compatible green, the normal 45-second maximum may be exceeded while the emergency vehicle passes. This is a simulation experiment with no pedestrian phases, not a real-world signal plan.
 
 ## Inspect prerecorded AI observations
 

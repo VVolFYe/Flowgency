@@ -10,7 +10,8 @@
     "build": "next build --webpack",
     "start": "next start --hostname 0.0.0.0 --port 3000",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:voice": "node --experimental-strip-types tests/voice-alert-coordinator.test.ts"
   },
   "dependencies": {
     "@auth0/nextjs-auth0": "^4.33.0",

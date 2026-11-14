@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes>
+    <vType id="ambulance" vClass="passenger" guiShape="emergency" color="255,65,65" accel="2.6" decel="4.5" sigma="0" length="5.5" minGap="2.5" maxSpeed="13.89"/>
+    <route id="ambulance_london_j3_route" edges="-66924592#2 -1118018433#2 -682488207#1 -682488207#0 -1118663176#1 -1118663176#0 -1118018427#4 -1118018426#1 -1118018425#3 682488188 -699517822 -744514098 1109963720 744514111#0 744514106#0"/>
+    <route id="ambulance_london_j1_route" edges="682488188 -699517822 -744514098 1109963720 744514111#0 -744514100#1 -44107938 -1263642518 -544917329 544917330#0 906710490 1113402667 1113402666#0 -1107771062 11828273#1 11828267 24398446#0 -1113421957#2 -1113402656 -24398447#3 -1433144010 -11828267"/>
+    <vehicle id="ambulance_london_j3_1" type="ambulance" route="ambulance_london_j3_route" depart="45" departLane="best" departSpeed="max"/>
+    <vehicle id="ambulance_london_j1_1" type="ambulance" route="ambulance_london_j1_route" depart="45" departLane="best" departSpeed="max"/>
+</routes>

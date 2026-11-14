@@ -171,8 +171,16 @@ The service status is transport metadata, not SUMO intersection state:
 {
   "state": "running",
   "simulation_speed": 4.0,
-  "control_mode": "fixed",
-  "scenario_id": "single_intersection",
+  "active_configuration": {
+    "network": "single_intersection",
+    "traffic_profile": "normal",
+    "controller_mode": "fixed_timing",
+    "emergency_vehicles_enabled": false
+  },
+  "network": "single_intersection",
+  "traffic_profile": "normal",
+  "controller_mode": "fixed_timing",
+  "emergency_vehicles_enabled": false,
   "simulation_time_s": 42.0,
   "has_snapshot": true,
   "error": null
@@ -181,9 +189,7 @@ The service status is transport metadata, not SUMO intersection state:
 
 `state` is one of `idle`, `running`, `paused`, `finished`, or `error`. Simulation speed is simulated seconds per wall-clock second. Time is `null` before the first run; `error` is populated only when the worker fails.
 
-Status also carries `control_mode`: `fixed`, `adaptive`, or `adaptive_with_emergency_priority`. It defaults to `fixed` before a run and after stop. Emergency priority is available only on the verified synthetic mapping. It preserves the normal 10-second minimum on a conflicting green and the installed yellow/all-red sequence. A compatible green can extend beyond the normal 45-second maximum while the emergency vehicle remains on the incoming edge or inside the junction. This is simulation behavior, not a validated road-signal policy.
-
-Status `scenario_id` is the active public selection ID. While idle, and after Stop, it is `single_intersection`. Reset retains the active selection.
+`active_configuration` is `null` while idle and after Stop. Reset retains the complete active configuration but creates a new `run_id`. Controller IDs are `fixed_timing`, `adaptive_network`, and `adaptive_emergency_priority`. The emergency boolean controls only whether SUMO loads the repository-owned emergency route file; it never changes controller mode implicitly.
 
 WebSocket messages use a small envelope so status notifications and unchanged version 1.0 state snapshots can share one stream:
 
@@ -269,13 +275,25 @@ All positions and shapes preserve SUMO Cartesian coordinates in metres. Internal
 
 Geometry also includes `projection` (`proj_parameter`, `net_offset`, and `original_boundary`) read from the actual `net.xml`, plus `rendering.invert_y_axis_for_screen=true`. London preserves its UTM zone 30 definition. Geometry and vehicle positions both remain in post-offset SUMO Cartesian metres.
 
-## H. Scenario registry and selection
+## H. Simulation configuration and selection
 
-`GET /api/simulation/scenarios` lists stable public IDs and display metadata without loading SUMO. London entries expose J1–J5 candidate mappings and retain the multiple candidates for ambiguous J2 and J5.
+`GET /api/simulation/configuration-options` lists the two networks, three traffic profiles, three controller modes, and two emergency states. `GET /api/simulation/network?network=single_intersection|london` selects static geometry only; demand and controller choices never change network geometry.
 
-`POST /api/simulation/start` accepts optional `scenario_id`: `single_intersection`, `single_intersection_emergency`, `london_normal`, `london_rush_hour`, or `london_unbalanced`. Omission preserves the synthetic default. Omitted `control_mode` selects the scenario default: `fixed` normally, `adaptive_with_emergency_priority` for `single_intersection_emergency`. Static geometry may be selected explicitly with `GET /api/simulation/network?scenario_id=london_normal`; without a query it follows the active scenario and remains synthetic while idle.
+`POST /api/simulation/start` accepts one validated configuration:
 
-The same request accepts `control_mode` as `fixed`, `adaptive`, or `adaptive_with_emergency_priority`. Adaptive is supported for the synthetic scenario and, experimentally, by the validated 22-controller network profile in `london_normal`, `london_rush_hour`, and `london_unbalanced`. The active controller count, controller IDs, and fixed fallbacks are reported in `adaptive_control`. Emergency priority is a separate mode supported only by the verified synthetic emergency scenario and is not enabled for London. Unsupported combinations are rejected rather than silently reverting to fixed timing. The historical J3-only manifest and benchmark remain separate for comparison.
+```json
+{
+  "network": "single_intersection",
+  "traffic_profile": "normal",
+  "controller_mode": "fixed_timing",
+  "emergency_vehicles_enabled": false,
+  "simulation_speed": 4.0
+}
+```
+
+All 36 combinations resolve explicitly to a checked-in SUMO configuration, traffic route file, optional emergency route file, and controller adapter. Unknown IDs and non-boolean emergency values receive a validation error. Fixed and ordinary adaptive modes load emergency vehicles when enabled but do not grant preemption. `adaptive_emergency_priority` composes emergency handling with adaptive control and behaves as ordinary adaptive control when no emergency vehicle is active.
+
+Snapshots carry `active_configuration` and `emergency_events`. Each emergency event has stable `event_id`, `emergency_vehicle_id`, `intersection_id`, approach/lane, simulation timestamps, state, and whether priority is supported. Repeated WebSocket snapshots retain the same event ID.
 
 ## I. Gate events (vision gate mode, `events.jsonl`)
 

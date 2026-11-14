@@ -3,17 +3,22 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { api, WS_URL } from "@/lib/api";
 import type {
+  ConfigurationOptions,
+  ControllerMode,
   NetworkGeometry,
+  NetworkId,
+  SimulationConfiguration,
   SimulationScenario,
   SimulationSnapshot,
   SimulationStatus,
   StreamEnvelope,
+  TrafficProfile,
   Vehicle,
 } from "@/lib/contracts";
 
 export type ConnectionState = "connecting" | "connected" | "reconnecting" | "offline";
 export type SimulationCommand = "start" | "pause" | "resume" | "reset" | "stop";
-export type ControlMode = "fixed" | "adaptive" | "adaptive_with_emergency_priority";
+export type { ControllerMode as ControlMode } from "@/lib/contracts";
 export type PendingCommand = SimulationCommand | "speed";
 export type VehicleFrame = Map<string, Vehicle>;
 
@@ -30,15 +35,18 @@ export interface HistoryPoint {
   simulationTimeS: number;
   vehicleCount: number | null;
   queues: Record<string, number | null>;
+  emergencyVehicleCount: number;
+  priorityRequestCount: number;
 }
 
 interface SimulationContextValue {
   geometry: NetworkGeometry | null;
-  scenarios: SimulationScenario[];
+  configurationOptions: ConfigurationOptions | null;
   selectedScenarioId: string;
   selectedScenario: SimulationScenario | null;
+  selectedConfiguration: SimulationConfiguration;
   selectedSpeed: number;
-  selectedControlMode: ControlMode;
+  selectedControlMode: ControllerMode;
   status: SimulationStatus;
   snapshot: SimulationSnapshot | null;
   connection: ConnectionState;
@@ -48,17 +56,22 @@ interface SimulationContextValue {
   history: HistoryPoint[];
   transitionRef: React.MutableRefObject<Transition | null>;
   execute: (command: SimulationCommand) => Promise<void>;
-  changeScenario: (scenarioId: string) => Promise<void>;
+  changeNetwork: (network: NetworkId) => Promise<void>;
+  setSelectedTrafficProfile: (profile: TrafficProfile) => void;
+  setEmergencyVehiclesEnabled: (enabled: boolean) => void;
   changeSpeed: (speed: number) => Promise<void>;
-  setSelectedControlMode: (mode: ControlMode) => void;
+  setSelectedControlMode: (mode: ControllerMode) => void;
   dismissError: () => void;
 }
 
 export const EMPTY_STATUS: SimulationStatus = {
   state: "idle",
   simulation_speed: 4,
-  control_mode: "fixed",
-  scenario_id: "single_intersection",
+  active_configuration: null,
+  network: null,
+  traffic_profile: null,
+  controller_mode: null,
+  emergency_vehicles_enabled: null,
   simulation_time_s: null,
   has_snapshot: false,
   error: null,
@@ -103,10 +116,12 @@ function readStoredHistory(): HistoryPoint[] {
 
 export function SimulationProvider({ children, collectHistory = false }: { children: React.ReactNode; collectHistory?: boolean }) {
   const [geometry, setGeometry] = useState<NetworkGeometry | null>(null);
-  const [scenarios, setScenarios] = useState<SimulationScenario[]>([]);
+  const [configurationOptions, setConfigurationOptions] = useState<ConfigurationOptions | null>(null);
   const [selectedScenarioId, setSelectedScenarioId] = useState("single_intersection");
+  const [selectedTrafficProfile, setSelectedTrafficProfile] = useState<TrafficProfile>("normal");
+  const [emergencyVehiclesEnabled, setEmergencyVehiclesEnabled] = useState(false);
   const [selectedSpeed, setSelectedSpeed] = useState(4);
-  const [selectedControlMode, setSelectedControlMode] = useState<ControlMode>("fixed");
+  const [selectedControlMode, setSelectedControlMode] = useState<ControllerMode>("fixed_timing");
   const [status, setStatus] = useState<SimulationStatus>(EMPTY_STATUS);
   const [snapshot, setSnapshot] = useState<SimulationSnapshot | null>(null);
   const [connection, setConnection] = useState<ConnectionState>("connecting");
@@ -118,7 +133,7 @@ export function SimulationProvider({ children, collectHistory = false }: { child
   const snapshotRef = useRef<SimulationSnapshot | null>(null);
   const connectionRef = useRef<ConnectionState>("connecting");
   const statusRef = useRef<SimulationStatus>(EMPTY_STATUS);
-  const selectedScenarioRef = useRef("single_intersection");
+  const selectedNetworkRef = useRef<NetworkId>("single_intersection");
   const geometryRequestRef = useRef(0);
   const lastSnapshotAtRef = useRef(0);
 
@@ -137,6 +152,8 @@ export function SimulationProvider({ children, collectHistory = false }: { child
       queues: Object.fromEntries(
         Object.entries(next.queue_lengths_by_approach).map(([approach, value]) => [approach, value?.vehicles ?? null]),
       ),
+      emergencyVehicleCount: next.vehicles?.filter((vehicle) => vehicle.is_emergency).length ?? 0,
+      priorityRequestCount: next.emergency_events?.filter((event) => event.state === "priority_active").length ?? 0,
     };
     setHistory((current) => {
       const sameRun = current.length > 0 && current[current.length - 1].runId === point.runId;
@@ -168,7 +185,6 @@ export function SimulationProvider({ children, collectHistory = false }: { child
     statusRef.current = next;
     setStatus(next);
     setSelectedSpeed(next.simulation_speed);
-    if (next.state !== "idle" && next.control_mode) setSelectedControlMode(next.control_mode);
     if (!next.has_snapshot || next.state === "idle") {
       snapshotRef.current = null;
       transitionRef.current = null;
@@ -179,9 +195,9 @@ export function SimulationProvider({ children, collectHistory = false }: { child
 
   const receiveSnapshot = useCallback((next: SimulationSnapshot, animate = true) => {
     const previous = snapshotRef.current;
-    const nextScenario = next.scenario_selection_id ?? next.scenario_id;
-    const previousScenario = previous?.scenario_selection_id ?? previous?.scenario_id;
-    if (statusRef.current.state !== "idle" && nextScenario !== statusRef.current.scenario_id) return;
+    const nextScenario = next.active_configuration.network;
+    const previousScenario = previous?.active_configuration.network;
+    if (statusRef.current.active_configuration && nextScenario !== statusRef.current.active_configuration.network) return;
     if (
       previous
       && previous.run_id === next.run_id
@@ -221,22 +237,27 @@ export function SimulationProvider({ children, collectHistory = false }: { child
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([api.scenarios(), api.status()])
-      .then(async ([availableScenarios, initialStatus]) => {
+    Promise.all([api.configurationOptions(), api.status()])
+      .then(async ([availableOptions, initialStatus]) => {
         if (cancelled) return;
-        const scenarioId = initialStatus.scenario_id || "single_intersection";
-        setScenarios(availableScenarios);
-        setSelectedScenarioId(scenarioId);
-        selectedScenarioRef.current = scenarioId;
+        const active = initialStatus.active_configuration;
+        const network = active?.network ?? "single_intersection";
+        setConfigurationOptions(availableOptions);
+        setSelectedScenarioId(network);
+        selectedNetworkRef.current = network;
+        if (active) {
+          setSelectedTrafficProfile(active.traffic_profile);
+          setSelectedControlMode(active.controller_mode);
+          setEmergencyVehiclesEnabled(active.emergency_vehicles_enabled);
+        }
         updateStatus(initialStatus);
         setSelectedSpeed(initialStatus.simulation_speed);
-        setSelectedControlMode(initialStatus.control_mode ?? "fixed");
-        const [network, initialSnapshot] = await Promise.all([
-          api.network(scenarioId),
+        const [networkGeometry, initialSnapshot] = await Promise.all([
+          api.network(active?.network ?? "single_intersection"),
           initialStatus.has_snapshot ? api.snapshot() : Promise.resolve(null),
         ]);
         if (cancelled) return;
-        setGeometry(network);
+        setGeometry(networkGeometry);
         if (initialSnapshot) receiveSnapshot(initialSnapshot, false);
         setError(null);
       })
@@ -248,14 +269,15 @@ export function SimulationProvider({ children, collectHistory = false }: { child
   }, [receiveSnapshot, updateStatus]);
 
   useEffect(() => {
-    if (status.state === "idle" || status.scenario_id === selectedScenarioRef.current) return;
-    selectedScenarioRef.current = status.scenario_id;
-    setSelectedScenarioId(status.scenario_id);
+    const activeNetwork = status.active_configuration?.network;
+    if (!activeNetwork || activeNetwork === selectedNetworkRef.current) return;
+    selectedNetworkRef.current = activeNetwork;
+    setSelectedScenarioId(activeNetwork);
     snapshotRef.current = null;
     transitionRef.current = null;
     setSnapshot(null);
-    void loadGeometry(status.scenario_id);
-  }, [loadGeometry, status.scenario_id, status.state]);
+    void loadGeometry(activeNetwork);
+  }, [loadGeometry, status.active_configuration]);
 
   useEffect(() => {
     let socket: WebSocket | null = null;
@@ -320,17 +342,19 @@ export function SimulationProvider({ children, collectHistory = false }: { child
       const nextStatus = await api.command(
         command,
         command === "start" || command === "resume" ? selectedSpeed : undefined,
-        command === "start" ? selectedScenarioRef.current : undefined,
-        command === "start" ? selectedControlMode : undefined,
+        command === "start" ? {
+          network: selectedNetworkRef.current,
+          traffic_profile: selectedTrafficProfile,
+          controller_mode: selectedControlMode,
+          emergency_vehicles_enabled: emergencyVehiclesEnabled,
+        } : undefined,
       );
       updateStatus(nextStatus);
       if (command === "stop") {
         snapshotRef.current = null;
         transitionRef.current = null;
         setSnapshot(null);
-        selectedScenarioRef.current = nextStatus.scenario_id;
-        setSelectedScenarioId(nextStatus.scenario_id);
-        await loadGeometry(nextStatus.scenario_id);
+        await loadGeometry(selectedNetworkRef.current);
       } else {
         const latest = await api.snapshot();
         if (latest) receiveSnapshot(latest, false);
@@ -360,26 +384,42 @@ export function SimulationProvider({ children, collectHistory = false }: { child
     }
   };
 
-  const changeScenario = async (scenarioId: string) => {
+  const changeNetwork = async (network: NetworkId) => {
     if (statusRef.current.state !== "idle" || commandPending) return;
-    selectedScenarioRef.current = scenarioId;
-    setSelectedScenarioId(scenarioId);
-    const nextScenario = scenarios.find((scenario) => scenario.scenario_id === scenarioId);
-    setSelectedControlMode(nextScenario?.default_control_mode ?? "fixed");
+    selectedNetworkRef.current = network;
+    setSelectedScenarioId(network);
     snapshotRef.current = null;
     transitionRef.current = null;
     setSnapshot(null);
     setError(null);
-    await loadGeometry(scenarioId);
+    await loadGeometry(network);
   };
 
-  const selectedScenario = scenarios.find((scenario) => scenario.scenario_id === selectedScenarioId) ?? null;
+  const selectedScenario: SimulationScenario = {
+    scenario_id: selectedScenarioId,
+    display_name: selectedScenarioId === "london" ? "London Network" : "Single Intersection",
+    description: selectedScenarioId === "london"
+      ? "Connected Oval/Kennington SUMO network."
+      : "Synthetic four-approach SUMO intersection.",
+    coordinate_system: geometry?.coordinate_system ?? "",
+    supports_adaptive_control: true,
+    supports_emergency_priority: true,
+    known_limitation: null,
+    target_mappings: [],
+  };
+  const selectedConfiguration: SimulationConfiguration = {
+    network: selectedScenarioId as NetworkId,
+    traffic_profile: selectedTrafficProfile,
+    controller_mode: selectedControlMode,
+    emergency_vehicles_enabled: emergencyVehiclesEnabled,
+  };
 
   return (
     <SimulationContext.Provider value={{
-      geometry, scenarios, selectedScenarioId, selectedScenario, selectedSpeed, selectedControlMode,
+      geometry, configurationOptions, selectedScenarioId, selectedScenario, selectedConfiguration, selectedSpeed, selectedControlMode,
       status, snapshot, connection, loading, commandPending, error, history,
-      transitionRef, execute, changeScenario, changeSpeed, setSelectedControlMode,
+      transitionRef, execute, changeNetwork, changeSpeed, setSelectedControlMode,
+      setSelectedTrafficProfile, setEmergencyVehiclesEnabled,
       dismissError: () => setError(null),
     }}>
       {children}
