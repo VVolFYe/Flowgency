@@ -259,3 +259,37 @@ Geometry also includes `projection` (`proj_parameter`, `net_offset`, and `origin
 `GET /api/simulation/scenarios` lists stable public IDs and display metadata without loading SUMO. London entries expose J1–J5 candidate mappings and retain the multiple candidates for ambiguous J2 and J5.
 
 `POST /api/simulation/start` accepts optional `scenario_id`: `single_intersection`, `london_normal`, `london_rush_hour`, or `london_unbalanced`. Omission preserves the synthetic default. Static geometry may be selected explicitly with `GET /api/simulation/network?scenario_id=london_normal`; without a query it follows the active scenario and remains synthetic while idle.
+
+## I. Gate events (vision gate mode, `events.jsonl`)
+
+Produced by `backend/vision` gate mode from one recorded top-down video of one intersection, for the simulation. One JSON object per line, in time order (then `track_id`). Pydantic model: `backend/models/gates.py::GateEvent`; every emitted line is validated.
+
+```json
+{"schema_version": "1.0", "event": "approach_entered", "track_id": 41, "arm": "north", "t_s": 9.801, "frame": 235, "model_id": "yolo11s_visdrone"}
+{"schema_version": "1.0", "event": "intersection_entered", "track_id": 41, "arm": "north", "t_s": 12.388, "frame": 297, "model_id": "yolo11s_visdrone"}
+{"schema_version": "1.0", "event": "intersection_exited", "track_id": 41, "arm": "east", "origin_arm": "north", "t_s": 17.893, "frame": 429, "model_id": "yolo11s_visdrone"}
+```
+
+- `arm` is one of `north`, `east`, `south`, `west`, named by the **side of the camera image** (`north` = top edge), not by compass bearing. Mapping arms to SUMO approaches is separate and must not be inferred from the names.
+- Each arm has three hand-drawn gates (4-point pixel polygons in the scene config): `<arm>_in.far` (inbound lanes at the frame edge) emits `approach_entered`; `<arm>_in.stop` (inbound lanes just past the stop line) emits `intersection_entered`; `<arm>_out` (outbound lanes just past the crosswalk) emits `intersection_exited`.
+- Gate rule: a track triggers a gate once, at the first frame where its counting point (box centre for top-down views) has been inside the gate in two consecutive video frames.
+- `origin_arm` is present only on `intersection_exited`. It is the `arm` of the same track's earlier `intersection_entered` event, or `null` when unknown: the tracker lost the vehicle, the vehicle was already in the junction at the start, or the track entered from more than one arm. It is never guessed.
+- `track_id` is a tracker ID, unique within one file; the same physical vehicle can appear under two IDs if the tracker loses it.
+- `t_s` is seconds from the start of the video (video time, not wall-clock time); `frame` is the 0-based decoded frame index.
+- Vehicles already on an approach or in the junction at the start of the video do not get the entry events they would otherwise have (see `initial` in section J); their later gate triggers do produce events.
+- `model_id` is provenance (detector profile), not an instruction to consumers.
+
+## J. Per-second gate counts (vision gate mode, `counts.jsonl`)
+
+Produced alongside section I, for the traffic-light adaptor: one line per whole second of video, `t_s` = 0, 1, 2, ... Pydantic model: `backend/models/gates.py::GateCounts`; every emitted line is validated.
+
+```json
+{"schema_version": "1.0", "t_s": 13.0, "approaches": {"north": {"vehicles_on_approach": 6, "entered_total": 14, "discharged_total": 9}}, "in_intersection": 3, "model_id": "yolo11s_visdrone"}
+```
+
+- Values describe the state after every gate trigger with `frame / fps <= t_s`. `entered_total` counts `<arm>_in.far` triggers and `discharged_total` counts `<arm>_in.stop` triggers since the start (cumulative).
+- `vehicles_on_approach = max(0, initial + entered_total - discharged_total)`. `initial` is the number of vehicles whose counting point lies inside the arm's approach region (convex hull of its `in.far` and `in.stop` gates) at the start, counted from tracks seen in at least 75 % of the first 0.5 s of frames, each placed where it was first seen. The `t_s = 0` line therefore uses the first 0.5 s.
+- `in_intersection = max(0, initial vehicles in the junction + stop-gate triggers of all arms - out-gate triggers of all arms)`. The junction is the convex hull of all stop and out gates, outside every approach region.
+- Every trigger that drives a raw value below zero is a *clamp*; clamps are logged in the producer's run log (`gate_run.json`), never hidden. The clamp applies to the reported value only; later triggers move the raw value back up.
+- An arm is present in `approaches` only when both of its inbound gates are configured; `in_intersection` is `null` unless all four stop and all four out gates are configured. Absent or `null` means unknown, never zero.
+- **These are estimates that can drift.** They accumulate detector misses, duplicate or broken tracks, and gate-placement errors over the whole video, and there is no reset or re-synchronisation. They are camera-derived counts, not SUMO queue lengths (section B), and `vehicles_on_approach` includes moving vehicles, not only queued ones.
