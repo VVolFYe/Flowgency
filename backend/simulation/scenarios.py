@@ -84,7 +84,7 @@ SCENARIOS: dict[str, ScenarioDefinition] = {
         coordinate_system="sumo_cartesian_metres_utm_zone_30",
         seed=20261113,
         supports_adaptive_control=True,
-        adaptive_manifest_path=_LONDON / "j3_adaptive.experimental.json",
+        adaptive_manifest_path=_LONDON / "network_adaptive.experimental.json",
     ),
     "london_rush_hour": ScenarioDefinition(
         scenario_id="london_rush_hour",
@@ -97,7 +97,8 @@ SCENARIOS: dict[str, ScenarioDefinition] = {
         legacy_scenario_id="london-oval-kennington-v1",
         coordinate_system="sumo_cartesian_metres_utm_zone_30",
         seed=20261113,
-        known_limitation="Four deterministic J5 teleports are documented and expected.",
+        supports_adaptive_control=True,
+        adaptive_manifest_path=_LONDON / "network_adaptive.experimental.json",
     ),
     "london_unbalanced": ScenarioDefinition(
         scenario_id="london_unbalanced",
@@ -111,7 +112,7 @@ SCENARIOS: dict[str, ScenarioDefinition] = {
         coordinate_system="sumo_cartesian_metres_utm_zone_30",
         seed=20261113,
         supports_adaptive_control=True,
-        adaptive_manifest_path=_LONDON / "j3_adaptive.experimental.json",
+        adaptive_manifest_path=_LONDON / "network_adaptive.experimental.json",
     ),
 }
 

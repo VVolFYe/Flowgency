@@ -170,7 +170,7 @@ class SimulationServiceTests(unittest.TestCase):
             self.service.start(scenario_id="not_a_scenario")
         self.assertEqual(self.fixture.created_scenarios, [])
 
-    def test_adaptive_mode_is_preserved_by_reset_and_rejected_when_unsupported(self) -> None:
+    def test_adaptive_mode_is_preserved_for_london_profiles(self) -> None:
         started = self.service.start(
             control_mode="adaptive", scenario_id="london_unbalanced"
         )
@@ -179,9 +179,18 @@ class SimulationServiceTests(unittest.TestCase):
         reset = self.service.reset()
         self.assertEqual(reset["control_mode"], "adaptive")
         self.service.stop()
+
+        rush_hour = self.service.start(
+            control_mode="adaptive", scenario_id="london_rush_hour"
+        )
+        self.assertEqual(rush_hour["scenario_id"], "london_rush_hour")
+        self.assertEqual(rush_hour["control_mode"], "adaptive")
+        self.service.stop()
+
         with self.assertRaises(ValueError):
             self.service.start(
-                control_mode="adaptive", scenario_id="london_rush_hour"
+                control_mode="adaptive_with_emergency_priority",
+                scenario_id="london_rush_hour",
             )
 
     def test_emergency_scenario_selects_priority_and_reset_preserves_it(self) -> None:
