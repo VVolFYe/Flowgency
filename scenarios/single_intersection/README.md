@@ -92,3 +92,21 @@ The command prints completed trips, waiting time, queues, collisions, teleports,
 ## Emergency priority demo
 
 Choose `single_intersection_emergency` in the browser, or run `python3 -m backend.simulation.runner --config scenarios/single_intersection/emergency.sumocfg --control-mode adaptive_with_emergency_priority`. The additional vehicles have distinct SUMO type IDs, shapes, and colors. The browser highlights those IDs. Only the configured synthetic incoming edges are eligible for priority; leaving the incoming edge and junction releases the request. On an opposing green, the normal 10-second minimum still applies, then SUMO's 3-second yellow and 2-second all-red run unchanged. On a compatible green, the normal 45-second maximum may be exceeded while the emergency vehicle passes. This is a simulation experiment with no pedestrian phases, not a real-world signal plan.
+
+## Inspect prerecorded AI observations
+
+The Phase 1 adapter validates gate JSONL without starting SUMO or injecting vehicles. From the repository root:
+
+```bash
+python3 -m backend.simulation.ai_input \
+  --counts ~/flowgency_ai_samples/counts.jsonl \
+  --events ~/flowgency_ai_samples/events.jsonl \
+  --summary
+
+python3 -m backend.simulation.ai_input \
+  --counts ~/flowgency_ai_samples/counts.jsonl \
+  --events ~/flowgency_ai_samples/events.jsonl \
+  --second 30
+```
+
+`ai_arm_mapping.json` explicitly maps image-side camera arms to synthetic incoming edges and validates them against `mappings.json`. Its orientation is deliberately marked unverified. Snapshot vehicle counts, event-derived arrivals, cumulative counters, and SUMO queues are distinct measurements.

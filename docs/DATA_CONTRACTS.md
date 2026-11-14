@@ -276,3 +276,33 @@ Geometry also includes `projection` (`proj_parameter`, `net_offset`, and `origin
 `POST /api/simulation/start` accepts optional `scenario_id`: `single_intersection`, `single_intersection_emergency`, `london_normal`, `london_rush_hour`, or `london_unbalanced`. Omission preserves the synthetic default. Omitted `control_mode` selects the scenario default: `fixed` normally, `adaptive_with_emergency_priority` for `single_intersection_emergency`. Static geometry may be selected explicitly with `GET /api/simulation/network?scenario_id=london_normal`; without a query it follows the active scenario and remains synthetic while idle.
 
 The same request accepts `control_mode` as `fixed`, `adaptive`, or `adaptive_with_emergency_priority`. Adaptive is supported for the synthetic scenario and, experimentally, by the validated 22-controller network profile in `london_normal`, `london_rush_hour`, and `london_unbalanced`. The active controller count, controller IDs, and fixed fallbacks are reported in `adaptive_control`. Emergency priority is a separate mode supported only by the verified synthetic emergency scenario and is not enabled for London. Unsupported combinations are rejected rather than silently reverting to fixed timing. The historical J3-only manifest and benchmark remain separate for comparison.
+
+## I. Gate events (`events.jsonl`)
+
+Vision gate mode emits one schema `1.0` object per tracked gate trigger. `arm` is the side of the camera image, not a geographic bearing. `origin_arm` is required only for `intersection_exited` and may be `null` when the origin is unknown.
+
+```json
+{"schema_version":"1.0","event":"approach_entered","track_id":44,"arm":"east","t_s":0.542,"frame":13,"model_id":"yolo11s_visdrone"}
+{"schema_version":"1.0","event":"intersection_exited","track_id":24,"arm":"south","origin_arm":null,"t_s":0.209,"frame":5,"model_id":"yolo11s_visdrone"}
+```
+
+Only `approach_entered` creates a new-arrival observation. A snapshot count or cumulative total must never be reinterpreted as new demand. Unknown optional fields are tolerated for forward compatibility, including future emergency metadata, but are not counted.
+
+## J. Per-second gate counts (`counts.jsonl`)
+
+Each schema `1.0` record is an observation at video time `t_s`, not wall-clock time:
+
+```json
+{"schema_version":"1.0","t_s":0.0,"approaches":{"north":{"vehicles_on_approach":5,"entered_total":0,"discharged_total":0}},"in_intersection":5,"model_id":"yolo11s_visdrone"}
+```
+
+- `vehicles_on_approach` is a camera observation that includes initial vehicles and moving vehicles. It is neither a new-arrival count nor a SUMO queue.
+- `entered_total` and `discharged_total` are cumulative camera counters.
+- An absent arm or `in_intersection: null` is unknown, never zero.
+- Camera arms are mapped separately to SUMO edges; image north must not be treated as geographic north.
+
+## K. Offline AI timeline adapter
+
+`backend.simulation.ai_input` validates sections I/J and groups `approach_entered` events into half-open video intervals `[t_s, next_observation_t_s)`. The last interval uses the observed cadence, allowing a final partial second without fabricating another count snapshot. Each timeline point keeps event-derived arrivals separate from observed vehicle counts and cumulative totals. Duplicate arrival track IDs, decreasing cumulative counters, unordered input, invalid mappings, and arrivals outside the recording are rejected.
+
+`scenarios/single_intersection/ai_arm_mapping.json` is an explicit demo convention validated against `mappings.json`. Every arm remains marked `unverified_camera_to_sumo`; it is not evidence of camera orientation or a real-world approach mapping.
