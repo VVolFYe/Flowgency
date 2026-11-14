@@ -33,7 +33,7 @@ environment variable). Writing generated output inside the repo is refused.
 |---|---|
 | `backend/vision/config/cameras.json` (repo) | per-camera counting lines in pixels, reference-frame path, `sumo_edge_id` (`null` until verified) |
 | `$UNIHACK_DIR/clips/<camera_id>/<YYYYMMDD_HHMMSS>.mp4` | input clips (from `jamcam_fetch.py`) |
-| `$UNIHACK_DIR/weights/*.pt` | YOLO11 weights (downloaded there on first use) |
+| `$UNIHACK_DIR/weights/*.pt` | YOLO11 weights. Stock COCO `yolo11n.pt`/`yolo11m.pt` are downloaded there on first use; the stock COCO yolo11s is stored as `yolo11s_coco.pt` (the old name `yolo11s.pt` is refused) and `yolo11s_visdrone.pt`/`.onnx` are the team's VisDrone weights (never downloaded) |
 | `$UNIHACK_DIR/vision_output/observations/<intersection_id>.jsonl` | **contract-A observations, one per usable clip** (rewritten by each `replay`) |
 | `$UNIHACK_DIR/vision_output/run_log.csv` | every processed clip: status, skip reason, view evidence, counts, runtime (appended, with `run_id`) |
 | `$UNIHACK_DIR/vision_output/reference_frames/` | reference frames saved by `draw-lines` |
@@ -51,7 +51,7 @@ environment variable). Writing generated output inside the repo is refused.
 | `render-demo --camera <id> --clips <N\|stem,stem> --out <mp4>` | annotated video (upscaled x3): boxes, class, track ID, confidence, contact points, lines with arrows, live counters |
 | `sample-eval-set [--per-camera 10] [--seed 42] [--day-hours 08-16] [--night-hours 17-07]` | deterministic eval sample of usable clips, half day / half night per camera |
 | `label [--camera <id\|all>] [--relabel]` | manual ground truth: loops each eval clip with lines only (no model output); resumable |
-| `evaluate [--models a.pt,b.pt] [--confs 0.25,0.40]` | scores each model x threshold against the ground truth; writes `report.md` and `results.csv` |
+| `evaluate [--models a.pt,b.pt] [--confs 0.25,0.40]` (default models `yolo11n.pt,yolo11s_coco.pt,yolo11m.pt`) | scores each model x threshold against the ground truth; writes `report.md` and `results.csv` |
 
 `--config <path>` (before the command) selects another camera config, e.g. for tests.
 

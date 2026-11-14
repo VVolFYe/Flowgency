@@ -412,7 +412,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_label)
 
     p = sub.add_parser("evaluate", help="score models x confidence thresholds against the ground truth")
-    p.add_argument("--models", default="yolo11n.pt,yolo11s.pt,yolo11m.pt")
+    p.add_argument("--models", default="yolo11n.pt,yolo11s_coco.pt,yolo11m.pt")
     p.add_argument("--confs", default="0.25,0.40")
     p.add_argument("--imgsz", type=int, default=640)
     p.add_argument("--eval-set", type=Path, help="default UNIHACK_DIR/vision_output/eval/eval_set.csv")

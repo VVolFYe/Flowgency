@@ -49,6 +49,11 @@ class DetectorProfile:
     vehicle_classes: tuple[str, ...]
     conf: float
     notes: str = ""
+    imgsz: int = 640  # long side of the letterboxed model input
+    # Optional faster static-shape ONNX export of the same weights and its input (height, width).
+    # Used only when the clip letterboxes to exactly that shape; otherwise ``weights`` (.pt) is used.
+    onnx_weights: str | None = None
+    onnx_input_hw: tuple[int, int] | None = None
 
 
 PROFILES: dict[str, DetectorProfile] = {
@@ -65,9 +70,15 @@ PROFILES: dict[str, DetectorProfile] = {
             model_id="yolo11s_visdrone",
             weights="yolo11s_visdrone.pt",
             vehicle_classes=("car", "van", "truck", "bus", "motor"),
-            conf=0.25,
-            notes="yolo11s trained by the team on VisDrone; top-down views. conf is provisional "
-            "until checked on the clip. VisDrone data is CC BY-NC-SA 3.0 (non-commercial)",
+            # 0.15 lets ByteTrack's second stage (scores 0.10-0.25) keep existing tracks alive; new
+            # tracks still need 0.25 (bytetrack.yaml new_track_thresh). 20 s check on the top-down
+            # clip: same 62 track IDs as 0.25, track gaps 20 -> 15.
+            conf=0.15,
+            notes="yolo11s trained by the team on VisDrone (imgsz 640); top-down views. imgsz 960 keeps a "
+            "shaded car under a signal pole that 640 loses. VisDrone data is CC BY-NC-SA 3.0 (non-commercial)",
+            imgsz=960,
+            onnx_weights="yolo11s_visdrone_544x960.onnx",  # 1.3x faster than .pt on the dev CPU, same boxes
+            onnx_input_hw=(544, 960),  # a 16:9 frame letterboxed to long side 960
         ),
     )
 }
@@ -78,6 +89,52 @@ def get_profile(model_id: str) -> DetectorProfile:
         return PROFILES[model_id]
     except KeyError:
         raise ValueError(f"unknown model_id {model_id!r}; known: {', '.join(sorted(PROFILES))}") from None
+
+
+LETTERBOX_STRIDE = 32
+
+
+def letterbox_shape(frame_size: tuple[int, int], imgsz: int, stride: int = LETTERBOX_STRIDE) -> tuple[int, int]:
+    """Model input ``(height, width)`` for a ``(width, height)`` frame: long side ``imgsz``, sides padded up to
+    a multiple of ``stride`` (what Ultralytics' rectangular letterbox feeds a ``.pt`` model)."""
+    width, height = frame_size
+    if width <= 0 or height <= 0 or imgsz <= 0:
+        raise ValueError("frame size and imgsz must be positive")
+    ratio = imgsz / max(width, height)
+    new_h, new_w = round(height * ratio), round(width * ratio)
+    return (-(-new_h // stride) * stride, -(-new_w // stride) * stride)
+
+
+@dataclass(frozen=True)
+class BackendChoice:
+    backend: Literal["onnx", "pt"]
+    weights: str  # file name under the weights directory
+    imgsz: int | tuple[int, int]  # value passed to Ultralytics ``predict``
+    fallback_reason: str | None = None  # why an available ONNX export was not used
+
+
+def choose_backend(profile: DetectorProfile, frame_size: tuple[int, int], *, onnx_file_exists: bool,
+                   onnxruntime_available: bool) -> BackendChoice:
+    """The profile's ONNX export when the clip letterboxes to its exact input shape, else the ``.pt``.
+
+    A static-shape export cannot take another input shape, and squeezing a different aspect ratio into
+    it would change the detections, so any mismatch falls back to the ``.pt`` (with a reason to log).
+    """
+    pt = BackendChoice("pt", profile.weights, profile.imgsz)
+    if profile.onnx_weights is None or profile.onnx_input_hw is None:
+        return pt
+    expected = letterbox_shape(frame_size, profile.imgsz)
+    reason = None
+    if expected != tuple(profile.onnx_input_hw):
+        reason = (f"frame {frame_size[0]}x{frame_size[1]} letterboxes to {expected[0]}x{expected[1]} at imgsz "
+                  f"{profile.imgsz}, but {profile.onnx_weights} takes {profile.onnx_input_hw[0]}x{profile.onnx_input_hw[1]}")
+    elif not onnx_file_exists:
+        reason = f"{profile.onnx_weights} not found"
+    elif not onnxruntime_available:
+        reason = "onnxruntime is not installed"
+    if reason is not None:
+        return BackendChoice("pt", profile.weights, profile.imgsz, f"{reason}; using {profile.weights}")
+    return BackendChoice("onnx", profile.onnx_weights, tuple(profile.onnx_input_hw))
 
 
 def vehicle_class_ids(names: Mapping[int, str], vehicle_classes: Iterable[str]) -> list[int]:

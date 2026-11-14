@@ -20,8 +20,10 @@ from backend.vision.track_filter import DuplicateTrackFilter
 from backend.vision.detections import (
     PROFILES,
     agnostic_nms,
+    choose_backend,
     counting_point,
     get_profile,
+    letterbox_shape,
     merge_vehicle_classes,
     vehicle_class_ids,
 )
@@ -88,6 +90,44 @@ class ProfileTests(unittest.TestCase):
             vehicle_class_ids(COCO_NAMES, get_profile("yolo11s_visdrone").vehicle_classes)
         with self.assertRaises(ValueError):
             get_profile("yolo11s")
+
+
+class BackendChoiceTests(unittest.TestCase):
+    def test_letterbox_shape_matches_ultralytics_rect(self) -> None:
+        self.assertEqual(letterbox_shape((1920, 1080), 960), (544, 960))
+        self.assertEqual(letterbox_shape((1920, 1080), 640), (384, 640))
+        self.assertEqual(letterbox_shape((1080, 1920), 960), (960, 544))
+        self.assertEqual(letterbox_shape((1440, 1080), 960), (736, 960))
+        with self.assertRaises(ValueError):
+            letterbox_shape((0, 1080), 960)
+
+    def test_visdrone_uses_onnx_for_16_9_1080p(self) -> None:
+        choice = choose_backend(get_profile("yolo11s_visdrone"), (1920, 1080), onnx_file_exists=True,
+                                onnxruntime_available=True)
+        self.assertEqual((choice.backend, choice.weights, choice.imgsz, choice.fallback_reason),
+                         ("onnx", "yolo11s_visdrone_544x960.onnx", (544, 960), None))
+        # any 16:9 size letterboxes to the same input
+        self.assertEqual(choose_backend(get_profile("yolo11s_visdrone"), (1280, 720), onnx_file_exists=True,
+                                        onnxruntime_available=True).backend, "onnx")
+
+    def test_falls_back_to_pt_with_a_reason(self) -> None:
+        profile = get_profile("yolo11s_visdrone")
+        cases = {
+            ((1440, 1080), True, True): "letterboxes to 736x960",
+            ((1920, 1080), False, True): "not found",
+            ((1920, 1080), True, False): "onnxruntime is not installed",
+        }
+        for (size, exists, ort), expected in cases.items():
+            choice = choose_backend(profile, size, onnx_file_exists=exists, onnxruntime_available=ort)
+            self.assertEqual((choice.backend, choice.weights, choice.imgsz), ("pt", "yolo11s_visdrone.pt", 960))
+            self.assertIn(expected, choice.fallback_reason)
+            self.assertIn("using yolo11s_visdrone.pt", choice.fallback_reason)
+
+    def test_profile_without_onnx_uses_pt_silently(self) -> None:
+        choice = choose_backend(get_profile("yolo11s_coco"), (352, 288), onnx_file_exists=False,
+                                onnxruntime_available=False)
+        self.assertEqual((choice.backend, choice.weights, choice.imgsz, choice.fallback_reason),
+                         ("pt", "yolo11s_coco.pt", 640, None))
 
 
 class CountingPointTests(unittest.TestCase):

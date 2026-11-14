@@ -4,7 +4,8 @@
 #   # optional, CPU-only torch avoids several GB of CUDA wheels:
 #   ~/.venvs/flowgency-vision/bin/pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 #   ~/.venvs/flowgency-vision/bin/pip install -r backend/requirements-vision.txt
-# Verified with Python 3.14.8, torch 2.15.0+cpu, ultralytics 8.4.212, opencv-python 5.0.0.93, lap 0.5.14.
+# Verified with Python 3.14.8, torch 2.15.0+cpu, ultralytics 8.4.212, opencv-python 5.0.0.93, lap 0.5.14,
+# onnxruntime 1.32.0.
 -r requirements.txt
 # YOLO11 detector and the ByteTrack tracker implementation.
 ultralytics>=8.4,<9
@@ -12,3 +13,6 @@ ultralytics>=8.4,<9
 opencv-python>=4.10,<6
 # Linear-assignment solver ByteTrack requires; pinned here so Ultralytics never pip-installs it at runtime.
 lap>=0.5,<1
+# Runs the static-shape ONNX export of the top-down detector (1.3x faster than the .pt on the dev CPU, same boxes).
+# Optional: without it the .pt weights are used and the fallback is logged.
+onnxruntime>=1.20,<2

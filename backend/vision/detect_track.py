@@ -42,7 +42,10 @@ from .track_filter import DuplicateTrackFilter
 
 TRACKER_CONFIG = "bytetrack.yaml"
 DETECTION_FLOOR = 0.25
-SUPPORTED_MODELS = ("yolo11n.pt", "yolo11s.pt", "yolo11m.pt", "yolo11l.pt", "yolo11x.pt")
+SUPPORTED_MODELS = ("yolo11n.pt", "yolo11s_coco.pt", "yolo11m.pt", "yolo11l.pt", "yolo11x.pt")
+# The stock COCO yolo11s.pt is kept as yolo11s_coco.pt next to the team-trained yolo11s_visdrone.pt;
+# refuse the old name instead of silently downloading a second copy.
+RENAMED_WEIGHTS = {"yolo11s.pt": "yolo11s_coco.pt"}
 
 
 def configure_ultralytics(paths: VisionPaths) -> None:
@@ -66,6 +69,8 @@ def configure_ultralytics(paths: VisionPaths) -> None:
 def ensure_weights(paths: VisionPaths, model_name: str) -> Path:
     if Path(model_name).name != model_name or not model_name.endswith(".pt"):
         raise ValueError(f"model must be a bare weights file name like yolo11m.pt, got {model_name!r}")
+    if model_name in RENAMED_WEIGHTS:
+        raise ValueError(f"{model_name} was renamed; use {RENAMED_WEIGHTS[model_name]}")
     configure_ultralytics(paths)
     target = paths.weights_dir / model_name
     if not target.exists():
