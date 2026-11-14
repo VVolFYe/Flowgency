@@ -34,7 +34,7 @@ class VoiceSumoTests(unittest.TestCase):
             message_ids = {alert["message_id"] for alert in seen.values()}
             self.assertIn("emergency.requested", message_ids)
             self.assertIn("emergency.green_confirmed", message_ids)
-            self.assertIn("emergency.request_ended", message_ids)
+            self.assertNotIn("emergency.request_ended", message_ids)
             self.assertTrue(all(alert["priority"] == "emergency" for alert in seen.values()))
             last = list(seen.values())[-1]
             self.assertEqual(service.voice_alert(last["event_id"]), last)

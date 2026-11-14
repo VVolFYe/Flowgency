@@ -1,8 +1,10 @@
 "use client";
 
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { BACKEND_URL } from "@/lib/api";
 import type { VoiceAlert } from "@/lib/contracts";
+
+const AUDIO_LEAD_IN_S = 0.5;
 
 function rank(alert: VoiceAlert): number {
   if (alert.message_id === "emergency.requested" || alert.message_id === "emergency.already_green") return 3;
@@ -16,92 +18,113 @@ export const VoiceAlerts = memo(function VoiceAlerts({ alerts, runId, simulation
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const seenRef = useRef(new Set<string>());
   const runRef = useRef<string | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const objectUrlRef = useRef<string | null>(null);
-  const playingPriorityRef = useRef<VoiceAlert["priority"] | null>(null);
+  const enabledRef = useRef(false);
+  const queueRef = useRef<VoiceAlert[]>([]);
+  const playingRef = useRef(false);
+  const playbackGenerationRef = useRef(0);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const sourceRef = useRef<AudioBufferSourceNode | null>(null);
   const requestRef = useRef<AbortController | null>(null);
   const alertIds = alerts.map((alert) => alert.event_id).join("|");
 
-  useEffect(() => {
-    if (runRef.current !== runId) {
-      runRef.current = runId;
-      seenRef.current.clear();
-      requestRef.current?.abort();
-      audioRef.current?.pause();
-      audioRef.current = null;
-      playingPriorityRef.current = null;
-      if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
-      objectUrlRef.current = null;
-    }
-    const fresh = alerts.filter((alert) => !seenRef.current.has(alert.event_id));
-    for (const alert of fresh) seenRef.current.add(alert.event_id);
-    if (!enabled || fresh.length === 0 || !runId) return;
-    const timely = fresh.filter((alert) => simulationTime == null || simulationTime - alert.simulation_time_s <= 8);
-    if (timely.length === 0) return;
-    const selected = timely.sort((a, b) => rank(b) - rank(a))[0];
-    if (playingPriorityRef.current === "emergency" && selected.priority === "routine") return;
-    const controller = new AbortController();
+  const stopPlayback = useCallback(() => {
+    playbackGenerationRef.current += 1;
+    queueRef.current = [];
     requestRef.current?.abort();
+    if (sourceRef.current) {
+      try { sourceRef.current.stop(); } catch { /* already stopped */ }
+    }
+    sourceRef.current = null;
+    requestRef.current = null;
+    playingRef.current = false;
+  }, []);
+
+  const playNext = useCallback(function playNext() {
+    if (!enabledRef.current || playingRef.current || queueRef.current.length === 0) return;
+    const selected = queueRef.current.shift()!;
+    const generation = playbackGenerationRef.current;
+    playingRef.current = true;
+    const controller = new AbortController();
     requestRef.current = controller;
-    audioRef.current?.pause();
-    playingPriorityRef.current = selected.priority;
-    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
-    objectUrlRef.current = null;
     setVoiceError(null);
     void (async () => {
-      let objectUrl: string | null = null;
+      let source: AudioBufferSourceNode | null = null;
       try {
         const response = await fetch(`${BACKEND_URL}/api/voice/alerts/${encodeURIComponent(selected.event_id)}/audio`, {
           signal: controller.signal,
           cache: "no-store",
         });
         if (!response.ok) throw new Error(response.status === 503 ? "ElevenLabs voice is unavailable; alerts remain visible." : "Voice playback failed.");
-        objectUrl = URL.createObjectURL(await response.blob());
-        if (controller.signal.aborted) {
-          URL.revokeObjectURL(objectUrl);
-          return;
+        const encoded = await response.arrayBuffer();
+        if (controller.signal.aborted || generation !== playbackGenerationRef.current) return;
+        const context = audioContextRef.current;
+        if (!context || context.state === "closed") return;
+        const decoded = await context.decodeAudioData(encoded);
+        if (controller.signal.aborted || generation !== playbackGenerationRef.current) return;
+        const leadInFrames = Math.ceil(decoded.sampleRate * AUDIO_LEAD_IN_S);
+        const padded = context.createBuffer(decoded.numberOfChannels, leadInFrames + decoded.length, decoded.sampleRate);
+        for (let channel = 0; channel < decoded.numberOfChannels; channel += 1) {
+          padded.getChannelData(channel).set(decoded.getChannelData(channel), leadInFrames);
         }
-        objectUrlRef.current = objectUrl;
-        const audio = new Audio(objectUrl);
-        audioRef.current = audio;
-        audio.onended = () => {
-          if (audioRef.current === audio) playingPriorityRef.current = null;
-          if (objectUrlRef.current === objectUrl) objectUrlRef.current = null;
-          if (objectUrl) URL.revokeObjectURL(objectUrl);
-        };
-        await audio.play();
+        source = context.createBufferSource();
+        source.buffer = padded;
+        source.connect(context.destination);
+        sourceRef.current = source;
+        await new Promise<void>((resolve, reject) => {
+          source!.onended = () => resolve();
+          try { source!.start(); } catch (error) { reject(error); }
+        });
       } catch (error) {
-        if (requestRef.current === controller) playingPriorityRef.current = null;
-        if (!controller.signal.aborted) setVoiceError(error instanceof Error ? error.message : "Voice playback failed.");
-        if (objectUrl) {
-          if (objectUrlRef.current === objectUrl) objectUrlRef.current = null;
-          URL.revokeObjectURL(objectUrl);
+        if (!controller.signal.aborted && generation === playbackGenerationRef.current) {
+          setVoiceError(error instanceof Error ? error.message : "Voice playback failed.");
+        }
+      } finally {
+        source?.disconnect();
+        if (generation === playbackGenerationRef.current) {
+          if (sourceRef.current === source) sourceRef.current = null;
+          if (requestRef.current === controller) requestRef.current = null;
+          playingRef.current = false;
+          playNext();
         }
       }
     })();
-    return () => controller.abort();
-  }, [alertIds, alerts, enabled, runId, simulationTime]);
+  }, []);
+
+  useEffect(() => {
+    if (runRef.current !== runId) {
+      runRef.current = runId;
+      seenRef.current.clear();
+      stopPlayback();
+    }
+    const fresh = alerts.filter((alert) => !seenRef.current.has(alert.event_id));
+    for (const alert of fresh) seenRef.current.add(alert.event_id);
+    if (!enabled || fresh.length === 0 || !runId) return;
+    const timely = fresh.filter((alert) => simulationTime == null || simulationTime - alert.simulation_time_s <= 8);
+    queueRef.current.push(...timely);
+    queueRef.current.sort((a, b) => rank(b) - rank(a) || a.simulation_time_s - b.simulation_time_s);
+    playNext();
+  }, [alertIds, alerts, enabled, runId, simulationTime, playNext, stopPlayback]);
 
   useEffect(() => () => {
-    requestRef.current?.abort();
-    audioRef.current?.pause();
-    playingPriorityRef.current = null;
-    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
-  }, []);
+    stopPlayback();
+    void audioContextRef.current?.close();
+    audioContextRef.current = null;
+  }, [stopPlayback]);
 
   const toggleVoice = () => {
     if (enabled) {
-      requestRef.current?.abort();
-      audioRef.current?.pause();
-      audioRef.current = null;
-      playingPriorityRef.current = null;
-      if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
-      objectUrlRef.current = null;
+      enabledRef.current = false;
+      stopPlayback();
+      void audioContextRef.current?.close();
+      audioContextRef.current = null;
       setEnabled(false);
       return;
     }
     for (const alert of alerts) seenRef.current.add(alert.event_id);
     setVoiceError(null);
+    audioContextRef.current = new AudioContext();
+    void audioContextRef.current.resume().catch(() => setVoiceError("Voice playback failed."));
+    enabledRef.current = true;
     setEnabled(true);
   };
 

@@ -4,14 +4,18 @@ The Phase 1.3 backend runs one local SUMO process behind a dedicated simulation 
 
 ## Dependencies
 
-The current machine already provides compatible FastAPI, Uvicorn, Pydantic, Starlette, and HTTPX versions under Python 3.14.7. No installation was required. For a clean developer environment, create a virtual environment in a Linux-native developer directory outside this NTFS repository, then install the repository manifest:
+Create a virtual environment in a Linux-native developer directory outside this NTFS repository. Install the backend dependencies and the SUMO version used to generate the London network:
 
 ```bash
-python3 -m venv /path/on/linux/flowgency-venv
-/path/on/linux/flowgency-venv/bin/pip install -r backend/requirements.txt
+python3 -m venv "$HOME/.venvs/flowgency-sumo-1.27.1"
+"$HOME/.venvs/flowgency-sumo-1.27.1/bin/python" -m pip install -r backend/requirements.txt 'eclipse-sumo==1.27.1'
 ```
 
-SUMO 1.27.1 and its bundled Python tools must be installed separately. Set `SUMO_HOME` when they are not under a standard Linux path.
+The London network was generated with SUMO 1.27.1. Ubuntu 24.04's `apt` package
+provides SUMO 1.18, which cannot load this network: it reports unknown vehicle
+classes such as `scooter` and `drone`, then TraCI reports `Connection closed by
+SUMO`. Check the active binary with `sumo --version`; use the virtual environment
+above for both the SUMO binary and its matching Python tools.
 
 ## Run locally
 
@@ -20,10 +24,12 @@ From the repository root:
 ```bash
 cp -n .env.example .env
 # Edit .env and set ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID for voice audio.
+source "$HOME/.venvs/flowgency-sumo-1.27.1/bin/activate"
 set -a
 source .env
 set +a
-export SUMO_HOME=/usr/share/sumo  # Adjust if SUMO is installed elsewhere.
+export SUMO_HOME="$(python -c 'import sumo; print(sumo.SUMO_HOME)')"
+sumo --version  # Must report 1.27.1 for the London scenarios.
 python3 -m uvicorn backend.api.app:app --host 127.0.0.1 --port 8000
 ```
 

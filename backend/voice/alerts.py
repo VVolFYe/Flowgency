@@ -11,17 +11,13 @@ from backend.controller.adaptive import PHASE_APPROACHES
 from backend.controller.emergency import EXPECTED_GREEN_STATES
 
 MESSAGES = {
-    "adaptive.plan_selected": (
-        "A new green timing plan has been selected for the current traffic.",
-        "A fost ales un nou plan pentru duratele de verde, pe baza traficului măsurat.",
-    ),
     "traffic.congestion_sustained": (
         "Traffic is building near the intersection.",
         "Traficul se aglomerează în apropierea intersecției.",
     ),
     "emergency.requested": (
-        "Emergency vehicle approaching. Safe signal priority requested.",
-        "Se apropie un vehicul de intervenție. S-a solicitat prioritate la semafor, cu respectarea timpilor de siguranță.",
+        "Emergency vehicle approaching. Green light requested for its approach.",
+        "Se apropie un vehicul de intervenție. S-a solicitat verde pentru direcția sa.",
     ),
     "emergency.already_green": (
         "Emergency vehicle approaching. Its approach already has a green signal.",
@@ -30,10 +26,6 @@ MESSAGES = {
     "emergency.green_confirmed": (
         "Green signal confirmed for the emergency approach.",
         "S-a confirmat verde pentru direcția vehiculului de intervenție.",
-    ),
-    "emergency.request_ended": (
-        "Emergency priority request ended.",
-        "Solicitarea de prioritate pentru vehiculul de intervenție s-a încheiat.",
     ),
 }
 
@@ -45,7 +37,6 @@ class VoiceAlertPolicy:
         self,
         *,
         language: str = "en",
-        material_green_change_s: float = 10.0,
         routine_cooldown_s: float = 60.0,
         congestion_threshold_vehicles: int | None = None,
         congestion_sustain_s: float = 10.0,
@@ -53,12 +44,11 @@ class VoiceAlertPolicy:
     ) -> None:
         if language not in {"en", "ro"}:
             raise ValueError("unsupported voice language")
-        if material_green_change_s <= 0 or routine_cooldown_s < 0 or congestion_sustain_s <= 0:
+        if routine_cooldown_s < 0 or congestion_sustain_s <= 0:
             raise ValueError("invalid voice alert timing")
         if congestion_threshold_vehicles is not None and congestion_threshold_vehicles <= 0:
             raise ValueError("congestion threshold must be positive")
         self.language = language
-        self.material_green_change_s = material_green_change_s
         self.routine_cooldown_s = routine_cooldown_s
         self.congestion_threshold_vehicles = congestion_threshold_vehicles
         self.congestion_sustain_s = congestion_sustain_s
@@ -67,7 +57,6 @@ class VoiceAlertPolicy:
         self._run_id: str | None = None
         self._active_vehicle_id: str | None = None
         self._green_announced = False
-        self._previous_plan: dict[str, float] | None = None
         self._last_routine_time = float("-inf")
         self._high_queue_since: float | None = None
         self._congestion_announced = False
@@ -78,7 +67,6 @@ class VoiceAlertPolicy:
         self._run_id = run_id
         self._active_vehicle_id = None
         self._green_announced = False
-        self._previous_plan = None
         self._last_routine_time = float("-inf")
         self._high_queue_since = None
         self._congestion_announced = False
@@ -132,8 +120,6 @@ class VoiceAlertPolicy:
         approach = emergency.get("active_approach")
         green = self._confirmed_green(snapshot, approach)
         if vehicle_id != self._active_vehicle_id:
-            if self._active_vehicle_id is not None:
-                announce("emergency.request_ended", self._active_vehicle_id)
             self._active_vehicle_id = vehicle_id
             self._green_announced = False
             if vehicle_id is not None:
@@ -143,18 +129,6 @@ class VoiceAlertPolicy:
         elif vehicle_id is not None and green and not self._green_announced:
             announce("emergency.green_confirmed", vehicle_id)
             self._green_announced = True
-
-        decision = (snapshot.get("adaptive_control") or {}).get("last_cycle_decision") or {}
-        plan = decision.get("green_durations_s")
-        if isinstance(plan, dict) and plan:
-            current = {str(key): float(value) for key, value in plan.items()}
-            previous = self._previous_plan
-            if previous is not None and previous.keys() == current.keys() and not vehicle_id and not new:
-                change = max(abs(current[key] - previous[key]) for key in current)
-                if change >= self.material_green_change_s and now - self._last_routine_time >= self.routine_cooldown_s:
-                    announce("adaptive.plan_selected", f"cycle-{now}")
-                    self._last_routine_time = now
-            self._previous_plan = current
 
         threshold = self.congestion_threshold_vehicles
         queue = snapshot.get("network_queue") or {}

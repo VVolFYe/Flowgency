@@ -34,7 +34,7 @@ class VoiceAlertTests(unittest.TestCase):
         self.assertEqual(policy.observe(snapshot(7, vehicle="ambulance-1", approach="eastbound_in", phase="north_south_yellow", state="yryr")), [])
         green = policy.observe(snapshot(10, vehicle="ambulance-1", approach="eastbound_in", phase="east_west_green", state="rGrG"))
         self.assertEqual([a["message_id"] for a in green], ["emergency.green_confirmed"])
-        self.assertEqual([a["message_id"] for a in policy.observe(snapshot(11))], ["emergency.request_ended"])
+        self.assertEqual(policy.observe(snapshot(11)), [])
         self.assertEqual(policy.observe(snapshot(12)), [])
 
     def test_compatible_emergency_uses_one_combined_message(self) -> None:
@@ -45,15 +45,13 @@ class VoiceAlertTests(unittest.TestCase):
         self.assertEqual(policy.observe(snapshot(3, vehicle="fire-1", approach="northbound_in")), [])
         self.assertEqual(policy.get(alerts[0]["event_id"]), alerts[0])
 
-    def test_material_cycle_change_only_and_cooldown(self) -> None:
+    def test_cycle_plan_changes_do_not_trigger_voice(self) -> None:
         policy = VoiceAlertPolicy()
         plan = {"brixton": 42, "vassall_caldwell": 42}
         self.assertEqual(policy.observe(snapshot(0, plan=plan)), [])
         self.assertEqual(policy.observe(snapshot(90, plan=plan)), [])
-        changed = policy.observe(snapshot(180, plan={"brixton": 54, "vassall_caldwell": 30}))
-        self.assertEqual([a["message_id"] for a in changed], ["adaptive.plan_selected"])
+        self.assertEqual(policy.observe(snapshot(180, plan={"brixton": 54, "vassall_caldwell": 30})), [])
         self.assertEqual(policy.observe(snapshot(181, plan={"brixton": 54, "vassall_caldwell": 30})), [])
-        self.assertEqual(policy.observe(snapshot(200, plan={"brixton": 42, "vassall_caldwell": 42})), [])
 
     def test_congestion_disabled_by_default_and_sustained_when_configured(self) -> None:
         self.assertEqual(VoiceAlertPolicy().observe(snapshot(12, queue=10)), [])
