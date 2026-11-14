@@ -20,6 +20,11 @@ import type {
 
 type ConnectionState = "connecting" | "connected" | "reconnecting" | "offline";
 type VehicleFrame = Map<string, Vehicle>;
+const EMERGENCY_COLORS: Record<string, string> = {
+  ambulance: "#ff5265",
+  fire_brigade: "#ff9b45",
+  police: "#529cff",
+};
 
 interface ViewState { zoom: number; panX: number; panY: number }
 interface Size { width: number; height: number }
@@ -462,15 +467,26 @@ export function SimulationCanvas({
       const position = screen(vehicle);
       const length = Math.min(15, Math.max(3.5, 4.6 * scale));
       const width = Math.min(8, Math.max(2.2, 1.9 * scale));
+      const emergencyColor = EMERGENCY_COLORS[vehicle.vehicle_type.toLowerCase()];
       context.save();
       context.translate(position.x, position.y);
       context.rotate((vehicle.angle_deg * Math.PI) / 180);
       context.beginPath();
       context.roundRect(-width / 2, -length / 2, width, length, Math.min(2.5, width / 2));
-      context.fillStyle = vehicle.vehicle_type.toLowerCase().includes("bus") ? "#f3bd4b" : "#dce9ef";
-      context.shadowColor = "rgba(115,226,255,.5)";
-      context.shadowBlur = viewRef.current.zoom >= 2 ? 5 : 2;
+      context.fillStyle = emergencyColor ?? (vehicle.vehicle_type.toLowerCase().includes("bus") ? "#f3bd4b" : "#dce9ef");
+      context.shadowColor = emergencyColor ?? "rgba(115,226,255,.5)";
+      context.shadowBlur = emergencyColor ? 14 : viewRef.current.zoom >= 2 ? 5 : 2;
       context.fill();
+      if (emergencyColor) {
+        context.strokeStyle = "#ffffff";
+        context.lineWidth = 1.2;
+        context.beginPath();
+        context.moveTo(-width * 0.28, 0);
+        context.lineTo(width * 0.28, 0);
+        context.moveTo(0, -length * 0.22);
+        context.lineTo(0, length * 0.22);
+        context.stroke();
+      }
       context.restore();
     });
   }, [drawLondonSignals, drawSyntheticSignals, geometry, snapshot?.vehicles]);

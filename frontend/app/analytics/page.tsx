@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { SiteNav } from "@/components/site-nav";
 
 const BENCHMARKS = [
   { id: "synthetic", label: "Synthetic Intersection", url: "/benchmarks/synthetic-fixed-vs-adaptive.json" },
@@ -261,7 +260,9 @@ export default function AnalyticsPage() {
             <p className="font-mono text-[10px] uppercase tracking-[.2em] text-[#72e9a6]">Flowgency</p>
             <h1 className="mt-1 text-2xl font-semibold tracking-tight">Fixed vs Adaptive Analytics</h1>
           </div>
-          <SiteNav active="analytics" />
+          <p className="rounded-full border border-[#f0bc55]/20 bg-[#f0bc55]/10 px-3 py-1.5 text-[10px] text-[#d7b664]">
+            Historical validated snapshots; current integrated routes and control code may differ.
+          </p>
         </header>
 
         <section className="mt-7 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white/[.07] bg-[#10171c] p-4">
@@ -400,7 +401,7 @@ export default function AnalyticsPage() {
 
             <div className="mt-4 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-[#72e9a6]/15 bg-[#72e9a6]/[.05] px-5 py-4">
               <p className="text-sm text-[#9babae]">Inspect live SUMO state separately; this page presents a completed offline benchmark.</p>
-              <Link href="/simulation" className="text-sm font-medium text-[#72e9a6]">Open Simulation Lab →</Link>
+              <Link href="/operator/simulation" className="text-sm font-medium text-[#72e9a6]">Open Simulation Lab →</Link>
             </div>
           </>
         )}

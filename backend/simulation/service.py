@@ -102,19 +102,22 @@ class SimulationService:
     def start(
         self,
         speed: float | None = None,
-        control_mode: str = "fixed",
+        control_mode: str | None = None,
         scenario_id: str = DEFAULT_SCENARIO_ID,
     ) -> dict[str, Any]:
         selected_speed = self._default_speed if speed is None else self._validate_speed(speed)
-        if control_mode not in {"fixed", "adaptive"}:
-            raise ValueError("control_mode must be fixed or adaptive")
         scenario = get_scenario(scenario_id)
-        if control_mode == "adaptive" and not scenario.supports_adaptive_control:
+        selected_mode = scenario.default_control_mode if control_mode is None else control_mode
+        if selected_mode not in {"fixed", "adaptive", "adaptive_with_emergency_priority"}:
+            raise ValueError("unsupported control_mode")
+        if selected_mode != "fixed" and not scenario.supports_adaptive_control:
             raise ValueError(f"adaptive control is not available for {scenario_id}")
+        if selected_mode == "adaptive_with_emergency_priority" and not scenario.supports_emergency_priority:
+            raise ValueError(f"emergency priority is not available for {scenario_id}")
         return self._submit(
             "start",
             speed=selected_speed,
-            control_mode=control_mode,
+            control_mode=selected_mode,
             scenario_id=scenario.scenario_id,
         )
 
@@ -266,8 +269,8 @@ class SimulationService:
             scenario = get_scenario(command.scenario_id or DEFAULT_SCENARIO_ID)
             runner = self._runner_factory(scenario)
             try:
-                if command.control_mode == "adaptive":
-                    runner.configure_control_mode("adaptive")
+                if command.control_mode != "fixed":
+                    runner.configure_control_mode(command.control_mode or "fixed")
                 runner.start()
                 snapshot = runner.extract_snapshot()
             except BaseException:
@@ -309,8 +312,8 @@ class SimulationService:
             scenario = get_scenario(self._scenario_id)
             runner = self._runner_factory(scenario)
             try:
-                if self._control_mode == "adaptive":
-                    runner.configure_control_mode("adaptive")
+                if self._control_mode != "fixed":
+                    runner.configure_control_mode(self._control_mode)
                 runner.start()
                 snapshot = runner.extract_snapshot()
             except BaseException:

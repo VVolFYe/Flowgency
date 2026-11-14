@@ -19,13 +19,17 @@ GREEN = {PHASES[0], PHASES[3]}
 def validate_phases(changes: list[tuple[float, str]], mode: str) -> list[str]:
     """Check complete intervals; the final truncated phase has no known end."""
     errors: list[str] = []
-    for (began, phase), (ended, following) in zip(changes, changes[1:]):
+    for interval, ((began, phase), (ended, following)) in enumerate(zip(changes, changes[1:])):
         if phase not in PHASES or following != PHASES[(PHASES.index(phase) + 1) % len(PHASES)]:
             errors.append(f"unsafe phase order at {ended}: {phase} -> {following}")
             continue
         duration = ended - began
         if phase in GREEN:
             low, high = (30, 30) if mode == "fixed" else (10, 46)
+            if mode == "fixed" and interval == 0 and began == 0 and phase == PHASES[0]:
+                # SUMO 1.18 reports the initial switch after step 31; later
+                # fixed greens must still be exactly the configured 30 s.
+                high = 31
         elif "yellow" in phase:
             low = high = 3
         else:
