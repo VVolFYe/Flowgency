@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import argparse
+import datetime
 import hashlib
 import json
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
+from backend.controller.emergency import EMERGENCY_TYPES
+from backend.models.analytics_index import upsert_index_entry
+
+from . import analytics
 from .runner import REPOSITORY_ROOT
 
 
@@ -50,6 +55,10 @@ def read_tripinfo(path: Path) -> dict[str, Any]:
             "waiting_s": float(item.get("waitingTime", "0")),
             "time_loss_s": float(item.get("timeLoss", "0")),
             "duration_s": float(item.get("duration", "0")),
+            # Additive fields for the analytics export; comparisons ignore them.
+            "vehicle_type": item.get("vType"),
+            "depart_s": float(item.attrib["depart"]) if "depart" in item.attrib else None,
+            "arrival_s": float(item.attrib["arrival"]) if "arrival" in item.attrib else None,
         })
     completed_records = [record for record in records if record["completed"]]
     completed_ids = [record["vehicle_id"] for record in completed_records]
@@ -199,7 +208,8 @@ def validate_adaptive_scope(
 
 
 def run_mode(
-    config: Path, manifest: Path, mode: str, output: Path, sumo_binary: str, max_steps: int
+    config: Path, manifest: Path, mode: str, output: Path, sumo_binary: str, max_steps: int,
+    analytics_samples: Path | None = None,
 ) -> dict[str, Any]:
     output.mkdir(parents=True, exist_ok=True)
     command = [
@@ -209,6 +219,8 @@ def run_mode(
     ]
     if mode == "adaptive":
         command.extend(["--adaptive-manifest", str(manifest)])
+    if analytics_samples is not None:
+        command.extend(["--analytics-samples", str(analytics_samples)])
     completed = subprocess.run(
         command, cwd=REPOSITORY_ROOT, text=True, capture_output=True, check=False
     )
@@ -222,6 +234,262 @@ def run_mode(
     return result
 
 
+ANALYTICS_SCHEMA_VERSION = "1.0"
+MODES = ("fixed", "adaptive")
+# (analytics key, compare() field, compare() statistic)
+_PAIRED_TRIP_METRICS = (
+    ("total_waiting_time_s", "waiting_s", "total"),
+    ("average_waiting_time_s", "waiting_s", "average"),
+    ("total_time_loss_s", "time_loss_s", "total"),
+    ("average_time_loss_s", "time_loss_s", "average"),
+    ("average_trip_duration_s", "duration_s", "average"),
+)
+_DISTRIBUTION_FIELDS = (
+    ("waiting_time_s", "waiting_s"),
+    ("time_loss_s", "time_loss_s"),
+    ("trip_duration_s", "duration_s"),
+)
+
+
+def _repository_path(value: str | Path | None) -> str | None:
+    if value is None:
+        return None
+    path = Path(value).resolve()
+    try:
+        return path.relative_to(REPOSITORY_ROOT).as_posix()
+    except ValueError:
+        return str(path)
+
+
+def config_begin_s(config: Path) -> float:
+    """Scenario begin time; SUMO's documented default is 0 when unset."""
+    begin = ET.parse(config).getroot().find("./time/begin")
+    return float(begin.attrib["value"]) if begin is not None else 0.0
+
+
+def _paired_trip_metrics(comparison: dict[str, Any] | None) -> dict[str, Any]:
+    """Reuse compare() exactly; averages keep its per-vehicle saving."""
+    result: dict[str, Any] = {}
+    for key, field, statistic in _PAIRED_TRIP_METRICS:
+        if comparison is None:
+            result[key] = analytics.paired(None, None)
+            continue
+        item = comparison[field]
+        result[key] = {
+            "fixed": item[f"fixed_{statistic}"],
+            "adaptive": item[f"adaptive_{statistic}"],
+            "absolute_improvement": (
+                item["absolute_improvement"] if statistic == "total" else item["average_saved"]
+            ),
+            "percentage_improvement": item["percentage_improvement"],
+            "better": "lower",
+        }
+    return result
+
+
+def _run_validation_summary(run: dict[str, Any] | None, result: dict[str, Any]) -> dict[str, Any]:
+    """Benchmark-snapshot validation shape plus the full error list."""
+    run = run or {}
+    duplicates = result.get("duplicate_tripinfo_ids")
+    return {
+        "passed": bool(result.get("passed")),
+        "errors": list(result.get("errors", [])),
+        "departed": run.get("departed"),
+        "arrived": run.get("arrived"),
+        "completed": result.get("completed_trip_count"),
+        "unfinished": result.get("unfinished_vehicle_count"),
+        "duplicate_tripinfo_ids": len(duplicates) if duplicates is not None else None,
+        "collisions": run.get("collisions"),
+        "teleports": run.get("teleports"),
+        "process_exit_code": run.get("exit_code"),
+        "terminated_by_step_limit": run.get("terminated_by_step_limit"),
+    }
+
+
+def build_analytics_report(
+    *,
+    scenario_id: str,
+    scenario_name: str,
+    config: Path,
+    manifest: Path,
+    expected_ids: set[str],
+    adaptive_metadata: dict[str, Any],
+    runs: dict[str, dict[str, Any]],
+    tripinfos: dict[str, dict[str, Any]],
+    validation: dict[str, dict[str, Any]],
+    samples: dict[str, dict[str, Any] | None],
+    report_path: Path,
+    adaptive_label: str | None = None,
+    extra_limitations: Sequence[str] = (),
+    created_on: str | None = None,
+) -> dict[str, Any]:
+    """Assemble the static analytics document; failures stay visible, never hidden."""
+    limitations = [
+        "Eclipse SUMO simulation output; not field measurements and not a certified road controller.",
+        "Queues are SUMO halting vehicles (speed below 0.1 m/s) summed once per unique "
+        "traffic-light-controlled lane, sampled every simulation step; they are not camera counts.",
+        "Mean green is the mean duration of completed phases containing a G/g and no y/Y signal; "
+        "the phase still running at the end is excluded.",
+        "Throughput is completed trips per hour between the scenario begin time and the last arrival.",
+    ]
+    completed = {mode: tripinfos[mode]["completed"] for mode in MODES if mode in tripinfos}
+    records = {mode: list(trips.values()) for mode, trips in completed.items()}
+    comparison = None
+    if len(completed) == len(MODES):
+        try:
+            comparison = compare(completed["fixed"], completed["adaptive"])
+        except ValueError as exc:
+            limitations.append(f"Paired trip metrics are null: {exc}.")
+    else:
+        limitations.append("Paired trip metrics are null because a run produced no tripinfo.")
+
+    valid = all(validation.get(mode, {}).get("passed") for mode in MODES)
+    if not valid:
+        limitations.append(
+            "Validation failed; values are exported for inspection and are not a valid "
+            "fixed-vs-adaptive comparison."
+        )
+    for mode in MODES:
+        teleports = (runs.get(mode) or {}).get("teleports")
+        if teleports:
+            limitations.append(f"The {mode} run reported {teleports} teleport(s).")
+        if samples.get(mode) is None:
+            limitations.append(
+                f"Per-step samples are missing for the {mode} run; its queue, time-series and "
+                "intersection values are null."
+            )
+
+    begin_s = config_begin_s(config)
+    throughput = {
+        mode: analytics.throughput_vehicles_per_hour(records.get(mode), begin_s) for mode in MODES
+    }
+    queues = {mode: analytics.network_queue_stats(samples.get(mode)) for mode in MODES}
+    summary = _paired_trip_metrics(comparison)
+    summary["throughput_vehicles_per_hour"] = analytics.paired(
+        throughput["fixed"], throughput["adaptive"], better="higher"
+    )
+    summary["mean_network_queue_vehicles"] = analytics.paired(
+        queues["fixed"]["mean"], queues["adaptive"]["mean"]
+    )
+    summary["max_network_queue_vehicles"] = analytics.paired(
+        queues["fixed"]["max"], queues["adaptive"]["max"]
+    )
+
+    durations = [
+        sample["steps"][-1]["t_s"] for sample in samples.values() if sample and sample["steps"]
+    ]
+    interval = analytics.timeseries_interval(durations)
+    if interval != analytics.DEFAULT_INTERVAL_S:
+        limitations.append(f"Time series downsampled to one sample per {interval:g} s.")
+    timeseries: dict[str, Any] = {
+        "interval_s": interval,
+        "queue_measurement": analytics.QUEUE_MEASUREMENT,
+    }
+    for mode in MODES:
+        sample = samples.get(mode)
+        timeseries[mode] = analytics.downsample(sample["steps"], interval) if sample else None
+
+    distributions = {
+        key: analytics.distribution(
+            {mode: [record[field] for record in values] for mode, values in records.items()},
+            MODES,
+        )
+        for key, field in _DISTRIBUTION_FIELDS
+    }
+
+    intersections: dict[str, Any] = {"queue_measurement": analytics.QUEUE_MEASUREMENT}
+    for mode in MODES:
+        run = runs.get(mode)
+        intersections[mode] = analytics.intersection_stats(
+            samples.get(mode), run.get("cycle_decision_events") if run else None
+        )
+
+    emergency_by_mode = {
+        mode: analytics.emergency_stats(records.get(mode), EMERGENCY_TYPES) for mode in MODES
+    }
+    has_emergency = any(item and item["emergency_trip_count"] for item in emergency_by_mode.values())
+    emergency = (
+        {"vehicle_types": sorted(EMERGENCY_TYPES), **emergency_by_mode} if has_emergency else None
+    )
+
+    metadata = config_metadata(config, expected_ids, manifest, adaptive_metadata)
+    adaptive_run = runs.get("adaptive") or {}
+    active_ids = adaptive_run.get("adaptive_controller_ids")
+    fixed_controllers = adaptive_run.get("fixed_controllers") or {}
+    total_tls = next(
+        (len(sample["traffic_light_ids"]) for sample in samples.values() if sample), None
+    )
+    if active_ids is None:
+        scope = (
+            f"The adaptive run did not report its controllers; manifest profile "
+            f"'{adaptive_metadata['profile_id']}' lists {adaptive_metadata['controller_count']}."
+        )
+    else:
+        of_total = f" of {total_tls}" if total_tls is not None else ""
+        scope = (
+            f"{len(active_ids)}{of_total} traffic-light controllers ran the "
+            f"'{adaptive_metadata['profile_id']}' profile in the adaptive run"
+        )
+        if fixed_controllers:
+            scope += f"; kept on fixed timing: {', '.join(sorted(fixed_controllers))}"
+        scope += "."
+
+    route_files = [_repository_path(path) for path in metadata["route_files"]]
+    return {
+        "schema_version": ANALYTICS_SCHEMA_VERSION,
+        "kind": "simulation",
+        "scenario_id": scenario_id,
+        "scenario_name": scenario_name,
+        "provenance": {
+            "authoritative_report": _repository_path(report_path),
+            "config": _repository_path(config),
+            "network": _repository_path(metadata["network_path"]),
+            "routes": ",".join(path for path in route_files if path),
+            "adaptive_manifest": _repository_path(manifest),
+            "seed": metadata["seed"],
+            "expected_vehicle_count": metadata["expected_vehicle_count"],
+            "expected_vehicle_ids_sha256": metadata["expected_vehicle_ids_sha256"],
+            "snapshot_created_on": created_on or datetime.date.today().isoformat(),
+        },
+        "experiment": {
+            "fixed_label": "Fixed timing",
+            "adaptive_label": adaptive_label or "Adaptive",
+            "adaptive_scope": scope,
+            "controlled_difference": (
+                "Both runs use the same SUMO config, network, routes, seed and vehicle behavior; "
+                "only signal control at the adaptive controllers differs."
+            ),
+            "adaptive_controller_count": len(active_ids) if active_ids is not None else None,
+        },
+        "runs": {
+            mode: {
+                "steps": (runs.get(mode) or {}).get("steps"),
+                "cycle_decisions": (runs.get(mode) or {}).get("cycle_decisions"),
+            }
+            for mode in MODES
+        },
+        "summary": summary,
+        "timeseries": timeseries,
+        "distributions": distributions,
+        "intersections": intersections,
+        "emergency": emergency,
+        "validation": {
+            "passed": valid,
+            "matched_vehicle_count": comparison["matched_vehicles"] if comparison else None,
+            "errors": [
+                f"{mode}: {error}"
+                for mode in MODES
+                for error in validation.get(mode, {}).get("errors", [])
+            ],
+            **{
+                mode: _run_validation_summary(runs.get(mode), validation.get(mode, {}))
+                for mode in MODES
+            },
+        },
+        "limitations": [*limitations, *extra_limitations],
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
@@ -233,7 +501,17 @@ def main() -> int:
                         help="separate ignored root for fixed/adaptive raw outputs")
     parser.add_argument("--scenario-id", help="stable public scenario ID")
     parser.add_argument("--benchmark-label", default="fixed_vs_adaptive")
+    parser.add_argument("--analytics-out", type=Path,
+                        help="also write the static analytics JSON (frontend/public/analytics/<id>.json)")
+    parser.add_argument("--analytics-index", type=Path,
+                        help="register --analytics-out in this index.json")
+    parser.add_argument("--scenario-name", help="display name for the analytics export")
+    parser.add_argument("--adaptive-label", help="adaptive-mode label for the analytics export")
+    parser.add_argument("--analytics-limitation", action="append", default=[],
+                        help="extra limitation sentence for the analytics export (repeatable)")
     args = parser.parse_args()
+    if args.analytics_index is not None and args.analytics_out is None:
+        parser.error("--analytics-index requires --analytics-out")
     config = args.config.resolve()
     manifest = args.adaptive_manifest.resolve()
     if not config.is_file() or not manifest.is_file() or args.max_steps <= 0:
@@ -248,9 +526,13 @@ def main() -> int:
     validation: dict[str, dict[str, Any]] = {}
     for mode in ("fixed", "adaptive"):
         output = base / mode
+        samples_path = output / "analytics_samples.json" if args.analytics_out else None
+        if samples_path is not None and samples_path.exists():
+            samples_path.unlink()  # never reuse samples from an earlier run
         try:
             runs[mode] = run_mode(
-                config, manifest, mode, output, args.sumo_binary, args.max_steps
+                config, manifest, mode, output, args.sumo_binary, args.max_steps,
+                analytics_samples=samples_path,
             )
             tripinfos[mode] = read_tripinfo(output / "tripinfo.xml")
             validation[mode] = validate_run(runs[mode], tripinfos[mode], expected_ids)
@@ -289,7 +571,42 @@ def main() -> int:
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(report, indent=2))
+    if args.analytics_out is not None:
+        write_analytics_export(args, config, manifest, expected_ids, adaptive_metadata,
+                               runs, tripinfos, validation, base, report_path)
     return 0 if valid else 1
+
+
+def write_analytics_export(
+    args: argparse.Namespace, config: Path, manifest: Path, expected_ids: set[str],
+    adaptive_metadata: dict[str, Any], runs: dict[str, dict[str, Any]],
+    tripinfos: dict[str, dict[str, Any]], validation: dict[str, dict[str, Any]],
+    base: Path, report_path: Path,
+) -> None:
+    samples: dict[str, dict[str, Any] | None] = {}
+    extra = list(args.analytics_limitation)
+    for mode in MODES:
+        try:
+            samples[mode] = analytics.read_samples(base / mode / "analytics_samples.json")
+        except (OSError, ValueError) as exc:
+            samples[mode] = None
+            extra.append(f"The {mode} per-step samples could not be read: {exc}.")
+    scenario_id = args.scenario_id or config.stem
+    document = build_analytics_report(
+        scenario_id=scenario_id,
+        scenario_name=args.scenario_name or scenario_id,
+        config=config, manifest=manifest, expected_ids=expected_ids,
+        adaptive_metadata=adaptive_metadata, runs=runs, tripinfos=tripinfos,
+        validation=validation, samples=samples, report_path=report_path,
+        adaptive_label=args.adaptive_label, extra_limitations=extra,
+    )
+    out = args.analytics_out.resolve()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(document, indent=1) + "\n", encoding="utf-8")
+    print(f"analytics written to {out} ({out.stat().st_size} bytes)", file=sys.stderr)
+    if args.analytics_index is not None:
+        upsert_index_entry(args.analytics_index, entry_id=out.stem,
+                           label=document["scenario_name"], kind="simulation", file_path=out)
 
 
 if __name__ == "__main__":
