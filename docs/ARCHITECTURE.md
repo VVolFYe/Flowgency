@@ -72,7 +72,7 @@ Phase 1 validates the complete loop with one intersection and stable IDs. Expans
 
 ## Local deployment and constraints
 
-For the MVP, one FastAPI application coordinates one local SUMO process; the frontend runs separately in development. Vision may write/replay contract JSON or call a later ingestion endpoint. Redis, a database, containers, and cloud services are not required.
+For the MVP, one FastAPI application coordinates one local SUMO process; the frontend runs separately in development. Vision may write/replay contract JSON or call a later ingestion endpoint. Redis, a database server, containers, and cloud services are not required. The one exception is a local, gitignored SQLite file for the Statistics page (`backend/analytics/`, default `data/analytics.sqlite3`, overridable with `FLOWGENCY_ANALYTICS_DB`). It is a derived copy of the committed `frontend/public/analytics/*.json`, rebuilt with `python -m backend.analytics.load` and read only by `GET /api/analytics` and `GET /api/analytics/{id}`.
 
 The NTFS-backed repository may differ in executable bits, ownership, symlinks, case sensitivity, file watching, and Unix sockets. Invoke scripts through interpreters, avoid permission churn, and consider developer-local Linux-native virtual environments while keeping manifests and source here.
 

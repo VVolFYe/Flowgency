@@ -35,7 +35,7 @@ These are camera references only. Their metadata, approach visibility, network g
 - Backend: Python, FastAPI, Pydantic, and WebSockets.
 - Simulation: Eclipse SUMO and Python TraCI.
 - Vision: YOLO11, OpenCV, and tracking.
-- Persistence: versioned JSON inputs and SUMO outputs initially; no database is required for the MVP.
+- Persistence: versioned JSON inputs and SUMO outputs. The only database is a local, gitignored SQLite file (`data/analytics.sqlite3`, stdlib `sqlite3`). It is derived from the committed analytics JSON by `python -m backend.analytics.load` and serves the Statistics page through `GET /api/analytics`.
 
 ## Architecture and repository layout
 

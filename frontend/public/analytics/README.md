@@ -1,10 +1,29 @@
 # Static analytics files
 
-Committed JSON files read by the Statistics page (`/operator/statistics`,
-`/analyst/statistics`). No database or API is involved; the browser fetches
-`/analytics/index.json` and then the file chosen in the selector. File formats
-are defined in `docs/DATA_CONTRACTS.md` section K. `null` always means
-unknown; it is never a stand-in for zero.
+Committed JSON files behind the Statistics page (`/operator/statistics`,
+`/analyst/statistics`). They are the source of truth. The page reads them
+through the backend API (`GET /api/analytics`, `GET /api/analytics/{id}`),
+which serves a local SQLite copy (`data/analytics.sqlite3`, gitignored). File
+formats, the table, and the endpoints are defined in `docs/DATA_CONTRACTS.md`
+section K. `null` always means unknown; it is never a stand-in for zero.
+
+## Workflow: generate JSON → commit → run the loader
+
+1. Generate or refresh a JSON file with its exporter (commands below). The
+   exporter also registers the file in `index.json`.
+2. Commit the JSON files and `index.json`.
+3. Load them into the local database, from the repository root:
+
+   ```bash
+   python3 -m backend.analytics.load            # optional: --db PATH --index PATH
+   ```
+
+   The loader is idempotent (one upserted row per index entry), so rerun it
+   after every change or after pulling new JSON. Until it has run, the
+   Statistics page shows a 503 message asking for it. The database path can be
+   changed with `FLOWGENCY_ANALYTICS_DB` (relative to the repository root).
+   Rows for entries removed from `index.json` are not deleted; delete
+   `data/analytics.sqlite3` and reload to drop them.
 
 | File | Kind | Producer |
 | --- | --- | --- |

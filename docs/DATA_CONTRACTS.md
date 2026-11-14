@@ -314,7 +314,7 @@ Produced alongside section I, for the traffic-light adaptor: one line per whole 
 
 ## K. Static analytics files (`frontend/public/analytics/`)
 
-Committed JSON files for the Statistics page. They are static files, not API endpoints. Regeneration commands are in `frontend/public/analytics/README.md`. All three formats use `schema_version: "1.0"`. `null` means unknown or not produced (for example a run that failed before writing samples), never zero. Frontend types and runtime guards are in `frontend/lib/contracts.ts`.
+Committed JSON files, which are the source of truth for the Statistics page. The page does not fetch them directly: `python -m backend.analytics.load` copies them into a local SQLite database, and the page reads them through the read-only API in K.4. Regeneration commands are in `frontend/public/analytics/README.md`. All three formats use `schema_version: "1.0"`. `null` means unknown or not produced (for example a run that failed before writing samples), never zero. Frontend types and runtime guards are in `frontend/lib/contracts.ts`.
 
 ### K.1 Index (`index.json`)
 
@@ -356,3 +356,27 @@ Written by `python -m backend.vision.export_analytics` from section I/J files (v
 - `totals.<arm>`: `{entered, discharged, peak_vehicles_on_approach}` from the last counts line and the series maximum.
 - `turning_matrix`: `origins` (the arms plus `unknown`), `exits`, `counts[origin][exit]` from `intersection_exited` events (a `null` `origin_arm` is counted as `unknown`), `total_exits`, `unknown_origin_exits`.
 - `limitations`: includes the first-frame offset (`vehicles_on_approach` includes initial vehicles that the totals do not count) and the top-down VisDrone model.
+
+### K.4 Local database and read-only API
+
+`backend/analytics/db.py` keeps one SQLite table, written only by the loader (`python -m backend.analytics.load [--db PATH] [--index PATH]`):
+
+```sql
+CREATE TABLE analytics (
+    id TEXT PRIMARY KEY,              -- index.json id
+    label TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('simulation', 'vision')),
+    schema_version TEXT,              -- payload schema_version, NULL if absent
+    payload TEXT NOT NULL,            -- the JSON file content, verbatim
+    source_file TEXT,                 -- repository-relative path of the file
+    loaded_at TEXT NOT NULL           -- ISO 8601 UTC, e.g. 2026-11-14T19:38:08Z
+)
+```
+
+The path is `$FLOWGENCY_ANALYTICS_DB`, default `data/analytics.sqlite3`. A relative value resolves against the repository root. The file is gitignored and can be deleted and rebuilt at any time. The loader validates every index entry and file before writing anything. It upserts one row per entry, so rerunning it is idempotent. It skips listed files that are missing (with a warning) and fails on invalid JSON, an unknown kind, an unsafe file name, or a payload `kind` that differs from the index. It does not delete rows whose entry was later removed from `index.json`; delete the database file and reload to drop them.
+
+Both routes are unauthenticated GETs, like the other read routes:
+
+- `GET /api/analytics` returns `[{"id", "label", "kind", "schema_version", "loaded_at"}]` in first-loaded order (`index.json` order).
+- `GET /api/analytics/{id}` returns the stored payload unchanged (a K.2 or K.3 document, `application/json`). An unknown id returns 404.
+- If the database file is missing or has no table, both return 503 with `detail` `"Analytics database is not available; run python -m backend.analytics.load"`. Reads never create the file.
