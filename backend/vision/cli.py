@@ -67,7 +67,7 @@ def cmd_draw_gates(args: argparse.Namespace) -> int:
         _log(f"new scene {scene.scene_id}: view top_down, counting point center, model {scene.model_id}, "
              "right-hand traffic (edit the JSON to change)")
     if not video.exists():
-        raise SystemExit(f"video {video} not found")
+        raise SystemExit(paths.missing("video", video))
     preview = ensure_outside_repo(paths.scene_output_dir(scene.scene_id) / f"{scene.scene_id}_gates.jpg")
     run_draw_gates(scene=scene, scene_path=scene_path, video_path=video, preview_path=preview,
                    scale=args.scale, start_frame=args.frame)
@@ -81,7 +81,7 @@ def _scene_and_video(args: argparse.Namespace):
     scene = load_scene(args.scene)
     video = paths.resolve(scene.video)
     if not video.exists():
-        raise SystemExit(f"video {video} not found")
+        raise SystemExit(paths.missing("video", video))
     return paths, scene, video
 
 

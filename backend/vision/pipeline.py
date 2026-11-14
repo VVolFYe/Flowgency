@@ -29,16 +29,20 @@ from .clips import Clip, discover_clips, format_utc, probe, read_frames
 from .config import CameraConfig
 from .counting import CountResult, CrossingEvent, LineCrossingCounter, TrackedBox
 from .observation import build_observation, counting_lines, observation_json
-from .paths import REPO_ROOT, VisionPaths
+from .paths import REPO_DATA_DIR, REPO_ROOT, VisionPaths
 from .view_check import ScanCache, ViewCheckConfig, ViewDecision, ViewIndex, build_view_index
 
 FrameHook = Callable[[int, np.ndarray, list[TrackedBox], LineCrossingCounter, list[CrossingEvent]], None]
 
 
 def ensure_outside_repo(path: Path) -> Path:
+    """Generated output may go anywhere except tracked repository paths; the gitignored ``data/`` folder is allowed."""
     resolved = path.expanduser().resolve()
+    data_dir = REPO_DATA_DIR.resolve()
+    if resolved == data_dir or data_dir in resolved.parents:
+        return resolved
     if resolved == REPO_ROOT or REPO_ROOT in resolved.parents:
-        raise ValueError(f"refusing to write generated output inside the repository: {resolved}")
+        raise ValueError(f"refusing to write generated output inside the repository (outside data/): {resolved}")
     return resolved
 
 
@@ -67,6 +71,8 @@ class CameraContext:
         progress: Callable[[str], None] | None = None,
     ) -> CameraContext:
         clips = discover_clips(paths.clips_dir, camera.camera_id)
+        if not clips and progress:
+            progress("WARNING: " + paths.missing(f"clips for {camera.camera_id}", paths.clips_dir / camera.camera_id))
         reference = None
         if camera.reference_frame:
             ref_path = paths.resolve(camera.reference_frame)

@@ -63,7 +63,7 @@ class GateDetector:
             log(f"detector fallback: {choice.fallback_reason}")
         weights = paths.weights_dir / choice.weights
         if not weights.exists():
-            raise FileNotFoundError(f"weights {weights} not found (profile {profile.model_id})")
+            raise FileNotFoundError(paths.missing(f"weights for profile {profile.model_id}", weights))
         self.choice = choice
         self.model: Any = YOLO(str(weights), task="detect")
         self.names: dict[int, str] = dict(self.model.names)

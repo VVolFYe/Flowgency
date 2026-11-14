@@ -85,7 +85,9 @@ def find_clip(clips_dir: Path, key: str) -> Clip:
     camera_id, _, stem = key.partition("/")
     path = clips_dir / camera_id / f"{stem}.mp4"
     if not path.exists():
-        raise FileNotFoundError(path)
+        from .paths import missing_data_message
+
+        raise FileNotFoundError(missing_data_message("clip", path))
     return Clip.from_path(path, camera_id)
 
 

@@ -79,7 +79,7 @@ def ensure_weights(paths: VisionPaths, model_name: str) -> Path:
         paths.weights_dir.mkdir(parents=True, exist_ok=True)
         attempt_download_asset(target)
     if not target.exists():
-        raise FileNotFoundError(f"could not obtain weights {target}")
+        raise FileNotFoundError(paths.missing("weights (not downloadable)", target))
     return target
 
 

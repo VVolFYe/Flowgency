@@ -46,6 +46,8 @@ Desktop.ini
 # Vision datasets, weights, and large downloaded media
 datasets/
 data/raw/
+# default vision data folder (clips, weights, caches, full outputs) when UNIHACK_DIR is not set
+/data/
 weights/
 models/*.pt
 models/*.pth

@@ -25,9 +25,13 @@ opencv-python 5.0.0.93, lap 0.5.14. Run commands from the repository root:
 
 ## Files and locations
 
-Everything generated lives outside the repo under `UNIHACK_DIR`
-(default `/home/coro/Desktop/unihack`, override with the `UNIHACK_DIR`
-environment variable). Writing generated output inside the repo is refused.
+Media, weights, caches, and everything generated live in one **data folder**:
+the `UNIHACK_DIR` environment variable when set (e.g. a personal folder outside
+the repo), otherwise the repository's gitignored `data/` folder. `$UNIHACK_DIR`
+below means that folder. Writing generated output anywhere else inside the repo
+is refused. A missing clip, video, or weights file fails with a message saying
+where it looked and to set `UNIHACK_DIR` or fill `data/`. The committed samples
+(`backend/vision/samples/`) are plain files and need no data folder.
 
 | path | content |
 |---|---|
@@ -133,7 +137,7 @@ London time in November. Day 08:00-15:59, night 17:00-06:59; the twilight hours
 ## Gate mode (one top-down video)
 
 A second, independent mode for one recorded top-down video of one intersection
-(currently `UNIHACK_DIR/youtube/clip.mp4`, 1920x1080, 23.976 fps, 6329 decoded
+(currently `$UNIHACK_DIR/youtube/clip.mp4`, 1920x1080, 23.976 fps, 6329 decoded
 frames). It writes **contract I** gate events and **contract J** per-second
 counts (`docs/DATA_CONTRACTS.md`). The London line-counting mode above is unchanged.
 Teammate setup and consumer notes: `backend/vision/COLLEAGUE_SETUP.md`.
