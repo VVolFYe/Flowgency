@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0",
+  "controllers": [
+    {
+      "intersection_id": "J3",
+      "traffic_light_id": "GS_26546583",
+      "program_id": "0",
+      "green_budget_s": 84,
+      "max_change_s": 12,
+      "groups": [
+        {"group_id": "brixton", "phase_index": 0, "link_indices": [3, 4, 5, 9, 10, 11], "min_green_s": 20, "max_green_s": 64},
+        {"group_id": "vassall_caldwell", "phase_index": 2, "link_indices": [0, 1, 2, 6, 7, 8], "min_green_s": 20, "max_green_s": 64}
+      ],
+      "phases": [
+        {"index": 0, "state": "rrrGGGrrrGGG", "duration_s": 42, "group_id": "brixton"},
+        {"index": 1, "state": "rrryyyrrryyy", "duration_s": 3},
+        {"index": 2, "state": "GGgrrrGGgrrr", "duration_s": 42, "group_id": "vassall_caldwell"},
+        {"index": 3, "state": "yyyrrryyyrrr", "duration_s": 3}
+      ]
+    }
+  ]
+}

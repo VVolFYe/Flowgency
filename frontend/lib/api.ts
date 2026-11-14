@@ -1,4 +1,9 @@
-import type { NetworkGeometry, SimulationSnapshot, SimulationStatus } from "./contracts";
+import type {
+  NetworkGeometry,
+  SimulationScenario,
+  SimulationSnapshot,
+  SimulationStatus,
+} from "./contracts";
 
 export const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://127.0.0.1:8000").replace(/\/$/, "");
 
@@ -29,7 +34,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  network: () => request<NetworkGeometry>("/api/simulation/network"),
+  scenarios: (signal?: AbortSignal) => request<SimulationScenario[]>("/api/simulation/scenarios", { signal }),
+  network: (scenarioId?: string, signal?: AbortSignal) => request<NetworkGeometry>(
+    `/api/simulation/network${scenarioId ? `?scenario_id=${encodeURIComponent(scenarioId)}` : ""}`,
+    { signal },
+  ),
   status: () => request<SimulationStatus>("/api/simulation/status"),
   snapshot: async (): Promise<SimulationSnapshot | null> => {
     const response = await fetch(`${BACKEND_URL}/api/simulation/snapshot`, { cache: "no-store", signal: AbortSignal.timeout(4000) }).catch(() => null);
@@ -38,10 +47,28 @@ export const api = {
     if (!response.ok) throw new Error(`Snapshot request failed (${response.status})`);
     return response.json() as Promise<SimulationSnapshot>;
   },
-  command: (command: "start" | "pause" | "resume" | "reset" | "stop") =>
+  command: (
+    command: "start" | "pause" | "resume" | "reset" | "stop",
+    simulationSpeed?: number,
+    scenarioId?: string,
+    controlMode?: "fixed" | "adaptive" | "adaptive_with_emergency_priority",
+  ) =>
     request<SimulationStatus>(`/api/simulation/${command}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: command === "start" ? JSON.stringify({ simulation_speed: 4 }) : undefined,
+      body: command === "start"
+        ? JSON.stringify({
+            simulation_speed: simulationSpeed ?? 4,
+            scenario_id: scenarioId ?? "single_intersection",
+            control_mode: controlMode ?? "fixed",
+          })
+        : command === "resume" && simulationSpeed !== undefined
+          ? JSON.stringify({ simulation_speed: simulationSpeed })
+          : undefined,
     }),
+  setSpeed: (simulationSpeed: number) => request<SimulationStatus>("/api/simulation/speed", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ simulation_speed: simulationSpeed }),
+  }),
 };

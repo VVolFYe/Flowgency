@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- generated on 2026-11-13T18:25:14.162289+02:00 by Eclipse SUMO netconvert 1.27.1
+<netconvertConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/netconvertConfiguration.xsd">
+
+    <input>
+        <osm-files value="london_bbox.osm.xml"/>
+    </input>
+
+    <output>
+        <output-file value="london.net.xml"/>
+        <junctions.join-output value="london.joined.xml"/>
+        <output.street-names value="true"/>
+        <output.original-names value="true"/>
+    </output>
+
+    <projection>
+        <proj.utm value="true"/>
+    </projection>
+
+    <processing>
+        <geometry.remove value="true"/>
+        <roundabouts.guess value="true"/>
+        <lefthand value="true"/>
+    </processing>
+
+    <tls_building>
+        <tls.discard-simple value="true"/>
+        <tls.guess-signals value="true"/>
+    </tls_building>
+
+    <ramp_guessing>
+        <ramps.guess value="true"/>
+    </ramp_guessing>
+
+    <edge_removal>
+        <keep-edges.by-vclass value="passenger"/>
+        <keep-edges.components value="1"/>
+    </edge_removal>
+
+    <junctions>
+        <no-turnarounds value="true"/>
+        <junctions.join value="true"/>
+        <junctions.join-exclude value="105952131"/>
+    </junctions>
+
+</netconvertConfiguration>
+-->
+
+<nodes version="1.20" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/nodes_file.xsd">
+    <join nodes="108195 6967968844"/>
+    <join nodes="11740332027 8960473844"/>
+    <join nodes="110248436 33228962"/>
+    <join nodes="10218369045 4202836241 6391501625"/>
+    <join nodes="26546622 8412284684"/>
+    <join nodes="105917431 1853044116"/>
+    <join nodes="10225291083 33213267 6391501604"/>
+    <join nodes="33213275 33213285"/>
+    <join nodes="10231058975 21511949 261698814"/>
+    <join nodes="10238059987 10865104 57311992"/>
+    <join nodes="261698791 6808286353 7581460936"/>
+    <join nodes="105899322 26546215"/>
+    <join nodes="105952129 105952201"/>
+    <join nodes="10691198621 12535884046 3653996498 3653996499"/>
+    <join nodes="107094624 1685947960 1937709603 381085455"/>
+    <join nodes="10865118 3000311037 9188720328"/>
+    <join nodes="110284280 1782885567 261277486 4453915929 6956221327 6956221329 6956221340"/>
+    <join nodes="111928139 33213092"/>
+    <join nodes="111933499 7995309647 7995309651 7996113585 9705205518"/>
+    <join nodes="11703577934 21516134 7801416246 8413349116 8413373319 8413373325"/>
+    <join nodes="11740332026 5267096379"/>
+    <join nodes="3653382435 6022956000"/>
+    <join nodes="13953591470 25484572"/>
+    <join nodes="8982713135 8982713136"/>
+    <join nodes="21505288 5374083438 5374083441 5374083447 5374083448 5374083452 5374083454 5374083458 5374083459 5374083464 8412947513 8412947515"/>
+    <join nodes="25484540 26546626"/>
+    <join nodes="25484546 26026684"/>
+    <join nodes="33213210 6514340395"/>
+    <join nodes="4454358585 6956221338 6956221348 6956221355"/>
+    <join nodes="5473412796 5473442907"/>
+</nodes>

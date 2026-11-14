@@ -13,6 +13,7 @@ from typing import Any, Callable
 from uuid import uuid4
 
 from .runner import SumoRunner
+from .scenarios import DEFAULT_SCENARIO_ID, ScenarioDefinition, get_scenario
 
 
 class SimulationState(StrEnum):
@@ -32,9 +33,11 @@ class _Command:
     name: str
     future: Future[dict[str, Any] | None]
     speed: float | None = None
+    control_mode: str | None = None
+    scenario_id: str | None = None
 
 
-RunnerFactory = Callable[[], SumoRunner]
+RunnerFactory = Callable[[ScenarioDefinition], SumoRunner]
 
 
 class SimulationService:
@@ -50,6 +53,8 @@ class SimulationService:
         self._runner_factory = runner_factory or self._default_runner_factory
         self._default_speed = self._validate_speed(default_speed)
         self._speed = self._default_speed
+        self._control_mode = "fixed"
+        self._scenario_id = DEFAULT_SCENARIO_ID
         self._command_timeout_s = command_timeout_s
         self._commands: queue.Queue[_Command] = queue.Queue()
         self._lock = threading.Lock()
@@ -60,8 +65,18 @@ class SimulationService:
         self._worker_started = threading.Event()
 
     @staticmethod
-    def _default_runner_factory() -> SumoRunner:
-        return SumoRunner(run_id=f"service-{uuid4()}")
+    def _default_runner_factory(scenario: ScenarioDefinition) -> SumoRunner:
+        return SumoRunner(
+            config_path=scenario.config_path,
+            mapping_path=scenario.mapping_path,
+            run_id=f"service-{uuid4()}",
+            scenario_selection_id=scenario.scenario_id,
+            legacy_scenario_id=scenario.legacy_scenario_id,
+            coordinate_system=scenario.coordinate_system,
+            seed=scenario.seed,
+            output_directory=scenario.output_directory,
+            adaptive_manifest_path=scenario.adaptive_manifest_path,
+        )
 
     @staticmethod
     def _validate_speed(speed: float) -> float:
@@ -84,9 +99,27 @@ class SimulationService:
         if not self._worker_started.wait(self._command_timeout_s):
             raise RuntimeError("simulation worker did not start")
 
-    def start(self, speed: float | None = None) -> dict[str, Any]:
+    def start(
+        self,
+        speed: float | None = None,
+        control_mode: str | None = None,
+        scenario_id: str = DEFAULT_SCENARIO_ID,
+    ) -> dict[str, Any]:
         selected_speed = self._default_speed if speed is None else self._validate_speed(speed)
-        return self._submit("start", speed=selected_speed)
+        scenario = get_scenario(scenario_id)
+        selected_mode = scenario.default_control_mode if control_mode is None else control_mode
+        if selected_mode not in {"fixed", "adaptive", "adaptive_with_emergency_priority"}:
+            raise ValueError("unsupported control_mode")
+        if selected_mode != "fixed" and not scenario.supports_adaptive_control:
+            raise ValueError(f"adaptive control is not available for {scenario_id}")
+        if selected_mode == "adaptive_with_emergency_priority" and not scenario.supports_emergency_priority:
+            raise ValueError(f"emergency priority is not available for {scenario_id}")
+        return self._submit(
+            "start",
+            speed=selected_speed,
+            control_mode=selected_mode,
+            scenario_id=scenario.scenario_id,
+        )
 
     def pause(self) -> dict[str, Any]:
         return self._submit("pause")
@@ -94,6 +127,10 @@ class SimulationService:
     def resume(self, speed: float | None = None) -> dict[str, Any]:
         validated = None if speed is None else self._validate_speed(speed)
         return self._submit("resume", speed=validated)
+
+    def set_speed(self, speed: float) -> dict[str, Any]:
+        """Change pacing without advancing or restarting the SUMO runner."""
+        return self._submit("set_speed", speed=self._validate_speed(speed))
 
     def reset(self) -> dict[str, Any]:
         return self._submit("reset")
@@ -119,6 +156,8 @@ class SimulationService:
             return {
                 "state": self._state.value,
                 "simulation_speed": self._speed,
+                "control_mode": self._control_mode,
+                "scenario_id": self._scenario_id,
                 "simulation_time_s": (
                     snapshot["simulation_time_s"] if snapshot is not None else None
                 ),
@@ -131,12 +170,26 @@ class SimulationService:
         with self._lock:
             return copy.deepcopy(self._latest_snapshot)
 
-    def _submit(self, name: str, speed: float | None = None) -> dict[str, Any]:
+    def _submit(
+        self,
+        name: str,
+        speed: float | None = None,
+        control_mode: str | None = None,
+        scenario_id: str | None = None,
+    ) -> dict[str, Any]:
         worker = self._worker
         if worker is None or not worker.is_alive():
             raise RuntimeError("simulation service is not open")
         future: Future[dict[str, Any] | None] = Future()
-        self._commands.put(_Command(name=name, future=future, speed=speed))
+        self._commands.put(
+            _Command(
+                name=name,
+                future=future,
+                speed=speed,
+                control_mode=control_mode,
+                scenario_id=scenario_id,
+            )
+        )
         result = future.result(timeout=self._command_timeout_s)
         return result or self.status()
 
@@ -213,14 +266,19 @@ class SimulationService:
         if command.name == "start":
             if state is not SimulationState.IDLE:
                 raise InvalidTransition(f"cannot start simulation while {state.value}")
-            runner = self._runner_factory()
+            scenario = get_scenario(command.scenario_id or DEFAULT_SCENARIO_ID)
+            runner = self._runner_factory(scenario)
             try:
+                if command.control_mode != "fixed":
+                    runner.configure_control_mode(command.control_mode or "fixed")
                 runner.start()
                 snapshot = runner.extract_snapshot()
             except BaseException:
                 runner.close()
                 raise
             self._speed = command.speed or self._default_speed
+            self._control_mode = command.control_mode or "fixed"
+            self._scenario_id = scenario.scenario_id
             self._set_state(SimulationState.RUNNING, snapshot=snapshot, error=None)
             return runner, True
 
@@ -238,13 +296,24 @@ class SimulationService:
             self._set_state(SimulationState.RUNNING)
             return runner, True
 
+        if command.name == "set_speed":
+            if state not in (SimulationState.RUNNING, SimulationState.PAUSED):
+                raise InvalidTransition(f"cannot change speed while {state.value}")
+            if command.speed is None:  # defensive; public API always supplies it
+                raise ValueError("simulation speed is required")
+            self._speed = command.speed
+            return runner, True
+
         if command.name == "reset":
             if state is SimulationState.IDLE:
                 raise InvalidTransition("cannot reset an idle simulation")
             if runner is not None:
                 runner.close()
-            runner = self._runner_factory()
+            scenario = get_scenario(self._scenario_id)
+            runner = self._runner_factory(scenario)
             try:
+                if self._control_mode != "fixed":
+                    runner.configure_control_mode(self._control_mode)
                 runner.start()
                 snapshot = runner.extract_snapshot()
             except BaseException:
@@ -261,6 +330,8 @@ class SimulationService:
                 runner.close()
                 runner = None
             self._speed = self._default_speed
+            self._control_mode = "fixed"
+            self._scenario_id = DEFAULT_SCENARIO_ID
             self._set_state(SimulationState.IDLE, snapshot=None, error=None)
             return runner, True
 
@@ -269,6 +340,8 @@ class SimulationService:
                 runner.close()
                 runner = None
             self._speed = self._default_speed
+            self._control_mode = "fixed"
+            self._scenario_id = DEFAULT_SCENARIO_ID
             self._set_state(SimulationState.IDLE, snapshot=None, error=None)
             return runner, False
 

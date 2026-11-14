@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <input>
+        <net-file value="demo.net.xml"/>
+        <route-files value="peak.rou.xml"/>
+    </input>
+    <time>
+        <begin value="0"/>
+        <end value="600"/>
+        <step-length value="1"/>
+    </time>
+    <random_number><seed value="42"/></random_number>
+    <output>
+        <tripinfo-output value="output/tripinfo.xml"/>
+        <tripinfo-output.write-unfinished value="true"/>
+        <summary-output value="output/summary.xml"/>
+        <summary-output.period value="10"/>
+    </output>
+    <processing>
+        <collision.action value="warn"/>
+        <time-to-teleport value="-1"/>
+    </processing>
+    <report><verbose value="false"/><no-step-log value="true"/></report>
+</configuration>

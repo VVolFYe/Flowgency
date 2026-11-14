@@ -2,10 +2,19 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { api, WS_URL } from "@/lib/api";
-import type { NetworkGeometry, SimulationSnapshot, SimulationStatus, StreamEnvelope, Vehicle } from "@/lib/contracts";
+import type {
+  NetworkGeometry,
+  SimulationScenario,
+  SimulationSnapshot,
+  SimulationStatus,
+  StreamEnvelope,
+  Vehicle,
+} from "@/lib/contracts";
 
 export type ConnectionState = "connecting" | "connected" | "reconnecting" | "offline";
 export type SimulationCommand = "start" | "pause" | "resume" | "reset" | "stop";
+export type ControlMode = "fixed" | "adaptive" | "adaptive_with_emergency_priority";
+export type PendingCommand = SimulationCommand | "speed";
 export type VehicleFrame = Map<string, Vehicle>;
 
 export interface Transition {
@@ -25,21 +34,31 @@ export interface HistoryPoint {
 
 interface SimulationContextValue {
   geometry: NetworkGeometry | null;
+  scenarios: SimulationScenario[];
+  selectedScenarioId: string;
+  selectedScenario: SimulationScenario | null;
+  selectedSpeed: number;
+  selectedControlMode: ControlMode;
   status: SimulationStatus;
   snapshot: SimulationSnapshot | null;
   connection: ConnectionState;
   loading: boolean;
-  commandPending: SimulationCommand | null;
+  commandPending: PendingCommand | null;
   error: string | null;
   history: HistoryPoint[];
   transitionRef: React.MutableRefObject<Transition | null>;
   execute: (command: SimulationCommand) => Promise<void>;
+  changeScenario: (scenarioId: string) => Promise<void>;
+  changeSpeed: (speed: number) => Promise<void>;
+  setSelectedControlMode: (mode: ControlMode) => void;
   dismissError: () => void;
 }
 
 export const EMPTY_STATUS: SimulationStatus = {
   state: "idle",
   simulation_speed: 4,
+  control_mode: "fixed",
+  scenario_id: "single_intersection",
   simulation_time_s: null,
   has_snapshot: false,
   error: null,
@@ -84,17 +103,23 @@ function readStoredHistory(): HistoryPoint[] {
 
 export function SimulationProvider({ children, collectHistory = false }: { children: React.ReactNode; collectHistory?: boolean }) {
   const [geometry, setGeometry] = useState<NetworkGeometry | null>(null);
+  const [scenarios, setScenarios] = useState<SimulationScenario[]>([]);
+  const [selectedScenarioId, setSelectedScenarioId] = useState("single_intersection");
+  const [selectedSpeed, setSelectedSpeed] = useState(4);
+  const [selectedControlMode, setSelectedControlMode] = useState<ControlMode>("fixed");
   const [status, setStatus] = useState<SimulationStatus>(EMPTY_STATUS);
   const [snapshot, setSnapshot] = useState<SimulationSnapshot | null>(null);
   const [connection, setConnection] = useState<ConnectionState>("connecting");
   const [loading, setLoading] = useState(true);
-  const [commandPending, setCommandPending] = useState<SimulationCommand | null>(null);
+  const [commandPending, setCommandPending] = useState<PendingCommand | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryPoint[]>([]);
   const transitionRef = useRef<Transition | null>(null);
   const snapshotRef = useRef<SimulationSnapshot | null>(null);
   const connectionRef = useRef<ConnectionState>("connecting");
   const statusRef = useRef<SimulationStatus>(EMPTY_STATUS);
+  const selectedScenarioRef = useRef("single_intersection");
+  const geometryRequestRef = useRef(0);
   const lastSnapshotAtRef = useRef(0);
 
   useEffect(() => {
@@ -123,9 +148,27 @@ export function SimulationProvider({ children, collectHistory = false }: { child
     });
   }, [collectHistory]);
 
+  const loadGeometry = useCallback(async (scenarioId: string) => {
+    const requestId = ++geometryRequestRef.current;
+    setLoading(true);
+    setGeometry(null);
+    try {
+      const network = await api.network(scenarioId);
+      if (requestId === geometryRequestRef.current) setGeometry(network);
+    } catch (reason) {
+      if (requestId === geometryRequestRef.current) {
+        setError(reason instanceof Error ? reason.message : "Failed to load network geometry");
+      }
+    } finally {
+      if (requestId === geometryRequestRef.current) setLoading(false);
+    }
+  }, []);
+
   const updateStatus = useCallback((next: SimulationStatus) => {
     statusRef.current = next;
     setStatus(next);
+    setSelectedSpeed(next.simulation_speed);
+    if (next.state !== "idle" && next.control_mode) setSelectedControlMode(next.control_mode);
     if (!next.has_snapshot || next.state === "idle") {
       snapshotRef.current = null;
       transitionRef.current = null;
@@ -136,11 +179,18 @@ export function SimulationProvider({ children, collectHistory = false }: { child
 
   const receiveSnapshot = useCallback((next: SimulationSnapshot, animate = true) => {
     const previous = snapshotRef.current;
+    const nextScenario = next.scenario_selection_id ?? next.scenario_id;
+    const previousScenario = previous?.scenario_selection_id ?? previous?.scenario_id;
+    if (statusRef.current.state !== "idle" && nextScenario !== statusRef.current.scenario_id) return;
+    if (
+      previous
+      && previous.run_id === next.run_id
+      && previousScenario === nextScenario
+      && next.simulation_time_s <= previous.simulation_time_s
+    ) return;
     const now = performance.now();
     const nextVehicles = vehicleMap(next.vehicles);
-    const sameRun = previous?.run_id === next.run_id;
-    const isNewFrame = !previous || !sameRun || next.simulation_time_s !== previous.simulation_time_s;
-    if (!isNewFrame) return;
+    const sameRun = previous?.run_id === next.run_id && previousScenario === nextScenario;
 
     const canAnimate = animate && sameRun && statusRef.current.state === "running" && connectionRef.current === "connected";
     let from = nextVehicles;
@@ -171,11 +221,22 @@ export function SimulationProvider({ children, collectHistory = false }: { child
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([api.network(), api.status(), api.snapshot()])
-      .then(([network, initialStatus, initialSnapshot]) => {
+    Promise.all([api.scenarios(), api.status()])
+      .then(async ([availableScenarios, initialStatus]) => {
+        if (cancelled) return;
+        const scenarioId = initialStatus.scenario_id || "single_intersection";
+        setScenarios(availableScenarios);
+        setSelectedScenarioId(scenarioId);
+        selectedScenarioRef.current = scenarioId;
+        updateStatus(initialStatus);
+        setSelectedSpeed(initialStatus.simulation_speed);
+        setSelectedControlMode(initialStatus.control_mode ?? "fixed");
+        const [network, initialSnapshot] = await Promise.all([
+          api.network(scenarioId),
+          initialStatus.has_snapshot ? api.snapshot() : Promise.resolve(null),
+        ]);
         if (cancelled) return;
         setGeometry(network);
-        updateStatus(initialStatus);
         if (initialSnapshot) receiveSnapshot(initialSnapshot, false);
         setError(null);
       })
@@ -185,6 +246,16 @@ export function SimulationProvider({ children, collectHistory = false }: { child
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [receiveSnapshot, updateStatus]);
+
+  useEffect(() => {
+    if (status.state === "idle" || status.scenario_id === selectedScenarioRef.current) return;
+    selectedScenarioRef.current = status.scenario_id;
+    setSelectedScenarioId(status.scenario_id);
+    snapshotRef.current = null;
+    transitionRef.current = null;
+    setSnapshot(null);
+    void loadGeometry(status.scenario_id);
+  }, [loadGeometry, status.scenario_id, status.state]);
 
   useEffect(() => {
     let socket: WebSocket | null = null;
@@ -246,12 +317,20 @@ export function SimulationProvider({ children, collectHistory = false }: { child
     setCommandPending(command);
     setError(null);
     try {
-      const nextStatus = await api.command(command);
+      const nextStatus = await api.command(
+        command,
+        command === "start" || command === "resume" ? selectedSpeed : undefined,
+        command === "start" ? selectedScenarioRef.current : undefined,
+        command === "start" ? selectedControlMode : undefined,
+      );
       updateStatus(nextStatus);
       if (command === "stop") {
         snapshotRef.current = null;
         transitionRef.current = null;
         setSnapshot(null);
+        selectedScenarioRef.current = nextStatus.scenario_id;
+        setSelectedScenarioId(nextStatus.scenario_id);
+        await loadGeometry(nextStatus.scenario_id);
       } else {
         const latest = await api.snapshot();
         if (latest) receiveSnapshot(latest, false);
@@ -265,10 +344,43 @@ export function SimulationProvider({ children, collectHistory = false }: { child
     }
   };
 
+  const changeSpeed = async (speed: number) => {
+    setSelectedSpeed(speed);
+    if (statusRef.current.state === "idle") return;
+    setCommandPending("speed");
+    setError(null);
+    try {
+      const nextStatus = await api.setSpeed(speed);
+      updateStatus(nextStatus);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not change simulation speed");
+      setSelectedSpeed(statusRef.current.simulation_speed);
+    } finally {
+      setCommandPending(null);
+    }
+  };
+
+  const changeScenario = async (scenarioId: string) => {
+    if (statusRef.current.state !== "idle" || commandPending) return;
+    selectedScenarioRef.current = scenarioId;
+    setSelectedScenarioId(scenarioId);
+    const nextScenario = scenarios.find((scenario) => scenario.scenario_id === scenarioId);
+    setSelectedControlMode(nextScenario?.default_control_mode ?? "fixed");
+    snapshotRef.current = null;
+    transitionRef.current = null;
+    setSnapshot(null);
+    setError(null);
+    await loadGeometry(scenarioId);
+  };
+
+  const selectedScenario = scenarios.find((scenario) => scenario.scenario_id === selectedScenarioId) ?? null;
+
   return (
     <SimulationContext.Provider value={{
-      geometry, status, snapshot, connection, loading, commandPending, error, history,
-      transitionRef, execute, dismissError: () => setError(null),
+      geometry, scenarios, selectedScenarioId, selectedScenario, selectedSpeed, selectedControlMode,
+      status, snapshot, connection, loading, commandPending, error, history,
+      transitionRef, execute, changeScenario, changeSpeed, setSelectedControlMode,
+      dismissError: () => setError(null),
     }}>
       {children}
     </SimulationContext.Provider>

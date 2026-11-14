@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0",
+  "controllers": [
+    {
+      "intersection_id": "demo_01",
+      "traffic_light_id": "demo_01",
+      "program_id": "fixed",
+      "green_budget_s": 60,
+      "max_change_s": 10,
+      "groups": [
+        {"group_id": "north_south", "phase_index": 0, "link_indices": [0, 2], "min_green_s": 10, "max_green_s": 45},
+        {"group_id": "east_west", "phase_index": 3, "link_indices": [1, 3], "min_green_s": 10, "max_green_s": 45}
+      ],
+      "phases": [
+        {"index": 0, "state": "GrGr", "duration_s": 30, "group_id": "north_south"},
+        {"index": 1, "state": "yryr", "duration_s": 3},
+        {"index": 2, "state": "rrrr", "duration_s": 2},
+        {"index": 3, "state": "rGrG", "duration_s": 30, "group_id": "east_west"},
+        {"index": 4, "state": "ryry", "duration_s": 3},
+        {"index": 5, "state": "rrrr", "duration_s": 2}
+      ]
+    }
+  ]
+}

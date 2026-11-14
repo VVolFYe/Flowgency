@@ -8,19 +8,25 @@ import time
 import unittest
 from typing import Any
 
-import httpx
-
 from backend.api.app import create_app
 from backend.simulation.service import InvalidTransition, SimulationService
+from backend.simulation.scenarios import ScenarioDefinition, ScenarioNotFound
 
 
 class FakeRunner:
-    def __init__(self, operation_threads: list[str], close_events: list[int]) -> None:
+    def __init__(
+        self,
+        operation_threads: list[str],
+        close_events: list[int],
+        scenario: ScenarioDefinition,
+    ) -> None:
         self.time = 0.0
         self.started = False
         self.closed = False
         self.operation_threads = operation_threads
         self.close_events = close_events
+        self.scenario = scenario
+        self.control_mode = "fixed"
 
     def _record(self) -> None:
         self.operation_threads.append(threading.current_thread().name)
@@ -28,6 +34,10 @@ class FakeRunner:
     def start(self) -> None:
         self._record()
         self.started = True
+
+    def configure_control_mode(self, control_mode: str) -> None:
+        self._record()
+        self.control_mode = control_mode
 
     def advance(self) -> float:
         self._record()
@@ -43,6 +53,7 @@ class FakeRunner:
         return {
             "schema_version": "1.0",
             "scenario_id": "single-intersection-v1",
+            "scenario_selection_id": self.scenario.scenario_id,
             "run_id": "fake-run",
             "intersection_id": "demo_01",
             "simulation_time_s": self.time,
@@ -75,9 +86,11 @@ class ServiceFixture:
     def __init__(self) -> None:
         self.operation_threads: list[str] = []
         self.close_events: list[int] = []
+        self.created_scenarios: list[str] = []
 
-    def factory(self) -> FakeRunner:
-        return FakeRunner(self.operation_threads, self.close_events)
+    def factory(self, scenario: ScenarioDefinition) -> FakeRunner:
+        self.created_scenarios.append(scenario.scenario_id)
+        return FakeRunner(self.operation_threads, self.close_events, scenario)
 
     def service(self, speed: float = 0.1) -> SimulationService:
         return SimulationService(self.factory, default_speed=speed)
@@ -128,6 +141,59 @@ class SimulationServiceTests(unittest.TestCase):
         self.assertEqual(len(self.fixture.close_events), 1)
         self.assertEqual(self.service.status()["state"], "idle")
 
+    def test_speed_changes_on_worker_while_running_and_paused(self) -> None:
+        self.assertEqual(self.service.start(4.0)["simulation_speed"], 4.0)
+        self.assertEqual(self.service.set_speed(16.0)["simulation_speed"], 16.0)
+        self.assertEqual(self.service.status()["state"], "running")
+        self.assertEqual(self.service.pause()["simulation_speed"], 16.0)
+        self.assertEqual(self.service.set_speed(2.0)["simulation_speed"], 2.0)
+        self.assertEqual(self.service.resume()["simulation_speed"], 2.0)
+
+    def test_speed_validation_and_invalid_state(self) -> None:
+        with self.assertRaises(ValueError):
+            self.service.set_speed(0.09)
+        with self.assertRaises(InvalidTransition):
+            self.service.set_speed(8.0)
+
+    def test_scenario_selection_reset_stop_and_default_compatibility(self) -> None:
+        self.assertEqual(self.service.status()["scenario_id"], "single_intersection")
+        started = self.service.start(scenario_id="london_normal")
+        self.assertEqual(started["scenario_id"], "london_normal")
+        self.assertEqual(self.fixture.created_scenarios, ["london_normal"])
+        self.assertEqual(self.service.pause()["state"], "paused")
+        self.service.reset()
+        self.assertEqual(self.fixture.created_scenarios, ["london_normal", "london_normal"])
+        self.assertEqual(self.service.stop()["scenario_id"], "single_intersection")
+
+    def test_invalid_scenario_is_rejected_before_worker_start(self) -> None:
+        with self.assertRaises(ScenarioNotFound):
+            self.service.start(scenario_id="not_a_scenario")
+        self.assertEqual(self.fixture.created_scenarios, [])
+
+    def test_adaptive_mode_is_preserved_by_reset_and_rejected_when_unsupported(self) -> None:
+        started = self.service.start(
+            control_mode="adaptive", scenario_id="london_unbalanced"
+        )
+        self.assertEqual(started["control_mode"], "adaptive")
+        self.service.pause()
+        reset = self.service.reset()
+        self.assertEqual(reset["control_mode"], "adaptive")
+        self.service.stop()
+        with self.assertRaises(ValueError):
+            self.service.start(
+                control_mode="adaptive", scenario_id="london_rush_hour"
+            )
+
+    def test_emergency_scenario_selects_priority_and_reset_preserves_it(self) -> None:
+        started = self.service.start(scenario_id="single_intersection_emergency")
+        self.assertEqual(started["control_mode"], "adaptive_with_emergency_priority")
+        self.assertEqual(self.service.reset()["control_mode"], "adaptive_with_emergency_priority")
+        self.service.stop()
+        with self.assertRaises(ValueError):
+            self.service.start(
+                control_mode="adaptive_with_emergency_priority", scenario_id="london_normal"
+            )
+
 
 class SimulationApiTests(unittest.TestCase):
     @unittest.skip(
@@ -137,6 +203,8 @@ class SimulationApiTests(unittest.TestCase):
         asyncio.run(self._exercise_http_lifecycle())
 
     async def _exercise_http_lifecycle(self) -> None:
+        import httpx
+
         fixture = ServiceFixture()
         service = fixture.service()
         service.open()

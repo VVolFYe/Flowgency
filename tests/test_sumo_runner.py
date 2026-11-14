@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
+from backend.controller.adaptive import AdaptiveState
 from backend.simulation.runner import SumoRunner, load_scenario_mapping
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,8 +19,17 @@ class FakeSimulation:
 
 
 class FakeTrafficLight:
+    def __init__(self) -> None:
+        self.duration_requests: list[tuple[str, float]] = []
+
     def getNextSwitch(self, traffic_light_id: str) -> float:
         return 30.0
+
+    def getIDList(self) -> tuple[str, ...]:
+        return ("demo_01",)
+
+    def getControlledLanes(self, traffic_light_id: str) -> tuple[str, ...]:
+        return ("south_in_0", "east_in_0", "north_in_0", "west_in_0")
 
     def getPhase(self, traffic_light_id: str) -> int:
         return 0
@@ -29,6 +39,9 @@ class FakeTrafficLight:
 
     def getRedYellowGreenState(self, traffic_light_id: str) -> str:
         return "GrGr"
+
+    def setPhaseDuration(self, traffic_light_id: str, duration: float) -> None:
+        self.duration_requests.append((traffic_light_id, duration))
 
 
 class FakeLane:
@@ -55,6 +68,53 @@ class FakeVehicle:
     def getRoadID(self, vehicle_id: str) -> str:
         return "south_in"
 
+    def getLaneID(self, vehicle_id: str) -> str:
+        return "south_in_0"
+
+
+class FakeAmbulance(FakeVehicle):
+    def getIDList(self) -> tuple[str, ...]:
+        return ("ambulance-1",)
+
+    def getTypeID(self, vehicle_id: str) -> str:
+        return "ambulance"
+
+    def getRoadID(self, vehicle_id: str) -> str:
+        return "east_in"
+
+    def getLaneID(self, vehicle_id: str) -> str:
+        return "east_in_0"
+
+
+class LateSimulation(FakeSimulation):
+    def getTime(self) -> float:
+        return 47.0
+
+
+class EastWestTrafficLight(FakeTrafficLight):
+    def getPhase(self, traffic_light_id: str) -> int:
+        return 3
+
+    def getPhaseName(self, traffic_light_id: str) -> str:
+        return "east_west_green"
+
+    def getRedYellowGreenState(self, traffic_light_id: str) -> str:
+        return "rGrG"
+
+
+class FakeMultiTrafficLight(FakeTrafficLight):
+    def getIDList(self) -> tuple[str, ...]:
+        return ("tls_b", "tls_a")
+
+    def getControlledLanes(self, traffic_light_id: str) -> tuple[str, ...]:
+        return {
+            "tls_a": ("south_in_0", "shared_0"),
+            "tls_b": ("shared_0", "north_in_0"),
+        }[traffic_light_id]
+
+    def getPhaseName(self, traffic_light_id: str) -> str:
+        return f"{traffic_light_id}_green"
+
 
 class RunnerStateTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -79,6 +139,8 @@ class RunnerStateTests(unittest.TestCase):
         self.assertEqual(snapshot["current_phase_index"], 0)
         self.assertEqual(snapshot["traffic_light_state"], "GrGr")
         self.assertEqual(snapshot["remaining_phase_duration_s"], 18.0)
+        self.assertEqual(snapshot["scenario_selection_id"], "single_intersection")
+        self.assertIn("demo_01", snapshot["traffic_light_controllers"])
         self.assertEqual(snapshot["queue_lengths_by_approach"]["northbound_in"]["vehicles"], 2)
         self.assertTrue(all(q["vehicles"] >= 0 for q in snapshot["queue_lengths_by_approach"].values()))
 
@@ -90,6 +152,63 @@ class RunnerStateTests(unittest.TestCase):
             self.assertIsInstance(vehicle["angle_deg"], float)
             self.assertIsInstance(vehicle["speed_mps"], float)
             self.assertGreaterEqual(vehicle["speed_mps"], 0.0)
+            self.assertEqual(vehicle["lane_id"], "south_in_0")
+
+    def test_multi_controller_snapshot_deduplicates_network_queue(self) -> None:
+        runner = SumoRunner(
+            mapping_path=None,
+            scenario_selection_id="london_normal",
+            legacy_scenario_id="london-oval-kennington-v1",
+            coordinate_system="sumo_cartesian_metres_utm_zone_30",
+        )
+        runner._connection = SimpleNamespace(
+            simulation=FakeSimulation(),
+            trafficlight=FakeMultiTrafficLight(),
+            lane=FakeLane(),
+            vehicle=FakeVehicle(),
+        )
+        snapshot = runner.extract_snapshot()
+        self.assertEqual(list(snapshot["traffic_light_controllers"]), ["tls_a", "tls_b"])
+        self.assertEqual(snapshot["network_queue"]["controlled_lane_count"], 3)
+        self.assertEqual(snapshot["network_queue"]["vehicles"], 3)
+        self.assertIsNone(snapshot["traffic_light_id"])
+        self.assertEqual(snapshot["queue_lengths_by_approach"], {})
+
+    def test_adaptive_adapter_only_adjusts_verified_green_duration(self) -> None:
+        connection = self.runner._connection
+        self.runner._connection = None
+        self.runner.configure_control_mode("adaptive")
+        self.runner._connection = connection
+        self.runner._apply_adaptive_control()
+        self.assertEqual(self.runner.connection.trafficlight.duration_requests, [("demo_01", 2.0)])
+        self.assertEqual(self.runner.last_control_reason, "minimum_green_protected")
+        self.assertEqual(self.runner.extract_snapshot()["control_reason"], "minimum_green_protected")
+
+    def test_configuring_a_new_run_clears_pending_synthetic_transition(self) -> None:
+        self.runner._connection = None
+        self.runner._adaptive_state = AdaptiveState(
+            phase_id="north_south_green",
+            transition_pending_phase="north_south_green",
+        )
+        self.runner.configure_control_mode("adaptive")
+        self.assertIsNone(self.runner._adaptive_state.transition_pending_phase)
+
+    def test_emergency_mode_holds_green_past_normal_maximum(self) -> None:
+        connection = self.runner._connection
+        self.runner._connection = None
+        self.runner.configure_control_mode("adaptive_with_emergency_priority")
+        self.runner._connection = connection
+        connection.simulation = LateSimulation()
+        connection.trafficlight = EastWestTrafficLight()
+        connection.vehicle = FakeAmbulance()
+        self.runner._adaptive_state = AdaptiveState(phase_id="east_west_green", phase_started_s=0)
+
+        self.runner._apply_adaptive_control()
+        self.assertEqual(connection.trafficlight.duration_requests, [("demo_01", 2.0)])
+        snapshot = self.runner.extract_snapshot()
+        self.assertTrue(snapshot["vehicles"][0]["is_emergency"])
+        self.assertEqual(snapshot["emergency_priority"]["active_vehicle_id"], "ambulance-1")
+        self.assertEqual(snapshot["control_reason"], "hold_compatible_green_for_emergency")
 
 
 if __name__ == "__main__":
