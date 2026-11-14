@@ -9,6 +9,7 @@ This deterministic baseline contains one artificial four-approach signalized jun
 - `demo.net.xml`: generated SUMO network, committed so the scenario runs immediately.
 - `demo.rou.xml`: four deterministic straight-through flows.
 - `demo.sumocfg`: 420-second simulation, seed, and output configuration.
+- `emergency.rou.xml`, `emergency.sumocfg`: separate demo demand with an ambulance, fire brigade, and police vehicle; the normal baseline files remain intact.
 - `mappings.json`: verified project-to-SUMO junction, edge, lane, and signal-link mapping.
 - `output/`: generated trip and summary output; ignored by Git.
 
@@ -87,3 +88,7 @@ python3 -m backend.simulation.compare --scenario demo
 The command prints completed trips, waiting time, queues, collisions, teleports, and phase validation errors as JSON. It compares the same routes and seed in each mode. It checks complete phase intervals for the required green, yellow, all-red order and durations; the final unfinished phase is excluded from duration checks. Each run overwrites generated `output/tripinfo.xml` and `output/summary.xml`; results for both modes are retained in the printed JSON. No improvement is assumed: inspect the measured differences.
 
 `adaptive.json` is a reviewed mapping for the reusable cycle planner. To use it instead of the older per-second demo controller, run `python3 -m backend.simulation.cycle_run --config scenarios/single_intersection/demo.sumocfg --adaptive-manifest scenarios/single_intersection/adaptive.json`.
+
+## Emergency priority demo
+
+Choose `single_intersection_emergency` in the browser, or run `python3 -m backend.simulation.runner --config scenarios/single_intersection/emergency.sumocfg --control-mode adaptive_with_emergency_priority`. The additional vehicles have distinct SUMO type IDs, shapes, and colors. The browser highlights those IDs. Only the configured synthetic incoming edges are eligible for priority; leaving the incoming edge and junction releases the request. On an opposing green, the normal 10-second minimum still applies, then SUMO's 3-second yellow and 2-second all-red run unchanged. On a compatible green, the normal 45-second maximum may be exceeded while the emergency vehicle passes. This is a simulation experiment with no pedestrian phases, not a real-world signal plan.

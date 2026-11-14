@@ -21,6 +21,15 @@ class PhaseValidationTests(unittest.TestCase):
         self.assertTrue(validate_phases([(0, "north_south_green"), (8, "east_west_green")], "adaptive"))
         self.assertTrue(validate_phases([(0, "north_south_green"), (8, "north_south_yellow")], "adaptive"))
 
+    def test_only_initial_fixed_green_allows_sumo_step_offset(self) -> None:
+        self.assertEqual(validate_phases([(0, "north_south_green"), (31, "north_south_yellow")], "fixed"), [])
+        changes = [
+            (0, "north_south_green"), (31, "north_south_yellow"),
+            (34, "all_red_after_north_south"), (36, "east_west_green"),
+            (67, "east_west_yellow"),
+        ]
+        self.assertTrue(validate_phases(changes, "fixed"))
+
 
 if __name__ == "__main__":
     unittest.main()

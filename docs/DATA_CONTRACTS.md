@@ -69,6 +69,7 @@ Counts are non-negative integers. Confidence is in `[0, 1]`; model IDs are prove
     {
       "vehicle_id": "veh-12",
       "vehicle_type": "passenger",
+      "is_emergency": false,
       "x_m": 513.2,
       "y_m": 204.8,
       "angle_deg": 178.0,
@@ -89,6 +90,8 @@ Snapshots also include additive run-level `metrics`. `total_waiting_time_s` is a
 An adaptive London snapshot may include `adaptive_control`, identifying only the configured controller IDs and the latest cycle-boundary queues and green allocation. It does not imply that every network controller is adaptive.
 
 For the synthetic scenario in adaptive mode, snapshots may additionally contain `control_reason`, a short machine-readable explanation such as `minimum_green_protected`, `hold_green_and_reevaluate`, `sustained_opposing_queue_advantage`, `opposing_approach_anti_starvation`, or `maximum_green_reached`. It is `null` before the first policy evaluation. This field describes the latest duration request, not a guarantee that a different phase has already begun. Fixed mode omits it.
+
+The synthetic emergency mode adds `hold_compatible_green_for_emergency`, `minimum_green_protected_before_emergency`, and `request_normal_clearance_for_emergency` reasons, plus `emergency_priority` with nullable `active_vehicle_id`, `active_approach`, and `reason`. Vehicle snapshots include `is_emergency`, derived from declared SUMO type IDs `ambulance`, `fire_brigade`, and `police`; it is not a YOLO inference.
 
 ## C. Controller decision
 
@@ -176,7 +179,7 @@ The service status is transport metadata, not SUMO intersection state:
 
 `state` is one of `idle`, `running`, `paused`, `finished`, or `error`. Simulation speed is simulated seconds per wall-clock second. Time is `null` before the first run; `error` is populated only when the worker fails.
 
-Status also carries `control_mode`, either `fixed` or `adaptive`, for the current run. It defaults to `fixed` before a run and after stop.
+Status also carries `control_mode`: `fixed`, `adaptive`, or `adaptive_with_emergency_priority`. It defaults to `fixed` before a run and after stop. Emergency priority is available only on the verified synthetic mapping. It preserves the normal 10-second minimum on a conflicting green and the installed yellow/all-red sequence. A compatible green can extend beyond the normal 45-second maximum while the emergency vehicle remains on the incoming edge or inside the junction. This is simulation behavior, not a validated road-signal policy.
 
 Status `scenario_id` is the active public selection ID. While idle, and after Stop, it is `single_intersection`. Reset retains the active selection.
 
@@ -262,6 +265,6 @@ Geometry also includes `projection` (`proj_parameter`, `net_offset`, and `origin
 
 `GET /api/simulation/scenarios` lists stable public IDs and display metadata without loading SUMO. London entries expose J1–J5 candidate mappings and retain the multiple candidates for ambiguous J2 and J5.
 
-`POST /api/simulation/start` accepts optional `scenario_id`: `single_intersection`, `london_normal`, `london_rush_hour`, or `london_unbalanced`. Omission preserves the synthetic default. Static geometry may be selected explicitly with `GET /api/simulation/network?scenario_id=london_normal`; without a query it follows the active scenario and remains synthetic while idle.
+`POST /api/simulation/start` accepts optional `scenario_id`: `single_intersection`, `single_intersection_emergency`, `london_normal`, `london_rush_hour`, or `london_unbalanced`. Omission preserves the synthetic default. Omitted `control_mode` selects the scenario default: `fixed` normally, `adaptive_with_emergency_priority` for `single_intersection_emergency`. Static geometry may be selected explicitly with `GET /api/simulation/network?scenario_id=london_normal`; without a query it follows the active scenario and remains synthetic while idle.
 
-The same request accepts `control_mode` as `fixed` or `adaptive`. Adaptive is supported for the synthetic scenario and, experimentally, for J3 only in `london_normal` and `london_unbalanced`. Unsupported combinations are rejected rather than silently reverting to fixed timing.
+The same request accepts `control_mode` as `fixed`, `adaptive`, or `adaptive_with_emergency_priority`. Adaptive is supported for the synthetic scenario and, experimentally, for J3 only in `london_normal` and `london_unbalanced`. Emergency priority is supported only for the synthetic mapping. Unsupported combinations are rejected rather than silently reverting to fixed timing.

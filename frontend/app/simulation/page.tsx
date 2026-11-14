@@ -91,7 +91,7 @@ export default function SimulationPage() {
   const [loading, setLoading] = useState(true);
   const [commandPending, setCommandPending] = useState<string | null>(null);
   const [selectedSpeed, setSelectedSpeed] = useState(4);
-  const [selectedControlMode, setSelectedControlMode] = useState<"fixed" | "adaptive">("fixed");
+  const [selectedControlMode, setSelectedControlMode] = useState<"fixed" | "adaptive" | "adaptive_with_emergency_priority">("fixed");
   const [error, setError] = useState<string | null>(null);
   const snapshotRef = useRef<SimulationSnapshot | null>(null);
   const connectionRef = useRef<ConnectionState>("connecting");
@@ -301,7 +301,7 @@ export default function SimulationPage() {
     selectedScenarioRef.current = scenarioId;
     setSelectedScenarioId(scenarioId);
     const nextScenario = scenarios.find((scenario) => scenario.scenario_id === scenarioId);
-    if (!nextScenario?.supports_adaptive_control) setSelectedControlMode("fixed");
+    setSelectedControlMode(nextScenario?.default_control_mode ?? "fixed");
     snapshotRef.current = null;
     setSnapshot(null);
     setError(null);
@@ -309,7 +309,7 @@ export default function SimulationPage() {
   };
 
   const queueRows = useMemo(() => {
-    if (selectedScenarioId !== "single_intersection") return [];
+    if (!selectedScenarioId.startsWith("single_intersection")) return [];
     const known = snapshot?.queue_lengths_by_approach;
     const approaches = geometry
       ? Array.from(new Set(geometry.controlled_links.map((link) => link.approach)))
@@ -393,11 +393,12 @@ export default function SimulationPage() {
                 id="control-mode"
                 value={selectedControlMode}
                 disabled={status.state !== "idle" || commandPending !== null}
-                onChange={(event) => setSelectedControlMode(event.target.value as "fixed" | "adaptive")}
+                onChange={(event) => setSelectedControlMode(event.target.value as "fixed" | "adaptive" | "adaptive_with_emergency_priority")}
                 className="mt-2 w-full rounded-xl border border-white/10 bg-[#0b1115] px-3 py-2.5 text-sm text-[#d7e1e6] outline-none transition focus:border-[#70e9a6]/50 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <option value="fixed">Fixed timing</option>
                 <option value="adaptive" disabled={!selectedScenario?.supports_adaptive_control}>Adaptive{selectedScenarioId.startsWith("london_") ? " — J3 only" : ""}</option>
+                {selectedScenario?.supports_emergency_priority && <option value="adaptive_with_emergency_priority">Adaptive + emergency priority</option>}
               </select>
               {selectedControlMode === "adaptive" && selectedScenarioId.startsWith("london_") && (
                 <p className="mt-2 text-[10px] leading-relaxed text-[#e5c783]">Experimental J3-only control. Imported yellow phases remain fixed; pedestrian and real-world clearance safety are not verified.</p>

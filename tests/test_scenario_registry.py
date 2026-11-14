@@ -20,6 +20,7 @@ class ScenarioRegistryTests(unittest.TestCase):
             ids,
             [
                 "single_intersection",
+                "single_intersection_emergency",
                 "london_normal",
                 "london_rush_hour",
                 "london_unbalanced",

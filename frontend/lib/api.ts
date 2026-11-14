@@ -51,7 +51,7 @@ export const api = {
     command: "start" | "pause" | "resume" | "reset" | "stop",
     simulationSpeed?: number,
     scenarioId?: string,
-    controlMode?: "fixed" | "adaptive",
+    controlMode?: "fixed" | "adaptive" | "adaptive_with_emergency_priority",
   ) =>
     request<SimulationStatus>(`/api/simulation/${command}`, {
       method: "POST",

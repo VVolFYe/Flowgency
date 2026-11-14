@@ -3,7 +3,7 @@ export type ServiceState = "idle" | "running" | "paused" | "finished" | "error";
 export interface SimulationStatus {
   state: ServiceState;
   simulation_speed: number;
-  control_mode?: "fixed" | "adaptive";
+  control_mode?: "fixed" | "adaptive" | "adaptive_with_emergency_priority";
   scenario_id: string;
   simulation_time_s: number | null;
   has_snapshot: boolean;
@@ -47,6 +47,8 @@ export interface SimulationScenario {
   description: string;
   coordinate_system: string;
   supports_adaptive_control: boolean;
+  supports_emergency_priority?: boolean;
+  default_control_mode?: "fixed" | "adaptive" | "adaptive_with_emergency_priority";
   known_limitation: string | null;
   target_mappings: ScenarioTargetMapping[];
 }
@@ -106,6 +108,7 @@ export interface NetworkGeometry {
 export interface Vehicle {
   vehicle_id: string;
   vehicle_type: string;
+  is_emergency?: boolean;
   x_m: number;
   y_m: number;
   angle_deg: number;
@@ -150,6 +153,11 @@ export interface SimulationSnapshot {
       green_durations_s: Record<string, number>;
       reason: string;
     } | null;
+  };
+  emergency_priority?: {
+    active_vehicle_id: string | null;
+    active_approach: string | null;
+    reason: string | null;
   };
   vehicles?: Vehicle[];
 }

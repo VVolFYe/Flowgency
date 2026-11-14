@@ -8,8 +8,6 @@ import time
 import unittest
 from typing import Any
 
-import httpx
-
 from backend.api.app import create_app
 from backend.simulation.service import InvalidTransition, SimulationService
 from backend.simulation.scenarios import ScenarioDefinition, ScenarioNotFound
@@ -186,6 +184,16 @@ class SimulationServiceTests(unittest.TestCase):
                 control_mode="adaptive", scenario_id="london_rush_hour"
             )
 
+    def test_emergency_scenario_selects_priority_and_reset_preserves_it(self) -> None:
+        started = self.service.start(scenario_id="single_intersection_emergency")
+        self.assertEqual(started["control_mode"], "adaptive_with_emergency_priority")
+        self.assertEqual(self.service.reset()["control_mode"], "adaptive_with_emergency_priority")
+        self.service.stop()
+        with self.assertRaises(ValueError):
+            self.service.start(
+                control_mode="adaptive_with_emergency_priority", scenario_id="london_normal"
+            )
+
 
 class SimulationApiTests(unittest.TestCase):
     @unittest.skip(
@@ -195,6 +203,8 @@ class SimulationApiTests(unittest.TestCase):
         asyncio.run(self._exercise_http_lifecycle())
 
     async def _exercise_http_lifecycle(self) -> None:
+        import httpx
+
         fixture = ServiceFixture()
         service = fixture.service()
         service.open()

@@ -21,7 +21,7 @@ from backend.simulation.service import InvalidTransition, SimulationService
 
 class SimulationOptions(BaseModel):
     simulation_speed: float = Field(default=4.0, ge=0.1, le=100.0)
-    control_mode: Literal["fixed", "adaptive"] = "fixed"
+    control_mode: Literal["fixed", "adaptive", "adaptive_with_emergency_priority"] | None = None
     scenario_id: str = DEFAULT_SCENARIO_ID
 
 
