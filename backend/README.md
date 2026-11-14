@@ -18,8 +18,18 @@ SUMO 1.27.1 and its bundled Python tools must be installed separately. Set `SUMO
 From the repository root:
 
 ```bash
+cp -n .env.example .env
+# Edit .env and set ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID for voice audio.
+set -a
+source .env
+set +a
+export SUMO_HOME=/usr/share/sumo  # Adjust if SUMO is installed elsewhere.
 python3 -m uvicorn backend.api.app:app --host 127.0.0.1 --port 8000
 ```
+
+The backend reads these values from its process environment; it does not load
+`.env` automatically. The `source` step must run in the same shell that starts
+Uvicorn. `.env` is ignored by Git; `.env.example` contains no credentials.
 
 Useful requests:
 
