@@ -32,7 +32,9 @@ REGISTRY: dict[str, RegisteredWeights] = {
     "yolo11s_visdrone_544x960.onnx": RegisteredWeights(
         f"{RELEASES_URL}/weights-v1/yolo11s_visdrone_544x960.onnx",
         "0eced7af08218aada32dfa8604a8873521b4e6ed6474e0d65b4768a8e17d6867"),
-    # emergency_cls.pt: not published yet (the retrained classifier goes in weights-v2)
+    "emergency_cls.pt": RegisteredWeights(
+        f"{RELEASES_URL}/weights-v2/emergency_cls.pt",
+        "a6092ebc5d5d80578d1dbf8a14efec16dfc02ff4edd22068eef6b2ffd3212121"),
 }
 
 

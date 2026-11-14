@@ -98,13 +98,14 @@ looked. The code refuses to write outputs to tracked repository paths.
 2. The clip is not downloadable by the code: get it from the vision owner or the Drive (see
    "Videos (Google Drive)") and put it at `$UNIHACK_DIR/youtube/clip.mp4`.
 
-   Team weights are downloaded automatically on first use from the `weights-v1` GitHub
-   release and checked against their sha256 (`backend/vision/weights.py`):
+   Team weights are downloaded automatically on first use from GitHub releases (`weights-v1`, `weights-v2`)
+   and checked against their sha256 (`backend/vision/weights.py`):
 
    | file | lands at |
    |---|---|
    | team-trained VisDrone weights | `$UNIHACK_DIR/weights/yolo11s_visdrone.pt` |
    | its 544x960 ONNX export (faster) | `$UNIHACK_DIR/weights/yolo11s_visdrone_544x960.onnx` |
+   | emergency crop classifier (`weights-v2`) | `$UNIHACK_DIR/weights/emergency_cls.pt` |
 
    Without `onnxruntime` the `.pt` is used and a
    `detector fallback:` line says why. The same happens for a video whose aspect

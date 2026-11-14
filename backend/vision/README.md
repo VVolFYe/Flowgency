@@ -39,7 +39,7 @@ where it looked and to set `UNIHACK_DIR` or fill `data/`. The committed samples
 | `$UNIHACK_DIR/clips/<camera_id>/<YYYYMMDD_HHMMSS>.mp4` | input clips (from `jamcam_fetch.py`) |
 | `$UNIHACK_DIR/weights/*.pt` | YOLO11 weights. Stock COCO `yolo11n.pt`/`yolo11m.pt` are downloaded there on first use; the stock COCO yolo11s is stored as `yolo11s_coco.pt` (the old name `yolo11s.pt` is refused) |
 | `$UNIHACK_DIR/weights/` team weights | `yolo11s_visdrone.pt`, `yolo11s_visdrone_544x960.onnx` (VisDrone detector): when missing, downloaded from the `weights-v1` GitHub release and checked against the sha256 in `weights.py` |
-| `$UNIHACK_DIR/weights/emergency_cls.pt` | emergency/normal crop classifier for `eval_emergency`; not published yet (the retrained model goes in release `weights-v2`), so put it there by hand |
+| `$UNIHACK_DIR/weights/emergency_cls.pt` | emergency/normal crop classifier for `eval_emergency`: when missing, downloaded from the `weights-v2` GitHub release and checked against the sha256 in `weights.py` |
 | `$UNIHACK_DIR/vision_output/observations/<intersection_id>.jsonl` | **contract-A observations, one per usable clip** (rewritten by each `replay`) |
 | `$UNIHACK_DIR/vision_output/run_log.csv` | every processed clip: status, skip reason, view evidence, counts, runtime (appended, with `run_id`) |
 | `$UNIHACK_DIR/vision_output/reference_frames/` | reference frames saved by `draw-lines` |
