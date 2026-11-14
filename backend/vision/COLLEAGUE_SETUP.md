@@ -32,9 +32,10 @@ Rules that matter for consumers:
 ## Running the pipeline yourself
 
 Nothing below goes into git: video, weights, caches, and outputs live under
-`UNIHACK_DIR` (default `/home/coro/Desktop/unihack`; set the environment
-variable to use another folder). The code refuses to write outputs inside the
-repository.
+the folder named by the `UNIHACK_DIR` environment variable, outside the
+repository. Set it before running anything (`export UNIHACK_DIR=~/unihack`);
+the built-in default in `backend/vision/paths.py` is the vision owner's own
+machine. The code refuses to write outputs inside the repository.
 
 1. A Python virtual environment **outside** the repository, which may sit on an NTFS mount
    (verified with Python 3.14.8):
