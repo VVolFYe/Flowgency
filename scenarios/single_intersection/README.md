@@ -134,3 +134,29 @@ python3 -m backend.simulation.ai_fixed_run \
 ```
 
 The directory receives the generated demand, runtime config, SUMO tripinfo/summary/collision files, per-vehicle insertion accounting, logs, and `fixed_run_summary.json`. Use `--overwrite` to replace those runtime artifacts. The checked-in route/config files are never selected as outputs.
+
+Run the same generated demand with the existing synthetic TraCI adaptive controller:
+
+```bash
+python3 -m backend.simulation.ai_adaptive_run \
+  --counts ~/flowgency_ai_samples/counts.jsonl \
+  --events ~/flowgency_ai_samples/events.jsonl \
+  --output-directory /tmp/flowgency_ai_adaptive \
+  --max-simulation-time 1800
+```
+
+The adaptive command retains the same network, routes, one-second simulation step, deterministic vehicle type, seed, collision checks, and teleport threshold as the fixed experiment. Only TraCI traffic-light duration commands differ. It writes an adaptive summary, per-vehicle insertion accounting, and an observed phase-transition trace under the requested runtime directory. To explicitly verify identical generated demand against a previous fixed run, add `--fixed-demand-route /tmp/flowgency_ai_fixed/ai_demand.rou.xml`.
+
+Opening `adaptive_runtime.sumocfg` directly in SUMO-GUI does **not** reproduce adaptive control; without TraCI it runs the embedded fixed program. Start the real controlled visualization through the adaptive CLI instead:
+
+```bash
+python3 -m backend.simulation.ai_adaptive_run \
+  --counts ~/flowgency_ai_samples/counts.jsonl \
+  --events ~/flowgency_ai_samples/events.jsonl \
+  --output-directory /tmp/flowgency_ai_adaptive_gui \
+  --sumo-binary sumo-gui \
+  --step-delay-ms 100 \
+  --max-simulation-time 1800
+```
+
+The GUI requires a working Linux display. The step delay affects wall-clock playback only, not SUMO timestamps or controller decisions.
