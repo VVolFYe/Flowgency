@@ -104,6 +104,23 @@ Start defaults to `single_intersection`. The London selections are `london_norma
 
 Snapshots contain worker-collected cumulative waiting metrics. Waiting vehicle-seconds are integrated once per SUMO step and retained after arrival; the live average uses every departed vehicle as its denominator. Live time loss is intentionally deferred to completed tripinfo analysis. Adaptive London mode is experimental and uses the audited 22-controller network profile in Normal, Rush Hour, and Unbalanced; emergency priority remains synthetic-only.
 
+## Hosted analytics database (optional)
+
+By default the Statistics data lives in the local SQLite file `data/analytics.sqlite3`. To use the team's hosted Postgres instead, put its URL in `backend/.env` (gitignored; template in `backend/.env.example`). Never commit it:
+
+```bash
+FLOWGENCY_ANALYTICS_DB=postgresql://USER:PASSWORD@HOST:5432/DBNAME?sslmode=require
+```
+
+Export it in the shell that runs the loader and Uvicorn (`set -a; source backend/.env; set +a`), then fill the database and start the API as usual:
+
+```bash
+python -m backend.analytics.load          # creates the tables on first use, then upserts index.json
+python3 -m uvicorn backend.api.app:app --host 127.0.0.1 --port 8000
+```
+
+`psycopg[binary]` comes from `backend/requirements.txt`. Each request opens its own connection, with a 5 s connect timeout. If the database is unreachable or not loaded yet, the analytics routes return 503. The URL is never logged or printed; the loader reports it as `hosted Postgres (URL hidden)`. Recorded simulation runs are stored in the same database, so everyone using the shared URL sees the same runs. Unset the variable to go back to local SQLite.
+
 ## Test
 
 ```bash
