@@ -32,7 +32,8 @@ KINDS = ("simulation", "vision")
 RUN_STATUSES = ("finished", "stopped", "error")
 # Controller modes of SimulationConfiguration (backend/simulation/scenarios.py).
 FIXED_MODES = ("fixed_timing",)
-ADAPTIVE_MODES = ("adaptive_network", "adaptive_emergency_priority")
+# latest-pair compares like with like: emergency preemption is not on the adaptive side.
+ADAPTIVE_MODES = ("adaptive_network",)
 POSTGRES_PREFIXES = ("postgresql://", "postgres://")
 CONNECT_TIMEOUT_S = 5
 # Insertion order: SQLite's implicit rowid, Postgres' identity column ``seq``.
@@ -318,15 +319,18 @@ def latest_run_payload(path: str | Path | Target | None = None) -> str | None:
 
 
 def latest_run_payload_for(
-    scenario_id: str, control_modes: tuple[str, ...], path: str | Path | Target | None = None
+    scenario_id: str, control_modes: tuple[str, ...], path: str | Path | Target | None = None,
+    *, status: str | None = None,
 ) -> str | None:
-    """Latest run of ``scenario_id`` whose control_mode is one of ``control_modes``."""
+    """Latest run of ``scenario_id`` whose control_mode is one of ``control_modes``,
+    optionally only runs with the given ``status``."""
     placeholders = ", ".join("?" for _ in control_modes)
+    status_clause = " AND status = ?" if status is not None else ""
     row = _read(
         path,
-        f"SELECT payload FROM runs WHERE scenario_id = ? AND control_mode IN ({placeholders})"
+        f"SELECT payload FROM runs WHERE scenario_id = ? AND control_mode IN ({placeholders}){status_clause}"
         " ORDER BY ended_at DESC, {order} DESC LIMIT 1",
-        (scenario_id, *control_modes),
+        (scenario_id, *control_modes, *((status,) if status is not None else ())),
         many=False,
     )
     return row[0] if row else None

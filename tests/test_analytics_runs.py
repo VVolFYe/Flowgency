@@ -160,6 +160,9 @@ class RunsTableTests(unittest.TestCase):
         fixed = json.loads(db.latest_run_payload_for("london_normal", db.FIXED_MODES, self.database) or "null")
         self.assertEqual(fixed["run"]["run_id"], "a")
         self.assertIsNone(db.latest_run_payload_for("london_normal", ("adaptive_emergency_priority",), self.database))
+        self.assertEqual(db.ADAPTIVE_MODES, ("adaptive_network",))
+        self.assertIsNone(db.latest_run_payload_for("london_normal", db.FIXED_MODES, self.database, status="stopped"))
+        self.assertIsNotNone(db.latest_run_payload_for("london_normal", db.FIXED_MODES, self.database, status="finished"))
         self.assertEqual(db.list_entries(self.database), [])  # runs are not analytics entries
 
     def test_status_check_and_duplicate_run_id(self) -> None:

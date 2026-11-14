@@ -69,8 +69,9 @@ class AnalyticsApiTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/analytics").status_code, 503)
 
 
-    def save_run(self, run_id: str, mode: str, ended_at: str, scenario: str = "london_normal") -> None:
-        run = {"run_id": run_id, "scenario_id": scenario, "control_mode": mode, "status": "finished",
+    def save_run(self, run_id: str, mode: str, ended_at: str, scenario: str = "london_normal",
+                 status: str = "finished") -> None:
+        run = {"run_id": run_id, "scenario_id": scenario, "control_mode": mode, "status": status,
                "started_at": "2026-11-14T10:00:00.000Z", "ended_at": ended_at, "sim_duration_s": 60.0}
         runs.save_run(runs.build_payload(run=run, summary={"total_time_loss_s": None}, samples=[], phases=[]))
 
@@ -92,12 +93,17 @@ class AnalyticsApiTests(unittest.TestCase):
     def test_latest_pair(self) -> None:
         self.save_run("f1", "fixed_timing", "2026-11-14T10:01:00.000Z")
         self.save_run("f2", "fixed_timing", "2026-11-14T10:02:00.000Z")
-        self.save_run("e1", "adaptive_emergency_priority", "2026-11-14T10:03:00.000Z")
+        self.save_run("f3", "fixed_timing", "2026-11-14T10:04:00.000Z", status="stopped")
+        self.save_run("a1", "adaptive_network", "2026-11-14T10:03:00.000Z")
+        self.save_run("a2", "adaptive_network", "2026-11-14T10:05:00.000Z", status="error")
+        self.save_run("e1", "adaptive_emergency_priority", "2026-11-14T10:06:00.000Z")
         self.save_run("x1", "adaptive_network", "2026-11-14T10:09:00.000Z", scenario="other")
         pair = self.client.get("/api/analytics/runs/latest-pair", params={"scenario_id": "london_normal"}).json()
         self.assertEqual(pair["scenario_id"], "london_normal")
-        self.assertEqual(pair["fixed"]["run"]["run_id"], "f2")
-        self.assertEqual(pair["adaptive"]["run"]["run_id"], "e1")
+        self.assertEqual(pair["fixed"]["run"]["run_id"], "f2")  # newer f3 was stopped
+        self.assertEqual(pair["adaptive"]["run"]["run_id"], "a1")  # a2 failed, e1 is emergency priority
+        # /runs/latest is unchanged: newest run of any mode and status.
+        self.assertEqual(self.client.get("/api/analytics/runs/latest").json()["run"]["run_id"], "x1")
 
         only_adaptive = self.client.get("/api/analytics/runs/latest-pair", params={"scenario_id": "other"}).json()
         self.assertIsNone(only_adaptive["fixed"])

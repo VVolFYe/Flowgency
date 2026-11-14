@@ -47,8 +47,9 @@ def get_latest_run() -> Response:
 @router.get("/runs/latest-pair")
 def get_latest_run_pair(scenario_id: str = Query(min_length=1)) -> Response:
     try:
-        fixed = db.latest_run_payload_for(scenario_id, db.FIXED_MODES)
-        adaptive = db.latest_run_payload_for(scenario_id, db.ADAPTIVE_MODES)
+        # Like main's RunComparison: finished runs only, adaptive_network only.
+        fixed = db.latest_run_payload_for(scenario_id, db.FIXED_MODES, status="finished")
+        adaptive = db.latest_run_payload_for(scenario_id, db.ADAPTIVE_MODES, status="finished")
     except db.AnalyticsDatabaseUnavailable as exc:
         raise _unavailable(exc) from exc
     body = {

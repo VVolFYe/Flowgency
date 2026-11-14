@@ -462,6 +462,6 @@ Payload (`schema_version: "1.0"`, `kind: "simulation_run"`):
 Read-only routes, unauthenticated like the other GETs, with the same 503 behaviour as above:
 
 - `GET /api/analytics/runs/latest` returns the payload of the run with the latest `ended_at`, or 404 if none is recorded.
-- `GET /api/analytics/runs/latest-pair?scenario_id=X` returns `{"scenario_id", "fixed", "adaptive"}`. `fixed` is the latest `fixed_timing` run of that `scenario_id` (including the `_emergency` suffix), and `adaptive` is the latest `adaptive_network` or `adaptive_emergency_priority` run. Either is `null` if not recorded. Any status counts, and the page warns when a run did not finish. A missing `scenario_id` returns 422.
+- `GET /api/analytics/runs/latest-pair?scenario_id=X` returns `{"scenario_id", "fixed", "adaptive"}`. `fixed` is the latest **finished** `fixed_timing` run of that `scenario_id` (including the `_emergency` suffix), and `adaptive` is the latest **finished** `adaptive_network` run. `adaptive_emergency_priority` runs, and stopped or failed runs, are never paired, matching the Live Simulation comparison. Either side is `null` if there is no such run. `/runs/latest` still returns the newest run of any mode and status. A missing `scenario_id` returns 422.
 
 The Statistics page shows the latest run as its first option ("Last simulation"). It adds a fixed-vs-adaptive section when `latest-pair` has both modes for that run's scenario. These are live service runs, not the matched tripinfo comparison of O.2.
