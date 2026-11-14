@@ -7,6 +7,7 @@ import contextlib
 import json
 import os
 import sys
+from hashlib import sha256
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -106,6 +107,9 @@ class SumoRunner:
         seed: int = 42,
         output_directory: Path | None = None,
         adaptive_manifest_path: Path | None = None,
+        network: str | None = None,
+        traffic_profile: str | None = None,
+        emergency_vehicles_enabled: bool | None = None,
     ) -> None:
         self.config_path = config_path.resolve()
         self.mapping_path = mapping_path.resolve() if mapping_path is not None else None
@@ -124,6 +128,19 @@ class SumoRunner:
             else "sumo_cartesian_metres"
         )
         self.seed = int(seed)
+        self.network = network or (
+            "london" if scenario_selection_id.startswith("london") else "single_intersection"
+        )
+        self.traffic_profile = traffic_profile or (
+            "rush_hour" if "rush_hour" in scenario_selection_id
+            else "unbalanced" if "unbalanced" in scenario_selection_id
+            else "normal"
+        )
+        self.emergency_vehicles_enabled = (
+            "emergency" in scenario_selection_id
+            if emergency_vehicles_enabled is None
+            else emergency_vehicles_enabled
+        )
         self.adaptive_manifest_path = (
             adaptive_manifest_path.resolve()
             if adaptive_manifest_path is not None
@@ -153,6 +170,11 @@ class SumoRunner:
         self._emergency_approaches: dict[str, str] = {}
         self._active_emergency_vehicle_id: str | None = None
         self._active_emergency_approach: str | None = None
+        self._network_emergency_first_seen: dict[tuple[str, str], float] = {}
+        self._network_active_emergency: dict[str, str] = {}
+        self._network_emergency_reason: dict[str, str] = {}
+        self._network_phase_state: dict[str, tuple[int, float]] = {}
+        self._emergency_event_history: dict[str, dict[str, Any]] = {}
 
     def _supports_adaptive_control(self) -> bool:
         return self.adaptive_manifest_path is not None or (
@@ -165,13 +187,8 @@ class SumoRunner:
             raise ValueError("unsupported control_mode")
         if control_mode == "adaptive" and not self._supports_adaptive_control():
             raise ValueError("adaptive mode requires a verified mapping or manifest")
-        if control_mode == "adaptive_with_emergency_priority" and (
-            self.adaptive_manifest_path is not None
-            or self.mapping is None
-            or self.mapping["scenario_id"] != "single-intersection-v1"
-            or not self.mapping.get("incoming_edges")
-        ):
-            raise ValueError("emergency priority requires verified synthetic incoming edges")
+        if control_mode == "adaptive_with_emergency_priority" and not self._supports_adaptive_control():
+            raise ValueError("emergency priority requires an adaptive mapping or manifest")
 
     def configure_control_mode(self, control_mode: str) -> None:
         """Select a mode before starting; reset per-run policy history."""
@@ -190,6 +207,11 @@ class SumoRunner:
         self._emergency_approaches.clear()
         self._active_emergency_vehicle_id = None
         self._active_emergency_approach = None
+        self._network_emergency_first_seen.clear()
+        self._network_active_emergency.clear()
+        self._network_emergency_reason.clear()
+        self._network_phase_state.clear()
+        self._emergency_event_history.clear()
 
     @property
     def connection(self) -> Any:
@@ -215,6 +237,11 @@ class SumoRunner:
         self._emergency_approaches.clear()
         self._active_emergency_vehicle_id = None
         self._active_emergency_approach = None
+        self._network_emergency_first_seen.clear()
+        self._network_active_emergency.clear()
+        self._network_emergency_reason.clear()
+        self._network_phase_state.clear()
+        self._emergency_event_history.clear()
         self._traci = self._traci or _import_traci()
         self.output_directory.mkdir(parents=True, exist_ok=True)
         command = [
@@ -273,6 +300,8 @@ class SumoRunner:
         if self.control_mode != "fixed":
             if self._adaptive_signals:
                 self._apply_cycle_adaptive_control()
+                if self.control_mode == "adaptive_with_emergency_priority":
+                    self._apply_network_emergency_priority()
             else:
                 self._apply_adaptive_control()
         return after
@@ -302,6 +331,147 @@ class SumoRunner:
                 self.last_cycle_decision = event
                 self.last_cycle_decisions[signal.tls_id] = event
                 self.last_control_reason = str(event["reason"])
+
+    def _apply_network_emergency_priority(self) -> None:
+        """Apply deterministic per-TLS priority without bypassing SUMO clearances."""
+        now = float(self.connection.simulation.getTime())
+        requests: dict[str, list[tuple[float, str, tuple[int, ...]]]] = {}
+        active_keys: set[tuple[str, str]] = set()
+        priority_tls_ids = {signal.tls_id for signal in self._adaptive_signals}
+        for vehicle_id in sorted(self.connection.vehicle.getIDList()):
+            if self.connection.vehicle.getTypeID(vehicle_id) not in EMERGENCY_TYPES:
+                continue
+            lane_id = self.connection.vehicle.getLaneID(vehicle_id)
+            for tls_id in sorted(priority_tls_ids):
+                controlled_lanes = self.connection.trafficlight.getControlledLanes(tls_id)
+                indexes = tuple(i for i, item in enumerate(controlled_lanes) if item == lane_id)
+                if not indexes:
+                    continue
+                key = (tls_id, vehicle_id)
+                active_keys.add(key)
+                first_seen = self._network_emergency_first_seen.setdefault(key, now)
+                requests.setdefault(tls_id, []).append((first_seen, vehicle_id, indexes))
+
+        for key in set(self._network_emergency_first_seen) - active_keys:
+            del self._network_emergency_first_seen[key]
+
+        active_tls = set(requests)
+        for tls_id in set(self._network_active_emergency) - active_tls:
+            self._network_active_emergency.pop(tls_id, None)
+            self._network_emergency_reason[tls_id] = "completed"
+
+        for tls_id, candidates in requests.items():
+            candidates.sort(key=lambda item: (item[0], item[1]))
+            retained = self._network_active_emergency.get(tls_id)
+            selected = next((item for item in candidates if item[1] == retained), candidates[0])
+            _, vehicle_id, link_indexes = selected
+            self._network_active_emergency[tls_id] = vehicle_id
+            phase_index = int(self.connection.trafficlight.getPhase(tls_id))
+            previous = self._network_phase_state.get(tls_id)
+            if previous is None or previous[0] != phase_index:
+                self._network_phase_state[tls_id] = (phase_index, now)
+            phase_started = self._network_phase_state[tls_id][1]
+            state = self.connection.trafficlight.getRedYellowGreenState(tls_id)
+            compatible = any(index < len(state) and state[index] in "gG" for index in link_indexes)
+            if compatible:
+                self.connection.trafficlight.setPhaseDuration(tls_id, 2.0)
+                self._network_emergency_reason[tls_id] = "priority_active_compatible_green"
+            elif any(character in "gG" for character in state):
+                if now - phase_started >= 10.0:
+                    self.connection.trafficlight.setPhaseDuration(tls_id, 0.0)
+                    self._network_emergency_reason[tls_id] = "priority_requested_safe_clearance"
+                else:
+                    self._network_emergency_reason[tls_id] = "minimum_green_protected"
+            else:
+                self._network_emergency_reason[tls_id] = "clearance_in_progress"
+
+    def _emergency_events(
+        self, vehicles: list[dict[str, Any]], simulation_time: float
+    ) -> list[dict[str, Any]]:
+        events: list[dict[str, Any]] = []
+        priority_tls_ids = {signal.tls_id for signal in self._adaptive_signals}
+        for vehicle in vehicles:
+            if not vehicle["is_emergency"]:
+                continue
+            intersections: list[tuple[str, str | None]] = []
+            if self.mapping is not None:
+                incoming = {
+                    edge: approach for approach, edge in self.mapping.get("incoming_edges", {}).items()
+                }
+                approach = incoming.get(vehicle["road_id"])
+                if approach is None and vehicle["road_id"].startswith(":"):
+                    approach = self._emergency_approaches.get(vehicle["vehicle_id"])
+                if approach is not None:
+                    self._emergency_approaches[vehicle["vehicle_id"]] = approach
+                    intersections.append((self.mapping["sumo_traffic_light_id"], approach))
+            else:
+                lane_id = vehicle.get("lane_id")
+                for tls_id in sorted(self.connection.trafficlight.getIDList()):
+                    if lane_id in self.connection.trafficlight.getControlledLanes(tls_id):
+                        intersections.append((tls_id, lane_id))
+            for intersection_id, approach in intersections:
+                first_seen = self._network_emergency_first_seen.setdefault(
+                    (intersection_id, vehicle["vehicle_id"]), simulation_time
+                )
+                subject = f"{self.run_id}|{vehicle['vehicle_id']}|{intersection_id}"
+                priority_supported = bool(
+                    self.control_mode == "adaptive_with_emergency_priority"
+                    and (
+                        self.mapping is not None
+                        or intersection_id in priority_tls_ids
+                    )
+                )
+                reason = self._network_emergency_reason.get(intersection_id)
+                if self.mapping is not None and vehicle["vehicle_id"] == self._active_emergency_vehicle_id:
+                    reason = self.last_control_reason
+                priority_active = bool(
+                    priority_supported
+                    and reason
+                    and (
+                        "active" in reason
+                        or reason == "hold_compatible_green_for_emergency"
+                        or reason == "priority_requested_safe_clearance"
+                    )
+                )
+                events.append(
+                    {
+                        "event_id": sha256(subject.encode()).hexdigest()[:24],
+                        "run_id": self.run_id,
+                        "emergency_vehicle_id": vehicle["vehicle_id"],
+                        "vehicle_type": vehicle["vehicle_type"],
+                        "intersection_id": intersection_id,
+                        "approach": approach,
+                        "first_seen_simulation_time_s": first_seen,
+                        "updated_simulation_time_s": simulation_time,
+                        "state": "priority_active" if priority_active else "detected",
+                        "priority_supported": priority_supported,
+                        "priority_reason": reason,
+                    }
+                )
+        current_ids = {event["event_id"] for event in events}
+        for event_id, previous in list(self._emergency_event_history.items()):
+            if event_id in current_ids or previous["state"] in {"completed", "expired"}:
+                continue
+            previous = previous.copy()
+            previous["state"] = (
+                "completed"
+                if previous["state"] == "priority_active" or not previous["priority_supported"]
+                else "expired"
+            )
+            previous["updated_simulation_time_s"] = simulation_time
+            self._emergency_event_history[event_id] = previous
+        for event in events:
+            self._emergency_event_history[event["event_id"]] = event
+        return [
+            event.copy()
+            for event in sorted(
+                self._emergency_event_history.values(),
+                key=lambda item: (
+                    item["first_seen_simulation_time_s"],
+                    item["event_id"],
+                ),
+            )
+        ]
 
     def _apply_adaptive_control(self) -> None:
         """Only change the remaining duration of a verified current green."""
@@ -436,8 +606,18 @@ class SumoRunner:
         snapshot = {
             "schema_version": "1.0",
             "scenario_id": self.legacy_scenario_id,
-            "scenario_selection_id": self.scenario_selection_id,
+            "scenario_selection_id": self.network,
             "run_id": self.run_id,
+            "active_configuration": {
+                "network": self.network,
+                "traffic_profile": self.traffic_profile,
+                "controller_mode": {
+                    "fixed": "fixed_timing",
+                    "adaptive": "adaptive_network",
+                    "adaptive_with_emergency_priority": "adaptive_emergency_priority",
+                }[self.control_mode],
+                "emergency_vehicles_enabled": self.emergency_vehicles_enabled,
+            },
             "intersection_id": (
                 self.mapping["intersection_id"] if self.mapping is not None else "network"
             ),
@@ -469,6 +649,7 @@ class SumoRunner:
             ),
             "vehicles": vehicles,
         }
+        snapshot["emergency_events"] = self._emergency_events(vehicles, simulation_time)
         if self.control_mode != "fixed":
             snapshot["control_reason"] = self.last_control_reason
             if self._adaptive_signals:
@@ -488,6 +669,13 @@ class SumoRunner:
                     "active_vehicle_id": self._active_emergency_vehicle_id,
                     "active_approach": self._active_emergency_approach,
                     "reason": self.last_control_reason,
+                    "intersections": {
+                        tls_id: {
+                            "active_vehicle_id": vehicle_id,
+                            "reason": self._network_emergency_reason.get(tls_id),
+                        }
+                        for tls_id, vehicle_id in self._network_active_emergency.items()
+                    },
                 }
         return snapshot
 

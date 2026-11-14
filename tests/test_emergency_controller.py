@@ -43,6 +43,31 @@ class EmergencyControllerTests(unittest.TestCase):
         self.assertEqual(selected.active_vehicle_id, "police-1")
         self.assertIsNone(self.decide(11.0, ()).active_vehicle_id)
 
+    def test_same_timestamp_uses_stable_vehicle_id_tie_breaker(self) -> None:
+        first = EmergencyRequest("ambulance-a", "ambulance", "northbound_in", 5.0)
+        second = EmergencyRequest("ambulance-b", "ambulance", "eastbound_in", 5.0)
+        selected = self.decide(12.0, (second, first))
+        self.assertEqual(selected.active_vehicle_id, "ambulance-a")
+
+    def test_compatible_requests_share_phase_but_only_one_is_active(self) -> None:
+        east = EmergencyRequest("ambulance-east", "ambulance", "eastbound_in", 5.0)
+        west = EmergencyRequest("ambulance-west", "ambulance", "westbound_in", 6.0)
+        selected = self.decide(
+            12.0,
+            (west, east),
+            phase="east_west_green",
+            state="rGrG",
+        )
+        self.assertEqual(selected.active_vehicle_id, "ambulance-east")
+        self.assertEqual(selected.reason, "hold_compatible_green_for_emergency")
+
+    def test_departed_or_expired_request_is_removed_by_current_request_set(self) -> None:
+        queued = EmergencyRequest("ambulance-2", "ambulance", "northbound_in", 6.0)
+        selected = self.decide(12.0, (AMBULANCE, queued), active="ambulance-1")
+        self.assertEqual(selected.active_vehicle_id, "ambulance-1")
+        after_departure = self.decide(12.0, (queued,), active="ambulance-1")
+        self.assertEqual(after_departure.active_vehicle_id, "ambulance-2")
+
     def test_invalid_request_and_elapsed_are_rejected(self) -> None:
         with self.assertRaises(ValueError):
             self.decide(-1.0)

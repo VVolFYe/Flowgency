@@ -1,10 +1,30 @@
 export type ServiceState = "idle" | "running" | "paused" | "finished" | "error";
+export type NetworkId = "single_intersection" | "london";
+export type TrafficProfile = "normal" | "rush_hour" | "unbalanced";
+export type ControllerMode = "fixed_timing" | "adaptive_network" | "adaptive_emergency_priority";
+
+export interface SimulationConfiguration {
+  network: NetworkId;
+  traffic_profile: TrafficProfile;
+  controller_mode: ControllerMode;
+  emergency_vehicles_enabled: boolean;
+}
+
+export interface ConfigurationOptions {
+  networks: Array<{ id: NetworkId; display_name: string }>;
+  traffic_profiles: Array<{ id: TrafficProfile; display_name: string }>;
+  controller_modes: Array<{ id: ControllerMode; display_name: string }>;
+  emergency_vehicle_options: Array<{ enabled: boolean; display_name: string }>;
+}
 
 export interface SimulationStatus {
   state: ServiceState;
   simulation_speed: number;
-  control_mode?: "fixed" | "adaptive" | "adaptive_with_emergency_priority";
-  scenario_id: string;
+  active_configuration: SimulationConfiguration | null;
+  network: NetworkId | null;
+  traffic_profile: TrafficProfile | null;
+  controller_mode: ControllerMode | null;
+  emergency_vehicles_enabled: boolean | null;
   simulation_time_s: number | null;
   has_snapshot: boolean;
   error: string | null;
@@ -127,6 +147,24 @@ export interface VoiceAlert {
   language: "en" | "ro";
   simulation_time_s: number;
   priority: "emergency" | "routine";
+  emergency_event_id?: string;
+  emergency_vehicle_id?: string;
+  intersection_id?: string;
+  emergency_state?: string;
+}
+
+export interface EmergencyEvent {
+  event_id: string;
+  run_id: string;
+  emergency_vehicle_id: string;
+  vehicle_type: string;
+  intersection_id: string;
+  approach: string | null;
+  first_seen_simulation_time_s: number;
+  updated_simulation_time_s: number;
+  state: "detected" | "priority_active" | "served" | "expired" | "completed";
+  priority_supported: boolean;
+  priority_reason: string | null;
 }
 
 export interface SimulationSnapshot {
@@ -134,6 +172,7 @@ export interface SimulationSnapshot {
   scenario_id: string;
   scenario_selection_id?: string;
   run_id: string;
+  active_configuration: SimulationConfiguration;
   intersection_id: string;
   simulation_time_s: number;
   traffic_light_id?: string | null;
@@ -185,6 +224,7 @@ export interface SimulationSnapshot {
     reason: string | null;
   };
   voice_alerts?: VoiceAlert[];
+  emergency_events?: EmergencyEvent[];
   vehicles?: Vehicle[];
 }
 

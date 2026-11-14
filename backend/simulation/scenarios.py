@@ -7,12 +7,29 @@ import json
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 SCENARIOS_ROOT = REPOSITORY_ROOT / "scenarios"
 DEFAULT_SCENARIO_ID = "single_intersection"
+DEFAULT_NETWORK = "single_intersection"
+DEFAULT_TRAFFIC_PROFILE = "normal"
+DEFAULT_CONTROLLER_MODE = "fixed_timing"
+
+NetworkId = Literal["single_intersection", "london"]
+TrafficProfile = Literal["normal", "rush_hour", "unbalanced"]
+ControllerMode = Literal[
+    "fixed_timing", "adaptive_network", "adaptive_emergency_priority"
+]
+
+NETWORK_IDS = ("single_intersection", "london")
+TRAFFIC_PROFILES = ("normal", "rush_hour", "unbalanced")
+CONTROLLER_MODES = (
+    "fixed_timing",
+    "adaptive_network",
+    "adaptive_emergency_priority",
+)
 
 
 class ScenarioNotFound(ValueError):
@@ -36,6 +53,9 @@ class ScenarioDefinition:
     supports_emergency_priority: bool = False
     default_control_mode: str = "fixed"
     known_limitation: str | None = None
+    network: str = DEFAULT_NETWORK
+    traffic_profile: str = DEFAULT_TRAFFIC_PROFILE
+    emergency_vehicles_enabled: bool = False
 
 
 _SINGLE = SCENARIOS_ROOT / "single_intersection"
@@ -115,6 +135,131 @@ SCENARIOS: dict[str, ScenarioDefinition] = {
         adaptive_manifest_path=_LONDON / "network_gap.json",
     ),
 }
+
+
+@dataclass(frozen=True)
+class SimulationConfiguration:
+    network: NetworkId = DEFAULT_NETWORK
+    traffic_profile: TrafficProfile = DEFAULT_TRAFFIC_PROFILE
+    controller_mode: ControllerMode = DEFAULT_CONTROLLER_MODE
+    emergency_vehicles_enabled: bool = False
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "network": self.network,
+            "traffic_profile": self.traffic_profile,
+            "controller_mode": self.controller_mode,
+            "emergency_vehicles_enabled": self.emergency_vehicles_enabled,
+        }
+
+
+def validate_configuration(
+    *,
+    network: str,
+    traffic_profile: str,
+    controller_mode: str,
+    emergency_vehicles_enabled: bool,
+) -> SimulationConfiguration:
+    if network not in NETWORK_IDS:
+        raise ValueError(
+            f"unknown network '{network}'; expected one of: {', '.join(NETWORK_IDS)}"
+        )
+    if traffic_profile not in TRAFFIC_PROFILES:
+        raise ValueError(
+            "unknown traffic_profile "
+            f"'{traffic_profile}'; expected one of: {', '.join(TRAFFIC_PROFILES)}"
+        )
+    if controller_mode not in CONTROLLER_MODES:
+        raise ValueError(
+            "unknown controller_mode "
+            f"'{controller_mode}'; expected one of: {', '.join(CONTROLLER_MODES)}"
+        )
+    if type(emergency_vehicles_enabled) is not bool:
+        raise ValueError("emergency_vehicles_enabled must be a boolean")
+    return SimulationConfiguration(
+        network=network,  # type: ignore[arg-type]
+        traffic_profile=traffic_profile,  # type: ignore[arg-type]
+        controller_mode=controller_mode,  # type: ignore[arg-type]
+        emergency_vehicles_enabled=emergency_vehicles_enabled,
+    )
+
+
+def resolve_configuration(configuration: SimulationConfiguration) -> ScenarioDefinition:
+    """Resolve one of the 36 public combinations to repository-owned SUMO files."""
+    configuration = validate_configuration(**configuration.as_dict())
+    if configuration.network == "single_intersection":
+        config_name = {
+            "normal": "normal",
+            "rush_hour": "rush_hour",
+            "unbalanced": "unbalanced",
+        }[configuration.traffic_profile]
+        if configuration.emergency_vehicles_enabled:
+            config_name += "_emergency"
+        return ScenarioDefinition(
+            scenario_id=f"single_intersection_{configuration.traffic_profile}",
+            display_name="Single Intersection",
+            description="Synthetic four-approach signalized intersection.",
+            config_path=_SINGLE / f"{config_name}.sumocfg",
+            network_path=_SINGLE / "demo.net.xml",
+            mapping_path=_SINGLE / "mappings.json",
+            output_directory=_SINGLE / "output" / config_name,
+            legacy_scenario_id="single-intersection-v1",
+            coordinate_system="synthetic_cartesian_metres",
+            seed=42,
+            supports_adaptive_control=True,
+            supports_emergency_priority=True,
+            network=configuration.network,
+            traffic_profile=configuration.traffic_profile,
+            emergency_vehicles_enabled=configuration.emergency_vehicles_enabled,
+        )
+
+    config_name = configuration.traffic_profile
+    if configuration.emergency_vehicles_enabled:
+        config_name += "_emergency"
+    return ScenarioDefinition(
+        scenario_id=f"london_{configuration.traffic_profile}",
+        display_name="London Network",
+        description="Connected Oval/Kennington SUMO network.",
+        config_path=_LONDON / "configs" / f"{config_name}.sumocfg",
+        network_path=_LONDON / "london.net.xml",
+        mapping_path=None,
+        output_directory=_LONDON / "output" / config_name,
+        legacy_scenario_id="london-oval-kennington-v1",
+        coordinate_system="sumo_cartesian_metres_utm_zone_30",
+        seed=20261113,
+        supports_adaptive_control=True,
+        adaptive_manifest_path=_LONDON / "network_gap.json",
+        supports_emergency_priority=True,
+        network=configuration.network,
+        traffic_profile=configuration.traffic_profile,
+        emergency_vehicles_enabled=configuration.emergency_vehicles_enabled,
+    )
+
+
+def list_configuration_options() -> dict[str, Any]:
+    return {
+        "networks": [
+            {"id": "single_intersection", "display_name": "Single Intersection"},
+            {"id": "london", "display_name": "London Network"},
+        ],
+        "traffic_profiles": [
+            {"id": "normal", "display_name": "Normal"},
+            {"id": "rush_hour", "display_name": "Rush Hour"},
+            {"id": "unbalanced", "display_name": "Unbalanced"},
+        ],
+        "controller_modes": [
+            {"id": "fixed_timing", "display_name": "Fixed Timing"},
+            {"id": "adaptive_network", "display_name": "Adaptive Network"},
+            {
+                "id": "adaptive_emergency_priority",
+                "display_name": "Adaptive Network + Emergency Priority",
+            },
+        ],
+        "emergency_vehicle_options": [
+            {"enabled": False, "display_name": "Disabled"},
+            {"enabled": True, "display_name": "Enabled"},
+        ],
+    }
 
 
 def get_scenario(scenario_id: str = DEFAULT_SCENARIO_ID) -> ScenarioDefinition:

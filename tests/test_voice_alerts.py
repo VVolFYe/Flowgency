@@ -25,7 +25,56 @@ def snapshot(time_s: float, *, run_id: str = "run-1", vehicle: str | None = None
     return result
 
 
+def event_snapshot(time_s: float, events: list[dict], *, run_id: str = "run-1") -> dict:
+    return {
+        "run_id": run_id,
+        "simulation_time_s": time_s,
+        "emergency_events": events,
+        "network_queue": {"vehicles": 0, "measurement": "sumo_halting_number_unique_controlled_lanes"},
+    }
+
+
+def emergency_event(event_id: str, vehicle_id: str, intersection_id: str, state: str = "detected") -> dict:
+    return {
+        "event_id": event_id,
+        "emergency_vehicle_id": vehicle_id,
+        "intersection_id": intersection_id,
+        "state": state,
+    }
+
+
 class VoiceAlertTests(unittest.TestCase):
+    def test_simultaneous_events_aggregate_same_and_different_intersections(self) -> None:
+        policy = VoiceAlertPolicy()
+        emitted = policy.observe(event_snapshot(5, [
+            emergency_event("e1", "ambulance-1", "J1"),
+            emergency_event("e2", "ambulance-2", "J1"),
+        ]))
+        grouped = policy.aggregate([item["event_id"] for item in emitted])
+        self.assertEqual(grouped["text"], "2 emergency vehicles detected at intersection J1.")
+
+        policy = VoiceAlertPolicy()
+        emitted = policy.observe(event_snapshot(5, [
+            emergency_event("e1", "ambulance-1", "J1"),
+            emergency_event("e2", "ambulance-2", "J3"),
+        ]))
+        grouped = policy.aggregate([item["event_id"] for item in emitted])
+        self.assertEqual(grouped["text"], "Emergency vehicles detected at intersections J1 and J3.")
+
+    def test_priority_is_announced_only_for_real_priority_state(self) -> None:
+        policy = VoiceAlertPolicy()
+        first = policy.observe(event_snapshot(1, [emergency_event("e1", "ambulance-1", "J1")]))
+        self.assertEqual([item["message_id"] for item in first], ["emergency.detected"])
+        active = policy.observe(event_snapshot(2, [emergency_event("e1", "ambulance-1", "J1", "priority_active")]))
+        self.assertEqual([item["message_id"] for item in active], ["emergency.priority_activated"])
+        completed = policy.observe(event_snapshot(3, []))
+        self.assertEqual([item["message_id"] for item in completed], ["emergency.priority_completed"])
+
+    def test_aggregate_rejects_unknown_or_cross_run_ids(self) -> None:
+        policy = VoiceAlertPolicy()
+        emitted = policy.observe(event_snapshot(1, [emergency_event("e1", "a1", "J1")]))
+        self.assertIsNone(policy.aggregate(["unknown"]))
+        self.assertEqual(policy.aggregate([emitted[0]["event_id"]])["text"], emitted[0]["text"])
     def test_conflicting_emergency_waits_for_confirmed_green(self) -> None:
         policy = VoiceAlertPolicy()
         first = snapshot(5, vehicle="ambulance-1", approach="eastbound_in")

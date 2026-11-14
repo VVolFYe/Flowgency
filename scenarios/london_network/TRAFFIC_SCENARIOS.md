@@ -63,3 +63,7 @@ sumo-gui -c scenarios/london_network/configs/unbalanced.sumocfg
 ```
 
 Runtime output belongs under ignored `scenarios/london_network/output/`.
+
+## Emergency vehicle overlay
+
+`demand/emergency_vehicles.rou.xml` contains two deterministic ambulance routes copied from validated passenger routes through different parts of the connected network. The `_emergency.sumocfg` variants compose this overlay with each unchanged traffic profile. Emergency Vehicles therefore changes vehicle demand only; controller selection remains independent. The adaptive emergency controller maintains independent state per SUMO traffic-light ID and never bypasses the installed yellow/all-red sequence.

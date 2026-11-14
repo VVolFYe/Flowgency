@@ -51,19 +51,23 @@ export default function SessionAnalytics() {
   const currentVehicles = snapshot?.vehicles ? snapshot.vehicles.length : null;
   const maxVehicles = valueMax(history.map((point) => point.vehicleCount));
   const currentQueues = Object.values(snapshot?.queue_lengths_by_approach ?? {}).map((value) => value?.vehicles ?? null);
+  const activeEmergencyVehicles = snapshot?.vehicles?.filter((vehicle) => vehicle.is_emergency).length ?? null;
+  const activePriorityRequests = snapshot?.emergency_events?.filter((event) => event.state === "priority_active").length ?? null;
   const historicalQueues = history.flatMap((point) => Object.values(point.queues));
   const queueSeries = approaches.map((approach, index) => ({ label: approach, color: COLORS[index % COLORS.length], value: (point: HistoryPoint) => point.queues[approach] ?? null }));
   const vehicleSeries = [{ label: "Active vehicles", color: "#70e9a6", value: (point: HistoryPoint) => point.vehicleCount }];
   return (
     <div>
       <div className="flex flex-wrap items-end justify-between gap-4"><div><p className="eyebrow">{workspace} analytics</p><h1 className="mt-2 text-4xl font-semibold tracking-[-.045em]">Current browser session</h1><p className="mt-2 max-w-3xl text-sm leading-6 text-[#81909a]">Real WebSocket snapshots only. The series resets when a new <span className="font-mono">run_id</span> appears and is not persisted beyond this browser session.</p></div><ConnectionBadge connection={connection} stale={connection !== "connected" && snapshot !== null} /></div>
-      <section className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <section className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-7">
         {[
           ["Current vehicles", currentVehicles ?? "—"], ["Max vehicles", maxVehicles ?? "—"],
           ["Current max queue", valueMax(currentQueues) ?? "—"], ["Session max queue", valueMax(historicalQueues) ?? "—"],
           ["Simulation time", formatTime(snapshot?.simulation_time_s ?? status.simulation_time_s)],
+          ["Emergency vehicles", activeEmergencyVehicles ?? "—"], ["Priority requests", activePriorityRequests ?? "—"],
         ].map(([label, value]) => <article key={label} className="surface rounded-2xl p-5"><p className="text-xs text-[#788892]">{label}</p><p className="mt-5 font-mono text-2xl text-[#dce5e9]">{value}</p></article>)}
       </section>
+      {status.active_configuration && <div className="mt-4 rounded-xl border border-white/[.06] bg-[#10171c] px-4 py-3 text-xs text-[#9aa8b0]">Active configuration · <span className="font-mono text-[#dce5e9]">{status.active_configuration.network} · {status.active_configuration.traffic_profile} · {status.active_configuration.controller_mode} · emergency {status.active_configuration.emergency_vehicles_enabled ? "enabled" : "disabled"}</span></div>}
       <section className="mt-4 grid gap-4 xl:grid-cols-2">
         <article className="surface rounded-[24px] p-5 sm:p-6"><div className="flex items-start justify-between gap-4"><div><p className="font-mono text-[10px] uppercase tracking-[.2em] text-[#667781]">Current browser session</p><h2 className="mt-1 text-base font-medium">Vehicle evolution</h2></div><span className="font-mono text-[10px] text-[#667781]">{history.length} points</span></div><div className="mt-5"><LineChart points={history} series={vehicleSeries} /></div></article>
         <article className="surface rounded-[24px] p-5 sm:p-6"><div className="flex items-start justify-between gap-4"><div><p className="font-mono text-[10px] uppercase tracking-[.2em] text-[#667781]">Current browser session</p><h2 className="mt-1 text-base font-medium">Queue evolution by approach</h2></div><span className="font-mono text-[10px] text-[#667781]">SUMO halting number</span></div><div className="mt-5"><LineChart points={history} series={queueSeries} /></div></article>
