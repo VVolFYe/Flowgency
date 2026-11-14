@@ -10,6 +10,7 @@
     "build": "next build --webpack",
     "start": "next start --hostname 0.0.0.0 --port 3000",
     "lint": "eslint .",
+    "test:replay": "tsc tests/ai-replay.test.ts lib/ai-replay.ts lib/contracts.ts --outDir /tmp/flowgency-ai-replay-tests --module commonjs --moduleResolution node --target ES2022 --esModuleInterop --skipLibCheck --rewriteRelativeImportExtensions && node /tmp/flowgency-ai-replay-tests/tests/ai-replay.test.js",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

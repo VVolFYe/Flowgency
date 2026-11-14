@@ -23,6 +23,7 @@ from backend.simulation.ai_fixed_run import (
     write_runtime_config,
 )
 from backend.simulation.ai_input import JsonlValidationError
+from backend.simulation.replay import ReplayWriter
 from backend.simulation.runner import DEFAULT_MAPPING_PATH, SumoRunner
 
 
@@ -131,6 +132,7 @@ def run_adaptive_experiment(
     fixed_demand_route: Path | None = None,
     adaptive_strategy: str = "legacy",
     adaptive_manifest_path: Path | None = None,
+    replay_output_path: Path | None = None,
     overwrite: bool = False,
 ) -> dict[str, Any]:
     """Generate identical demand, apply existing adaptive control, and account trips."""
@@ -156,6 +158,8 @@ def run_adaptive_experiment(
         "report": output_directory / "adaptive_run_summary.json",
     }
     existing = [path for path in paths.values() if path.exists()]
+    if replay_output_path is not None and replay_output_path.resolve().exists():
+        existing.append(replay_output_path.resolve())
     if existing and not overwrite:
         raise FileExistsError(f"refusing to overwrite runtime output: {existing[0]}")
     output_directory.mkdir(parents=True, exist_ok=True)
@@ -212,12 +216,15 @@ def run_adaptive_experiment(
     timed_out = False
     pending_at_stop = True
     run_error: str | None = None
+    replay_writer = ReplayWriter(replay_output_path) if replay_output_path else None
     started_at = time.monotonic()
     with paths["stderr"].open("w", encoding="utf-8") as stderr_log:
         try:
             with contextlib.redirect_stderr(stderr_log):
                 runner.start()
                 snapshot = runner.extract_snapshot()
+                if replay_writer is not None:
+                    replay_writer.write_snapshot(snapshot)
                 if adaptive_strategy == "gap_v1":
                     adaptive = snapshot.get("adaptive_control")
                     active_ids = (
@@ -294,6 +301,8 @@ def run_adaptive_experiment(
                     )
                     teleports += int(simulation.getStartingTeleportNumber())
                     snapshot = runner.extract_snapshot()
+                    if replay_writer is not None:
+                        replay_writer.write_snapshot(snapshot)
                     phase = int(snapshot["current_phase_index"])
                     if phase != last_phase:
                         transitions.append({
@@ -310,6 +319,8 @@ def run_adaptive_experiment(
             controller_provenance["validation_errors"].append(run_error)
         finally:
             runner.close()
+            if replay_writer is not None:
+                replay_writer.close()
 
     paths["transitions"].write_text(
         json.dumps(transitions, indent=2, sort_keys=True) + "\n", encoding="utf-8"
@@ -419,6 +430,7 @@ def run_adaptive_experiment(
             else "gap_v1 via audited synthetic manifest"
         ),
         "controller_provenance": controller_provenance,
+        "replay_export": replay_writer.summary() if replay_writer is not None else None,
         "fixed_program": fixed_program,
         "validation": {
             "passed": not validation_errors,
@@ -539,6 +551,11 @@ def main() -> int:
         type=Path,
         help="gap_v1 manifest override; valid only with --adaptive-strategy gap_v1",
     )
+    parser.add_argument(
+        "--replay-output",
+        type=Path,
+        help="optional JSONL trajectory export; existing files are never overwritten",
+    )
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
     try:
@@ -555,6 +572,7 @@ def main() -> int:
             fixed_demand_route=args.fixed_demand_route,
             adaptive_strategy=args.adaptive_strategy,
             adaptive_manifest_path=args.adaptive_manifest,
+            replay_output_path=args.replay_output,
             overwrite=args.overwrite,
         )
     except (FileExistsError, FileNotFoundError, JsonlValidationError, ValueError) as exc:

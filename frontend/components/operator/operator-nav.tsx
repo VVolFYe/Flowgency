@@ -7,7 +7,8 @@ export function OperatorNav({ workspace }: { workspace: "analyst" | "operator" }
   const pathname = usePathname();
   const links = [
     { href: `/${workspace}`, label: "Overview" },
-    { href: `/${workspace}/simulation`, label: "Live Simulation" },
+    { href: `/${workspace}/simulation`, label: "Simulations" },
+    ...(workspace === "operator" ? [{ href: "/operator/ai-traffic", label: "AI Traffic" }] : []),
     { href: `/${workspace}/analytics`, label: "Analytics" },
     ...(workspace === "operator" ? [{ href: "/operator/benchmarks", label: "Benchmarks" }] : []),
   ];

@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
 
 from backend.simulation.ai_demand import DEFAULT_NETWORK_PATH, generate_demand
 from backend.simulation.ai_input import JsonlValidationError
+from backend.simulation.replay import ReplayWriter
+from backend.simulation.runner import DEFAULT_MAPPING_PATH, SumoRunner
 
 
 STEP_LENGTH_S = 1.0
@@ -149,6 +153,8 @@ def run_fixed_experiment(
     sumo_binary: str = "sumo",
     max_simulation_time_s: float = DEFAULT_MAX_SIMULATION_TIME_S,
     wall_timeout_s: float = 120.0,
+    mapping_path: Path = DEFAULT_MAPPING_PATH,
+    replay_output_path: Path | None = None,
     overwrite: bool = False,
 ) -> dict[str, Any]:
     """Generate demand, execute SUMO once, and report strict insertion/trip accounting."""
@@ -170,6 +176,8 @@ def run_fixed_experiment(
         "report": output_directory / "fixed_run_summary.json",
     }
     existing = [path for path in paths.values() if path.exists()]
+    if replay_output_path is not None and replay_output_path.resolve().exists():
+        existing.append(replay_output_path.resolve())
     if existing and not overwrite:
         raise FileExistsError(f"refusing to overwrite runtime output: {existing[0]}")
     output_directory.mkdir(parents=True, exist_ok=True)
@@ -191,24 +199,67 @@ def run_fixed_experiment(
         collision_path=paths["collisions"],
         max_simulation_time_s=max_simulation_time_s,
     )
-    try:
-        completed = subprocess.run(
-            [sumo_binary, "-c", str(paths["config"])],
-            text=True,
-            capture_output=True,
-            check=False,
-            timeout=wall_timeout_s,
+    replay_writer: ReplayWriter | None = None
+    pending_at_stop = False
+    run_error: str | None = None
+    if replay_output_path is not None:
+        replay_writer = ReplayWriter(replay_output_path)
+        runner = SumoRunner(
+            config_path=paths["config"],
+            mapping_path=mapping_path,
+            sumo_binary=sumo_binary,
+            run_id="ai-demand-fixed-replay",
+            control_mode="fixed",
+            output_directory=output_directory,
         )
+        started_at = time.monotonic()
         timed_out = False
-    except subprocess.TimeoutExpired as exc:
-        stdout = exc.stdout.decode() if isinstance(exc.stdout, bytes) else (exc.stdout or "")
-        stderr = exc.stderr.decode() if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+        with paths["stderr"].open("w", encoding="utf-8") as stderr_log:
+            try:
+                with contextlib.redirect_stderr(stderr_log):
+                    runner.start()
+                    replay_writer.write_snapshot(runner.extract_snapshot())
+                    while (
+                        runner.has_pending_vehicles()
+                        and float(runner.connection.simulation.getTime()) < max_simulation_time_s
+                    ):
+                        if time.monotonic() - started_at > wall_timeout_s:
+                            timed_out = True
+                            break
+                        runner.advance()
+                        replay_writer.write_snapshot(runner.extract_snapshot())
+                    pending_at_stop = runner.has_pending_vehicles()
+            except Exception as exc:
+                run_error = f"{type(exc).__name__}: {exc}"
+            finally:
+                runner.close()
+                replay_writer.close()
         completed = subprocess.CompletedProcess(
-            exc.cmd, -1, stdout, stderr
+            [sumo_binary, "-c", str(paths["config"])],
+            1 if run_error else 0,
+            "",
+            paths["stderr"].read_text(encoding="utf-8"),
         )
-        timed_out = True
+    else:
+        try:
+            completed = subprocess.run(
+                [sumo_binary, "-c", str(paths["config"])],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=wall_timeout_s,
+            )
+            timed_out = False
+        except subprocess.TimeoutExpired as exc:
+            stdout = exc.stdout.decode() if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+            stderr = exc.stderr.decode() if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+            completed = subprocess.CompletedProcess(
+                exc.cmd, -1, stdout, stderr
+            )
+            timed_out = True
     paths["stdout"].write_text(completed.stdout, encoding="utf-8")
-    paths["stderr"].write_text(completed.stderr, encoding="utf-8")
+    if replay_output_path is None:
+        paths["stderr"].write_text(completed.stderr, encoding="utf-8")
 
     planned = read_planned_demand(paths["routes"])
     validation_errors: list[str] = []
@@ -232,6 +283,10 @@ def run_fixed_experiment(
         validation_errors.append(f"SUMO exited with code {completed.returncode}")
     if timed_out:
         validation_errors.append("SUMO exceeded the wall-clock timeout")
+    if pending_at_stop:
+        validation_errors.append("vehicles remained at the simulation limit")
+    if run_error:
+        validation_errors.append(f"TraCI replay run failed: {run_error}")
     if inserted_ids != set(planned):
         validation_errors.append("inserted vehicle IDs differ from planned demand")
     if arrived_ids != set(planned):
@@ -274,6 +329,7 @@ def run_fixed_experiment(
         "experiment": "ai_demand_single_intersection_fixed",
         "control_mode": "fixed",
         "traffic_light_program": "existing demo_01 fixed program; timings unchanged",
+        "replay_export": replay_writer.summary() if replay_writer is not None else None,
         "fixed_program": fixed_program,
         "validation": {
             "passed": not validation_errors,
@@ -344,9 +400,15 @@ def main() -> int:
     parser.add_argument("--events", type=Path, required=True)
     parser.add_argument("--output-directory", type=Path, required=True)
     parser.add_argument("--network", type=Path, default=DEFAULT_NETWORK_PATH)
+    parser.add_argument("--mappings", type=Path, default=DEFAULT_MAPPING_PATH)
     parser.add_argument("--sumo-binary", default="sumo")
     parser.add_argument("--max-simulation-time", type=float, default=DEFAULT_MAX_SIMULATION_TIME_S)
     parser.add_argument("--wall-timeout", type=float, default=120.0)
+    parser.add_argument(
+        "--replay-output",
+        type=Path,
+        help="optional JSONL trajectory export; existing files are never overwritten",
+    )
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
     try:
@@ -358,6 +420,8 @@ def main() -> int:
             sumo_binary=args.sumo_binary,
             max_simulation_time_s=args.max_simulation_time,
             wall_timeout_s=args.wall_timeout,
+            mapping_path=args.mappings,
+            replay_output_path=args.replay_output,
             overwrite=args.overwrite,
         )
     except (FileExistsError, FileNotFoundError, JsonlValidationError, ValueError) as exc:

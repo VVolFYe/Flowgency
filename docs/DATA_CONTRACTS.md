@@ -339,3 +339,16 @@ The reports distinguish planned AI video timestamps from actual SUMO insertion t
 `backend.simulation.ai_compare` compares isolated Fixed and Adaptive artifacts only after validating identical vehicle IDs, planned departures, routes, vehicle parameters, AI source hashes, network bytes, and SUMO settings. Every planned vehicle must have one completed tripinfo record and both raw diagnostics must be collision- and teleport-free. The requested adaptive strategy must match runtime provenance. Historical reports without the additive provenance object remain eligible only as legacy comparisons and cannot be relabeled as `gap_v1`.
 
 Insertion delay (`actual SUMO depart - AI planned depart`) remains separate from SUMO waiting time. Planned-to-arrival duration (`SUMO arrival - AI planned depart`) includes insertion delay. For lower-is-better metrics, `adaptive_minus_fixed > 0` is a regression, while `absolute_improvement = fixed - adaptive > 0` is a saving. Invalid pairs do not produce comparison metrics.
+
+## O. AI Traffic replay export
+
+Replay export is explicit and optional. `--replay-output` on the isolated Fixed or Adaptive AI experiment writes one compact JSON object per authoritative SUMO step. Omitting the option preserves the existing execution and report behavior. Replay schema `1.0` records:
+
+- `frame_index` and strictly increasing `simulation_time_s`;
+- `coordinate_system` (`synthetic_cartesian_metres` for this scenario);
+- vehicles sorted by ID with `x_m`, `y_m`, `angle_deg`, `speed_mps`, `lane_id`, and `edge_id` read from TraCI;
+- traffic lights sorted by ID with the actual `phase_index`, `phase_id`, and red/yellow/green `state`.
+
+The stream is simulation-time data, not video frames. It continues until SUMO demand completes and is never truncated or looped at the approximately 264-second video boundary. Video event time and planned SUMO departure time share an explicit zero-second offset; actual insertion delay remains part of the experiment output.
+
+An external `replay_manifest.json` schema `1.0` binds the source-video identifier, H.264 video assets, Fixed and runtime-verified `gap_v1` replay streams, single-intersection geometry API reference, independent simulation durations, comparison report, checksums, and known limitations. The asset API validates report schema, matching demand/network provenance, complete trips, zero collision/teleport diagnostics, and `gap_v1` activation at `demo_01` before returning metrics. Paths are never returned to clients.
