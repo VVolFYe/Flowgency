@@ -1,14 +1,16 @@
 """Read-only analytics routes backed by the local SQLite store (backend/analytics/db.py).
 
 Like the other GET routes, these are unauthenticated. The database path is read
-on every request, so loading the database needs no API restart.
+on every request, so loading the database needs no API restart. The ``runs``
+routes are declared before ``/{entry_id}`` so they can never be shadowed by it.
 """
 
 from __future__ import annotations
 
+import json
 import sqlite3
 
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from backend.analytics import db
 
@@ -30,6 +32,32 @@ def list_analytics() -> list[dict[str, object]]:
         return db.list_entries()
     except (db.AnalyticsDatabaseMissing, sqlite3.DatabaseError) as exc:
         raise _unavailable(exc) from exc
+
+
+@router.get("/runs/latest")
+def get_latest_run() -> Response:
+    try:
+        payload = db.latest_run_payload()
+    except (db.AnalyticsDatabaseMissing, sqlite3.DatabaseError) as exc:
+        raise _unavailable(exc) from exc
+    if payload is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no simulation run recorded yet")
+    return Response(payload, media_type="application/json", headers={"Cache-Control": "no-store"})
+
+
+@router.get("/runs/latest-pair")
+def get_latest_run_pair(scenario_id: str = Query(min_length=1)) -> Response:
+    try:
+        fixed = db.latest_run_payload_for(scenario_id, ("fixed",))
+        adaptive = db.latest_run_payload_for(scenario_id, db.ADAPTIVE_MODES)
+    except (db.AnalyticsDatabaseMissing, sqlite3.DatabaseError) as exc:
+        raise _unavailable(exc) from exc
+    body = {
+        "scenario_id": scenario_id,
+        "fixed": json.loads(fixed) if fixed is not None else None,
+        "adaptive": json.loads(adaptive) if adaptive is not None else None,
+    }
+    return Response(json.dumps(body), media_type="application/json", headers={"Cache-Control": "no-store"})
 
 
 @router.get("/{entry_id}")

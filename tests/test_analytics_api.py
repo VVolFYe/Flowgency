@@ -10,7 +10,7 @@ from unittest import mock
 
 from fastapi.testclient import TestClient
 
-from backend.analytics import db, load
+from backend.analytics import db, load, runs
 from backend.api.app import create_app
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -67,6 +67,52 @@ class AnalyticsApiTests(unittest.TestCase):
     def test_database_without_table_is_503(self) -> None:
         self.database.write_bytes(b"")
         self.assertEqual(self.client.get("/api/analytics").status_code, 503)
+
+
+    def save_run(self, run_id: str, mode: str, ended_at: str, scenario: str = "london_normal") -> None:
+        run = {"run_id": run_id, "scenario_id": scenario, "control_mode": mode, "status": "finished",
+               "started_at": "2026-11-14T10:00:00.000Z", "ended_at": ended_at, "sim_duration_s": 60.0}
+        runs.save_run(runs.build_payload(run=run, summary={"total_time_loss_s": None}, samples=[], phases=[]))
+
+    def test_latest_run(self) -> None:
+        self.save_run("a", "fixed", "2026-11-14T10:01:00.000Z")
+        self.save_run("b", "adaptive", "2026-11-14T10:05:00.000Z", scenario="other")
+        response = self.client.get("/api/analytics/runs/latest")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["content-type"], "application/json")
+        self.assertEqual(response.json()["run"]["run_id"], "b")
+        self.assertIsNone(response.json()["summary"]["total_time_loss_s"])
+
+    def test_latest_run_is_404_when_none_recorded(self) -> None:
+        self.load()  # database exists, runs table empty
+        response = self.client.get("/api/analytics/runs/latest")
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(self.client.get("/api/analytics").status_code, 200)
+
+    def test_latest_pair(self) -> None:
+        self.save_run("f1", "fixed", "2026-11-14T10:01:00.000Z")
+        self.save_run("f2", "fixed", "2026-11-14T10:02:00.000Z")
+        self.save_run("e1", "adaptive_with_emergency_priority", "2026-11-14T10:03:00.000Z")
+        self.save_run("x1", "adaptive", "2026-11-14T10:09:00.000Z", scenario="other")
+        pair = self.client.get("/api/analytics/runs/latest-pair", params={"scenario_id": "london_normal"}).json()
+        self.assertEqual(pair["scenario_id"], "london_normal")
+        self.assertEqual(pair["fixed"]["run"]["run_id"], "f2")
+        self.assertEqual(pair["adaptive"]["run"]["run_id"], "e1")
+
+        only_adaptive = self.client.get("/api/analytics/runs/latest-pair", params={"scenario_id": "other"}).json()
+        self.assertIsNone(only_adaptive["fixed"])
+        self.assertEqual(only_adaptive["adaptive"]["run"]["run_id"], "x1")
+        none = self.client.get("/api/analytics/runs/latest-pair", params={"scenario_id": "unknown"})
+        self.assertEqual(none.status_code, 200)
+        self.assertEqual(none.json(), {"scenario_id": "unknown", "fixed": None, "adaptive": None})
+        self.assertEqual(self.client.get("/api/analytics/runs/latest-pair").status_code, 422)
+
+    def test_runs_missing_database_is_503(self) -> None:
+        for path in ("/api/analytics/runs/latest", "/api/analytics/runs/latest-pair?scenario_id=x"):
+            response = self.client.get(path)
+            self.assertEqual(response.status_code, 503)
+            self.assertIn("run python -m backend.analytics.load", response.json()["detail"])
+        self.assertFalse(self.database.exists())
 
 
 if __name__ == "__main__":
