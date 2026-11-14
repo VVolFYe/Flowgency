@@ -110,3 +110,15 @@ python3 -m backend.simulation.ai_input \
 ```
 
 `ai_arm_mapping.json` explicitly maps image-side camera arms to synthetic incoming edges and validates them against `mappings.json`. Its orientation is deliberately marked unverified. Snapshot vehicle counts, event-derived arrivals, cumulative counters, and SUMO queues are distinct measurements.
+
+Generate an offline route file in a temporary location without modifying the checked-in scenarios:
+
+```bash
+python3 -m backend.simulation.ai_demand \
+  --counts ~/flowgency_ai_samples/counts.jsonl \
+  --events ~/flowgency_ai_samples/events.jsonl \
+  --output /tmp/flowgency_ai_demand.rou.xml \
+  --summary-output /tmp/flowgency_ai_demand.summary.json
+```
+
+The generator creates only event-derived arrivals. Initial `t_s=0` observations remain summary metadata. It derives and validates the four straight connections from `demo.net.xml`; it does not infer turns, start SUMO, or modify `demo.rou.xml`.
