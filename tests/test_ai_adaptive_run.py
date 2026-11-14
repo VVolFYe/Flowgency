@@ -5,12 +5,29 @@ import unittest
 from pathlib import Path
 
 from backend.simulation.ai_adaptive_run import (
+    DEFAULT_GAP_MANIFEST_PATH,
     compare_fixed_demand,
+    resolve_adaptive_manifest,
     validate_phase_transitions,
 )
 
 
 class AiAdaptiveRunTests(unittest.TestCase):
+    def test_legacy_is_default_and_rejects_a_manifest(self) -> None:
+        self.assertIsNone(resolve_adaptive_manifest("legacy", None))
+        with self.assertRaisesRegex(ValueError, "does not accept"):
+            resolve_adaptive_manifest("legacy", DEFAULT_GAP_MANIFEST_PATH)
+
+    def test_gap_v1_is_explicit_and_missing_manifest_fails(self) -> None:
+        self.assertEqual(
+            resolve_adaptive_manifest("gap_v1", None),
+            DEFAULT_GAP_MANIFEST_PATH.resolve(),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            missing = Path(temporary) / "missing.json"
+            with self.assertRaisesRegex(FileNotFoundError, "not found"):
+                resolve_adaptive_manifest("gap_v1", missing)
+
     def test_safe_phase_sequence_and_clearance_are_accepted(self) -> None:
         transitions = [
             {"simulation_time_s": 0, "phase_index": 0, "phase_id": "north_south_green"},

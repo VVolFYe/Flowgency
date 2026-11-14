@@ -24,6 +24,7 @@ class AiComparisonTests(unittest.TestCase):
         time_loss: float = 4.0,
         planned: float = 1.0,
         teleports: int = 0,
+        adaptive_strategy: str | None = None,
     ) -> Path:
         directory = root / mode
         directory.mkdir()
@@ -70,8 +71,7 @@ class AiComparisonTests(unittest.TestCase):
         (directory / "ai_demand.summary.json").write_text(
             json.dumps({"sources": sources}), encoding="utf-8"
         )
-        (directory / f"{prefix}_run_summary.json").write_text(
-            json.dumps({
+        run_report = {
                 "control_mode": mode,
                 "validation": {"passed": True},
                 "diagnostics": {"collisions": 0, "teleports": teleports},
@@ -81,7 +81,29 @@ class AiComparisonTests(unittest.TestCase):
                     "arrived": 1,
                     "unfinished": 0,
                 },
-            }),
+            }
+        if mode == "adaptive" and adaptive_strategy is not None:
+            run_report["controller_provenance"] = {
+                "selected_strategy": adaptive_strategy,
+                "profile_id": (
+                    "single_intersection_gap_v1_experimental"
+                    if adaptive_strategy == "gap_v1"
+                    else "legacy_synthetic_adaptive"
+                ),
+                "manifest_path": (
+                    "/sanitized/gap.json" if adaptive_strategy == "gap_v1" else None
+                ),
+                "manifest_sha256": (
+                    "manifest-hash" if adaptive_strategy == "gap_v1" else None
+                ),
+                "active_traffic_light_ids": ["demo_01"],
+                "active_strategies": [adaptive_strategy],
+                "active_strategy_verified_at_runtime": True,
+                "gap_release_decision_count": 2 if adaptive_strategy == "gap_v1" else 0,
+                "validation_errors": [],
+            }
+        (directory / f"{prefix}_run_summary.json").write_text(
+            json.dumps(run_report),
             encoding="utf-8",
         )
         return directory
@@ -104,6 +126,12 @@ class AiComparisonTests(unittest.TestCase):
         self.assertEqual(waiting["adaptive_minus_fixed"], 2)
         self.assertEqual(waiting["improvement_percent"], -66.667)
         self.assertEqual(waiting["outcome"], "regression")
+        self.assertEqual(
+            report["comparison"]["average_waiting_time_s"]["adaptive"], 5
+        )
+        self.assertEqual(
+            report["comparison"]["average_time_loss_s"]["adaptive"], 6
+        )
         self.assertEqual(rows[0]["fixed_planned_to_arrival_s"], 9)
         self.assertEqual(rows[0]["adaptive_planned_to_arrival_s"], 11)
 
@@ -136,6 +164,37 @@ class AiComparisonTests(unittest.TestCase):
             teleported = self._write_run(root, "adaptive", teleports=1)
             with self.assertRaisesRegex(ComparisonError, "collisions or teleports"):
                 compare_experiments(fixed, teleported)
+
+    def test_gap_v1_comparison_requires_matching_runtime_provenance(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixed = self._write_run(root, "fixed")
+            adaptive = self._write_run(
+                root, "adaptive", adaptive_strategy="gap_v1"
+            )
+            report, _rows = compare_experiments(
+                fixed, adaptive, adaptive_strategy="gap_v1"
+            )
+            self.assertEqual(
+                report["adaptive_controller"]["selected_strategy"], "gap_v1"
+            )
+            self.assertEqual(
+                report["adaptive_controller"]["gap_release_decision_count"], 2
+            )
+            with self.assertRaisesRegex(ComparisonError, "not requested"):
+                compare_experiments(fixed, adaptive)
+
+    def test_historical_legacy_report_remains_supported(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixed = self._write_run(root, "fixed")
+            adaptive = self._write_run(root, "adaptive")
+            report, _rows = compare_experiments(fixed, adaptive)
+        self.assertTrue(
+            report["adaptive_controller"][
+                "historical_report_without_runtime_provenance"
+            ]
+        )
 
 
 if __name__ == "__main__":

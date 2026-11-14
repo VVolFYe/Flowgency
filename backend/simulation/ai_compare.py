@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
 
-from backend.simulation.ai_adaptive_run import run_adaptive_experiment
+from backend.simulation.ai_adaptive_run import ADAPTIVE_STRATEGIES, run_adaptive_experiment
 from backend.simulation.ai_fixed_run import run_fixed_experiment
 
 
@@ -180,7 +180,54 @@ def _run_paths(directory: Path, mode: str) -> dict[str, Path]:
     }
 
 
-def read_validated_run(directory: Path, mode: str) -> dict[str, Any]:
+def _validate_adaptive_provenance(
+    report: dict[str, Any], expected_strategy: str
+) -> dict[str, Any]:
+    provenance = report.get("controller_provenance")
+    if provenance is None:
+        if expected_strategy != "legacy":
+            raise ComparisonError(
+                "adaptive result has no controller provenance and cannot be labeled gap_v1"
+            )
+        return {
+            "selected_strategy": "legacy",
+            "profile_id": "historical_legacy_report",
+            "manifest_path": None,
+            "manifest_sha256": None,
+            "active_traffic_light_ids": ["demo_01"],
+            "active_strategies": ["legacy"],
+            "active_strategy_verified_at_runtime": False,
+            "gap_release_decision_count": 0,
+            "validation_errors": [],
+            "historical_report_without_runtime_provenance": True,
+        }
+    if not isinstance(provenance, dict):
+        raise ComparisonError("adaptive controller provenance must be an object")
+    actual_strategy = provenance.get("selected_strategy")
+    if actual_strategy != expected_strategy:
+        raise ComparisonError(
+            f"adaptive result uses {actual_strategy!r}, not requested {expected_strategy!r}"
+        )
+    if not provenance.get("active_strategy_verified_at_runtime"):
+        raise ComparisonError("adaptive controller was not verified active at runtime")
+    if provenance.get("validation_errors"):
+        raise ComparisonError("adaptive controller provenance contains validation errors")
+    if provenance.get("active_traffic_light_ids") != ["demo_01"]:
+        raise ComparisonError("adaptive result did not control exactly demo_01")
+    expected_active = ["gap_v1"] if expected_strategy == "gap_v1" else ["legacy"]
+    if provenance.get("active_strategies") != expected_active:
+        raise ComparisonError("adaptive result strategy label differs from runtime strategy")
+    if expected_strategy == "gap_v1" and not provenance.get("manifest_sha256"):
+        raise ComparisonError("gap_v1 result has no manifest SHA-256 provenance")
+    return provenance
+
+
+def read_validated_run(
+    directory: Path,
+    mode: str,
+    *,
+    expected_adaptive_strategy: str = "legacy",
+) -> dict[str, Any]:
     paths = _run_paths(directory.resolve(), mode)
     report = _load_json(paths["report"])
     demand_summary = _load_json(paths["demand_summary"])
@@ -191,6 +238,11 @@ def read_validated_run(directory: Path, mode: str) -> dict[str, Any]:
     diagnostics = report.get("diagnostics", {})
     if diagnostics.get("collisions") or diagnostics.get("teleports"):
         raise ComparisonError(f"{mode} experiment reported collisions or teleports")
+    controller_provenance = (
+        _validate_adaptive_provenance(report, expected_adaptive_strategy)
+        if mode == "adaptive"
+        else None
+    )
 
     demand = read_demand(paths["routes"])
     trips = read_completed_trips(paths["tripinfo"], demand["vehicles"])
@@ -219,14 +271,14 @@ def read_validated_run(directory: Path, mode: str) -> dict[str, Any]:
     planned_arrival_total = sum(
         item["planned_to_arrival_s"] for item in trips.values()
     )
+    waiting_total = sum(item["waiting_time_s"] for item in trips.values())
+    time_loss_total = sum(item["time_loss_s"] for item in trips.values())
     metrics = {
         "vehicle_count": count,
-        "total_waiting_time_s": round(
-            sum(item["waiting_time_s"] for item in trips.values()), 3
-        ),
-        "total_time_loss_s": round(
-            sum(item["time_loss_s"] for item in trips.values()), 3
-        ),
+        "total_waiting_time_s": round(waiting_total, 3),
+        "average_waiting_time_s": round(waiting_total / count, 3),
+        "total_time_loss_s": round(time_loss_total, 3),
+        "average_time_loss_s": round(time_loss_total / count, 3),
         "total_insertion_delay_s": round(insertion_total, 3),
         "average_insertion_delay_s": round(insertion_total / count, 3),
         "total_planned_to_arrival_s": round(planned_arrival_total, 3),
@@ -244,6 +296,7 @@ def read_validated_run(directory: Path, mode: str) -> dict[str, Any]:
         "settings": read_simulation_settings(paths["config"]),
         "trips": trips,
         "metrics": metrics,
+        "controller_provenance": controller_provenance,
     }
 
 
@@ -265,9 +318,20 @@ def compare_metric(fixed: float, adaptive: float) -> dict[str, Any]:
     }
 
 
-def compare_experiments(fixed_directory: Path, adaptive_directory: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+def compare_experiments(
+    fixed_directory: Path,
+    adaptive_directory: Path,
+    *,
+    adaptive_strategy: str = "legacy",
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    if adaptive_strategy not in ADAPTIVE_STRATEGIES:
+        raise ComparisonError(f"unsupported adaptive strategy {adaptive_strategy!r}")
     fixed = read_validated_run(fixed_directory, "fixed")
-    adaptive = read_validated_run(adaptive_directory, "adaptive")
+    adaptive = read_validated_run(
+        adaptive_directory,
+        "adaptive",
+        expected_adaptive_strategy=adaptive_strategy,
+    )
     errors: list[str] = []
     if fixed["demand"]["file_sha256"] != adaptive["demand"]["file_sha256"]:
         errors.append("route files differ byte-for-byte")
@@ -284,7 +348,9 @@ def compare_experiments(fixed_directory: Path, adaptive_directory: Path) -> tupl
 
     metric_names = (
         "total_waiting_time_s",
+        "average_waiting_time_s",
         "total_time_loss_s",
+        "average_time_loss_s",
         "total_insertion_delay_s",
         "average_insertion_delay_s",
         "total_planned_to_arrival_s",
@@ -355,6 +421,7 @@ def compare_experiments(fixed_directory: Path, adaptive_directory: Path) -> tupl
             "fixed": fixed["metrics"],
             "adaptive": adaptive["metrics"],
         },
+        "adaptive_controller": adaptive["controller_provenance"],
         "comparison": comparison,
         "sign_convention": {
             "adaptive_minus_fixed": "positive means Adaptive is higher/worse",
@@ -377,13 +444,16 @@ def format_summary(report: dict[str, Any]) -> str:
     vehicle_count = report["inputs"]["vehicle_count"]
     lines = [
         "Flowgency AI-demand Fixed vs Adaptive comparison",
+        f"Adaptive strategy: {report['adaptive_controller']['selected_strategy']}",
         f"VALIDATED: {vehicle_count} matching vehicles completed; 0 collisions; 0 teleports.",
         "",
         "Metric | Fixed | Adaptive | Adaptive - Fixed | Outcome",
     ]
     labels = {
         "total_waiting_time_s": "Total waiting (s)",
+        "average_waiting_time_s": "Average waiting (s)",
         "total_time_loss_s": "Total time loss (s)",
+        "average_time_loss_s": "Average time loss (s)",
         "total_insertion_delay_s": "Total insertion delay (s)",
         "average_insertion_delay_s": "Average insertion delay (s)",
         "total_planned_to_arrival_s": "Total planned-to-arrival (s)",
@@ -445,6 +515,12 @@ def main() -> int:
     parser.add_argument("--sumo-binary", default="sumo")
     parser.add_argument("--max-simulation-time", type=float, default=1800.0)
     parser.add_argument("--wall-timeout", type=float, default=120.0)
+    parser.add_argument(
+        "--adaptive-strategy",
+        choices=ADAPTIVE_STRATEGIES,
+        default="legacy",
+        help="strategy expected in existing outputs and used for new adaptive runs",
+    )
     parser.add_argument("--per-vehicle-csv", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
@@ -473,12 +549,15 @@ def main() -> int:
                 max_simulation_time_s=args.max_simulation_time,
                 wall_timeout_s=args.wall_timeout,
                 fixed_demand_route=args.fixed_directory / "ai_demand.rou.xml",
+                adaptive_strategy=args.adaptive_strategy,
                 overwrite=args.overwrite,
             )
             if not adaptive_report["validation"]["passed"]:
                 raise ComparisonError("new adaptive experiment failed validation")
         report, per_vehicle = compare_experiments(
-            args.fixed_directory, args.adaptive_directory
+            args.fixed_directory,
+            args.adaptive_directory,
+            adaptive_strategy=args.adaptive_strategy,
         )
         write_outputs(
             args.output_directory,

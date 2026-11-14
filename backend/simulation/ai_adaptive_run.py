@@ -26,6 +26,13 @@ from backend.simulation.ai_input import JsonlValidationError
 from backend.simulation.runner import DEFAULT_MAPPING_PATH, SumoRunner
 
 
+ADAPTIVE_STRATEGIES = ("legacy", "gap_v1")
+DEFAULT_GAP_MANIFEST_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "scenarios"
+    / "single_intersection"
+    / "gap_v1.experimental.json"
+)
 PHASE_ORDER = (
     "north_south_green",
     "north_south_yellow",
@@ -45,6 +52,23 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: source.read(65536), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def resolve_adaptive_manifest(
+    adaptive_strategy: str,
+    adaptive_manifest_path: Path | None,
+) -> Path | None:
+    """Resolve explicit gap control without changing the legacy default."""
+    if adaptive_strategy not in ADAPTIVE_STRATEGIES:
+        raise ValueError(f"unsupported adaptive strategy {adaptive_strategy!r}")
+    if adaptive_strategy == "legacy":
+        if adaptive_manifest_path is not None:
+            raise ValueError("legacy adaptive does not accept an adaptive manifest")
+        return None
+    path = (adaptive_manifest_path or DEFAULT_GAP_MANIFEST_PATH).resolve()
+    if not path.is_file():
+        raise FileNotFoundError(f"gap_v1 adaptive manifest not found: {path}")
+    return path
 
 
 def validate_phase_transitions(
@@ -105,6 +129,8 @@ def run_adaptive_experiment(
     wall_timeout_s: float = 120.0,
     step_delay_ms: float = 0.0,
     fixed_demand_route: Path | None = None,
+    adaptive_strategy: str = "legacy",
+    adaptive_manifest_path: Path | None = None,
     overwrite: bool = False,
 ) -> dict[str, Any]:
     """Generate identical demand, apply existing adaptive control, and account trips."""
@@ -112,6 +138,9 @@ def run_adaptive_experiment(
         raise ValueError("max simulation time must extend beyond the 264-second recording")
     if wall_timeout_s <= 0 or step_delay_ms < 0:
         raise ValueError("wall timeout must be positive and step delay nonnegative")
+    resolved_manifest = resolve_adaptive_manifest(
+        adaptive_strategy, adaptive_manifest_path
+    )
 
     output_directory = output_directory.resolve()
     paths = {
@@ -161,7 +190,23 @@ def run_adaptive_experiment(
         run_id="ai-demand-adaptive",
         control_mode="adaptive",
         output_directory=output_directory,
+        adaptive_manifest_path=resolved_manifest,
     )
+    controller_provenance: dict[str, Any] = {
+        "selected_strategy": adaptive_strategy,
+        "profile_id": (
+            "legacy_synthetic_adaptive"
+            if resolved_manifest is None
+            else None
+        ),
+        "manifest_path": str(resolved_manifest) if resolved_manifest else None,
+        "manifest_sha256": _sha256(resolved_manifest) if resolved_manifest else None,
+        "active_traffic_light_ids": [],
+        "active_strategies": [],
+        "active_strategy_verified_at_runtime": False,
+        "gap_release_decision_count": 0,
+        "validation_errors": [],
+    }
     transitions: list[dict[str, Any]] = []
     departed = arrived = collision_vehicle_events = teleports = 0
     timed_out = False
@@ -173,6 +218,50 @@ def run_adaptive_experiment(
             with contextlib.redirect_stderr(stderr_log):
                 runner.start()
                 snapshot = runner.extract_snapshot()
+                if adaptive_strategy == "gap_v1":
+                    adaptive = snapshot.get("adaptive_control")
+                    active_ids = (
+                        list(adaptive.get("traffic_light_ids", []))
+                        if isinstance(adaptive, dict)
+                        else []
+                    )
+                    active_strategies = [
+                        signal.strategy for signal in runner._adaptive_signals
+                    ]
+                    controller_provenance.update({
+                        "profile_id": (
+                            adaptive.get("scope")
+                            if isinstance(adaptive, dict)
+                            else None
+                        ),
+                        "active_traffic_light_ids": active_ids,
+                        "active_strategies": active_strategies,
+                    })
+                    if active_ids != ["demo_01"]:
+                        raise ValueError(
+                            "gap_v1 manifest did not activate only demo_01"
+                        )
+                    if active_strategies != ["gap_v1"]:
+                        raise ValueError(
+                            "gap_v1 manifest did not activate the gap_v1 strategy"
+                        )
+                    controller_provenance[
+                        "active_strategy_verified_at_runtime"
+                    ] = True
+                else:
+                    if snapshot.get("adaptive_control") is not None:
+                        raise ValueError(
+                            "legacy adaptive unexpectedly activated a manifest controller"
+                        )
+                    if snapshot["traffic_light_id"] != "demo_01":
+                        raise ValueError(
+                            "legacy adaptive did not activate the demo_01 controller"
+                        )
+                    controller_provenance.update({
+                        "active_traffic_light_ids": [snapshot["traffic_light_id"]],
+                        "active_strategies": ["legacy"],
+                        "active_strategy_verified_at_runtime": True,
+                    })
                 last_phase = int(snapshot["current_phase_index"])
                 transitions.append({
                     "simulation_time_s": float(snapshot["simulation_time_s"]),
@@ -186,7 +275,17 @@ def run_adaptive_experiment(
                     if time.monotonic() - started_at > wall_timeout_s:
                         timed_out = True
                         break
+                    previous_cycle_decision = runner.last_cycle_decision
                     runner.advance()
+                    current_cycle_decision = runner.last_cycle_decision
+                    if (
+                        adaptive_strategy == "gap_v1"
+                        and current_cycle_decision is not None
+                        and current_cycle_decision is not previous_cycle_decision
+                        and current_cycle_decision.get("reason")
+                        == "green_gap_with_competing_demand"
+                    ):
+                        controller_provenance["gap_release_decision_count"] += 1
                     simulation = runner.connection.simulation
                     departed += int(simulation.getDepartedNumber())
                     arrived += int(simulation.getArrivedNumber())
@@ -208,6 +307,7 @@ def run_adaptive_experiment(
                 pending_at_stop = runner.has_pending_vehicles()
         except Exception as exc:  # Preserve diagnostics and return a failed report.
             run_error = f"{type(exc).__name__}: {exc}"
+            controller_provenance["validation_errors"].append(run_error)
         finally:
             runner.close()
 
@@ -313,7 +413,12 @@ def run_adaptive_experiment(
         "schema_version": "1.0",
         "experiment": "ai_demand_single_intersection_adaptive",
         "control_mode": "adaptive",
-        "controller": "existing synthetic per-step adaptive controller",
+        "controller": (
+            "existing synthetic per-step adaptive controller"
+            if adaptive_strategy == "legacy"
+            else "gap_v1 via audited synthetic manifest"
+        ),
+        "controller_provenance": controller_provenance,
         "fixed_program": fixed_program,
         "validation": {
             "passed": not validation_errors,
@@ -423,6 +528,17 @@ def main() -> int:
     parser.add_argument("--wall-timeout", type=float, default=120.0)
     parser.add_argument("--step-delay-ms", type=float, default=0.0)
     parser.add_argument("--fixed-demand-route", type=Path)
+    parser.add_argument(
+        "--adaptive-strategy",
+        choices=ADAPTIVE_STRATEGIES,
+        default="legacy",
+        help="legacy is the unchanged default; gap_v1 is explicit experimental opt-in",
+    )
+    parser.add_argument(
+        "--adaptive-manifest",
+        type=Path,
+        help="gap_v1 manifest override; valid only with --adaptive-strategy gap_v1",
+    )
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
     try:
@@ -437,6 +553,8 @@ def main() -> int:
             wall_timeout_s=args.wall_timeout,
             step_delay_ms=args.step_delay_ms,
             fixed_demand_route=args.fixed_demand_route,
+            adaptive_strategy=args.adaptive_strategy,
+            adaptive_manifest_path=args.adaptive_manifest,
             overwrite=args.overwrite,
         )
     except (FileExistsError, FileNotFoundError, JsonlValidationError, ValueError) as exc:
