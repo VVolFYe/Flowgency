@@ -50,6 +50,7 @@ class AdaptiveState:
     smoothed_ns: float | None = None
     smoothed_ew: float | None = None
     switch_samples: int = 0
+    transition_pending_phase: str | None = None
 
 
 @dataclass(frozen=True)
@@ -66,11 +67,16 @@ def decide(
     """Evaluate one snapshot; return a decision and new immutable policy state.
 
     Missing or invalid queue measurements yield no command, preserving the
-    installed SUMO plan. Zero remaining duration completes the current green
-    on the next step; a two-second request keeps it alive for reevaluation.
+    installed SUMO plan. A one-second phase-ending request is sent only once;
+    issuing it again at the next step would move SUMO's switch time forward.
+    A two-second request keeps an ordinary green alive for reevaluation.
     """
     phase = snapshot.get("current_phase_id")
     now = float(snapshot["simulation_time_s"])
+    if state.transition_pending_phase is not None:
+        if phase == state.transition_pending_phase:
+            return AdaptiveDecision(None, "phase_transition_pending"), state
+        state = replace(state, transition_pending_phase=None)
     if phase not in PHASE_APPROACHES:
         return AdaptiveDecision(None, "clearance_phase_owned_by_sumo"), state
     expected_state = "GrGr" if phase == "north_south_green" else "rGrG"
@@ -106,16 +112,18 @@ def decide(
     opposing_last = state.last_green_ew_s if phase == "north_south_green" else state.last_green_ns_s
 
     if elapsed >= config.max_green_s:
-        reason, remaining = "maximum_green_reached", 0.0
+        reason, remaining = "maximum_green_reached", 1.0
     elif elapsed < config.min_green_s:
         reason, remaining = "minimum_green_protected", 2.0
     elif now - opposing_last >= config.max_red_s:
-        reason, remaining = "opposing_approach_anti_starvation", 0.0
+        reason, remaining = "opposing_approach_anti_starvation", 1.0
     else:
         sustained = state.switch_samples + 1 if opposing >= current + config.switch_margin_vehicles else 0
         state = replace(state, switch_samples=sustained)
         if sustained >= config.sustained_samples:
-            reason, remaining = "sustained_opposing_queue_advantage", 0.0
+            reason, remaining = "sustained_opposing_queue_advantage", 1.0
         else:
             reason, remaining = "hold_green_and_reevaluate", 2.0
+    if remaining == 1.0:
+        state = replace(state, transition_pending_phase=phase)
     return AdaptiveDecision(remaining, reason, current, opposing), state

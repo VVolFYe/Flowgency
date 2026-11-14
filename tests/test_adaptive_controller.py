@@ -29,7 +29,7 @@ class AdaptiveControllerTests(unittest.TestCase):
             decision, state = decide(snapshot(second, "north_south_green", 0, 8), state, config)
             if second < 10:
                 self.assertEqual(decision.remaining_green_s, 2)
-        self.assertEqual(decision.remaining_green_s, 0)
+        self.assertEqual(decision.remaining_green_s, 1)
         self.assertEqual(decision.reason, "sustained_opposing_queue_advantage")
 
     def test_one_spike_does_not_switch(self) -> None:
@@ -41,9 +41,38 @@ class AdaptiveControllerTests(unittest.TestCase):
 
     def test_maximum_green_switches_even_without_opposing_queue(self) -> None:
         state = AdaptiveState(phase_id="north_south_green", phase_started_s=0)
-        decision, _ = decide(snapshot(45, "north_south_green", 20, 0), state, AdaptiveConfig())
+        decision, state = decide(snapshot(45, "north_south_green", 20, 0), state, AdaptiveConfig())
         self.assertEqual(decision.reason, "maximum_green_reached")
-        self.assertEqual(decision.remaining_green_s, 0)
+        self.assertEqual(decision.remaining_green_s, 1)
+        self.assertEqual(state.transition_pending_phase, "north_south_green")
+
+    def test_phase_ending_request_is_one_shot_and_clears_on_transition(self) -> None:
+        config = AdaptiveConfig(smoothing=1)
+        state = AdaptiveState(phase_id="north_south_green", phase_started_s=0)
+        decision, state = decide(
+            snapshot(45, "north_south_green", 20, 8), state, config
+        )
+        self.assertEqual(decision.remaining_green_s, 1)
+
+        repeated, state = decide(
+            snapshot(46, "north_south_green", 20, 8), state, config
+        )
+        self.assertIsNone(repeated.remaining_green_s)
+        self.assertEqual(repeated.reason, "phase_transition_pending")
+        self.assertEqual(state.transition_pending_phase, "north_south_green")
+
+        yellow = snapshot(47, "north_south_yellow", 20, 8)
+        yellow["traffic_light_state"] = "yryr"
+        clearance, state = decide(yellow, state, config)
+        self.assertIsNone(clearance.remaining_green_s)
+        self.assertEqual(clearance.reason, "clearance_phase_owned_by_sumo")
+        self.assertIsNone(state.transition_pending_phase)
+
+        next_green, state = decide(
+            snapshot(52, "east_west_green", 20, 8), state, config
+        )
+        self.assertEqual(next_green.remaining_green_s, 2)
+        self.assertEqual(state.phase_id, "east_west_green")
 
     def test_missing_measurement_and_clearance_never_issue_command(self) -> None:
         state = AdaptiveState()

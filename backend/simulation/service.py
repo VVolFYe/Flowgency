@@ -75,6 +75,7 @@ class SimulationService:
             coordinate_system=scenario.coordinate_system,
             seed=scenario.seed,
             output_directory=scenario.output_directory,
+            adaptive_manifest_path=scenario.adaptive_manifest_path,
         )
 
     @staticmethod
@@ -111,6 +112,8 @@ class SimulationService:
             raise ValueError("unsupported control_mode")
         if selected_mode != "fixed" and not scenario.supports_adaptive_control:
             raise ValueError(f"adaptive control is not available for {scenario_id}")
+        if selected_mode == "adaptive_with_emergency_priority" and not scenario.supports_emergency_priority:
+            raise ValueError(f"emergency priority is not available for {scenario_id}")
         return self._submit(
             "start",
             speed=selected_speed,

@@ -35,6 +35,9 @@ curl -X POST http://127.0.0.1:8000/api/simulation/start \
 curl -X POST http://127.0.0.1:8000/api/simulation/start \
   -H 'Content-Type: application/json' \
   -d '{"scenario_id":"london_unbalanced","simulation_speed":4.0}'
+curl -X POST http://127.0.0.1:8000/api/simulation/start \
+  -H 'Content-Type: application/json' \
+  -d '{"scenario_id":"london_unbalanced","control_mode":"adaptive","simulation_speed":4.0}'
 curl -X POST http://127.0.0.1:8000/api/simulation/pause
 curl -X POST http://127.0.0.1:8000/api/simulation/speed \
   -H 'Content-Type: application/json' \
@@ -56,21 +59,23 @@ Development CORS is restricted to `http://localhost:3000` and `http://127.0.0.1:
 
 `simulation_speed` means simulated seconds advanced per wall-clock second and accepts values from `0.1` through `100`. Reset starts a fresh SUMO process at time zero and leaves it paused. Stop releases SUMO and returns to `idle`.
 
-`POST /api/simulation/start` accepts `"control_mode": "fixed"`, `"adaptive"`, or `"adaptive_with_emergency_priority"`. When omitted, the selected scenario supplies its default (`fixed` except for `single_intersection_emergency`). Adaptive modes are configured only for the synthetic intersection. The normal policy samples halting queues each second, protects a 10-second minimum green, and normally limits green to 45 seconds. The emergency mode recognizes declared SUMO types `ambulance`, `fire_brigade`, and `police` on verified incoming edges. A conflicting green keeps its 10-second minimum, then the existing 3-second yellow and 2-second all-red run before the requested approach gets green. A compatible green can remain active past 45 seconds until the emergency vehicle leaves the junction. Neither policy writes arbitrary signal states or shortens clearance. `GET /api/simulation/status` includes `control_mode`, and adaptive snapshots include `control_reason`. Reset retains the selected mode; stop returns to fixed.
+`POST /api/simulation/start` accepts `"control_mode": "fixed"`, `"adaptive"`, or `"adaptive_with_emergency_priority"`. Omitting it selects the scenario default (`fixed`, except for `single_intersection_emergency`). The verified synthetic adaptive policy samples halting queues each simulated second, protects a 10-second minimum green, and normally limits green to 45 seconds. Emergency priority recognizes declared SUMO types `ambulance`, `fire_brigade`, and `police` on verified incoming edges. An opposing green keeps its 10-second minimum, then the installed 3-second yellow and 2-second all-red run before the emergency approach gets green. A compatible green can remain active past 45 seconds until the emergency vehicle leaves the junction. London Normal and Unbalanced support the separate experimental J3 cycle planner; emergency priority is not enabled there. `GET /api/simulation/status` includes `control_mode`, and adaptive snapshots include controller decision metadata. Reset retains the selected mode; stop returns to fixed.
 
-For a visible emergency demo, select **Emergency priority demo** in the browser scenario list and press Start. The scenario contains three marked emergency vehicles; their colors/types are also visible in SUMO-GUI. Headless verification from the repository root:
+For a visible emergency demo, select **Emergency priority demo** in the browser scenario list and press Start. The scenario contains three marked emergency vehicles. A headless run is:
 
 ```bash
 python3 -m backend.simulation.runner --config scenarios/single_intersection/emergency.sumocfg --control-mode adaptive_with_emergency_priority
 ```
 
-For a headless adaptive run: `python3 -m backend.simulation.runner --control-mode adaptive`. This policy is a simulation experiment, not a validated traffic-signal controller. London candidate mappings and pedestrian movements must be verified before extending it to that network.
+For a headless synthetic adaptive run: `python3 -m backend.simulation.runner --control-mode adaptive`. Every adaptive policy is a simulation experiment, not a validated traffic-signal controller. The J3 runtime manifest is checked against SUMO before commands are sent, but real pedestrian movements and real-world clearance remain unverified.
 
 For a repeatable fixed/adaptive comparison and phase-safety audit, run `python3 -m backend.simulation.compare --scenario peak` (or `--scenario demo`). The script reports identical-demand metrics and exits nonzero on an unsafe phase trace, collision, teleport, or unfinished trip.
 
 `POST /api/simulation/speed` changes pacing through the simulation worker while the service is `running` or `paused`; it does not restart SUMO or change vehicle physics. The response is the backend-confirmed status. Invalid values are rejected with HTTP 422, and invalid lifecycle states return HTTP 409.
 
 Start defaults to `single_intersection`. The London selections are `london_normal`, `london_rush_hour`, and `london_unbalanced`. Reset restarts the active scenario; Stop closes SUMO and restores the synthetic default. London snapshots enumerate all active TLS controllers dynamically. The documented four deterministic J5 teleports in `london_rush_hour` are unchanged.
+
+Snapshots contain worker-collected cumulative waiting metrics. Waiting vehicle-seconds are integrated once per SUMO step and retained after arrival; the live average uses every departed vehicle as its denominator. Live time loss is intentionally deferred to completed tripinfo analysis. Adaptive London mode is experimental and changes only J3 (`GS_26546583`) in Normal and Unbalanced; all other controllers remain fixed and Rush Hour rejects adaptive mode.
 
 ## Test
 

@@ -42,6 +42,8 @@ This module owns the SUMO process and TraCI connection, stepping, subscriptions/
 
 A static registry selects one repository-owned SUMO configuration per run. The same worker owns every selected runner; API handlers only enqueue lifecycle commands. Static geometry is parsed and cached per network, while WebSocket snapshots carry dynamic vehicles, deduplicated lane queues, and all TraCI-enumerated signal controllers rather than repeating road geometry.
 
+The worker also integrates cumulative vehicle waiting once per authoritative simulation step and retains it after vehicles arrive. London adaptive mode is deliberately narrow: an audited manifest enables the existing cycle planner for J3 only in Normal and Unbalanced, validates the live SUMO program before use, changes green dwell durations at phase boundaries, and leaves every other controller and all modeled yellow transitions under SUMO's fixed program.
+
 ### Vision
 
 Vision owns camera ingestion, YOLO11 detection, tracking, visible-approach aggregation, confidence, and possible emergency-light detection. It emits shared observations and runs independently of SUMO. Recorded input is preferable for a reliable demo; live TfL access remains open.
