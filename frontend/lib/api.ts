@@ -51,6 +51,11 @@ export const api = {
   // Analytics responses are typed unknown: callers validate them with the guards in contracts.ts.
   analyticsList: (signal?: AbortSignal) => request<unknown>("/api/analytics", { signal }),
   analyticsEntry: (id: string, signal?: AbortSignal) => request<unknown>(`/api/analytics/${encodeURIComponent(id)}`, { signal }),
+  latestRun: (signal?: AbortSignal) => request<unknown>("/api/analytics/runs/latest", { signal }),
+  latestRunPair: (scenarioId: string, signal?: AbortSignal) => request<unknown>(
+    `/api/analytics/runs/latest-pair?scenario_id=${encodeURIComponent(scenarioId)}`,
+    { signal },
+  ),
   snapshot: async (): Promise<SimulationSnapshot | null> => {
     const response = await fetch(`${BACKEND_URL}/api/simulation/snapshot`, { cache: "no-store", signal: AbortSignal.timeout(4000) }).catch(() => null);
     if (!response) throw new Error(`Cannot reach the Flowgency backend at ${BACKEND_URL}`);

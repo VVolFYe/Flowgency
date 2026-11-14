@@ -535,3 +535,144 @@ export function isVisionAnalytics(value: unknown): value is VisionAnalytics {
 export function isAnalyticsDocument(value: unknown, kind: AnalyticsKind): value is AnalyticsDocument {
   return kind === "simulation" ? isSimulationAnalytics(value) : isVisionAnalytics(value);
 }
+
+/* ------------------------------------------------------------------ */
+/* Recorded Live Simulation runs (SQLite `runs` table), served via    */
+/* GET /api/analytics/runs/*. See DATA_CONTRACTS.md K.5. null = unknown. */
+/* ------------------------------------------------------------------ */
+
+export const RECORDED_RUN_STATUSES = ["finished", "stopped", "error"] as const;
+export type RecordedRunStatus = (typeof RECORDED_RUN_STATUSES)[number];
+
+export interface RecordedRunInfo {
+  run_id: string;
+  scenario_id: string;
+  legacy_scenario_id: string | null;
+  control_mode: string;
+  status: RecordedRunStatus;
+  started_at: string;
+  ended_at: string;
+  sim_start_s: number | null;
+  sim_end_s: number | null;
+  sim_duration_s: number | null;
+  sample_count: number;
+  error: string | null;
+}
+
+/** RunMetrics.snapshot() at the end of the run (section E). Time loss stays null in the live service. */
+export interface RecordedRunSummary {
+  total_waiting_time_s: number | null;
+  average_waiting_time_s: number | null;
+  departed_vehicle_count: number | null;
+  arrived_vehicle_count: number | null;
+  active_vehicle_count: number | null;
+  network_queue_vehicles: number | null;
+  maximum_network_queue_vehicles: number | null;
+  total_time_loss_s: number | null;
+  average_time_loss_s: number | null;
+  [key: string]: unknown;
+}
+
+export const RECORDED_RUN_SUMMARY_KEYS = [
+  "total_waiting_time_s", "average_waiting_time_s", "departed_vehicle_count", "arrived_vehicle_count",
+  "active_vehicle_count", "network_queue_vehicles", "maximum_network_queue_vehicles",
+  "total_time_loss_s", "average_time_loss_s",
+] as const;
+
+export interface RecordedRunSample {
+  t_s: number | null;
+  network_queue_vehicles: number | null;
+  active_vehicle_count: number | null;
+  departed_cumulative: number | null;
+  arrived_cumulative: number | null;
+  queue_by_traffic_light: Record<string, number | null>;
+  queue_by_approach: Record<string, number | null>;
+  phase_by_traffic_light: Record<string, { phase_index: number | null; phase_id: string | null }>;
+}
+
+export interface RecordedRunIntersection {
+  traffic_light_id: string;
+  mean_queue_vehicles: number | null;
+  max_queue_vehicles: number | null;
+  sample_count: number;
+}
+
+export interface RecordedRunPhase {
+  traffic_light_id: string;
+  phase_change_count: number;
+  completed_green_phases: number;
+  mean_green_duration_s: number | null;
+}
+
+export interface RecordedRun {
+  schema_version: string;
+  kind: "simulation_run";
+  run: RecordedRunInfo;
+  summary: RecordedRunSummary | null;
+  timeseries: { interval_s: number; queue_measurement: string; samples: RecordedRunSample[] };
+  intersections: RecordedRunIntersection[];
+  phases: RecordedRunPhase[];
+}
+
+export interface RecordedRunPair {
+  scenario_id: string;
+  fixed: RecordedRun | null;
+  adaptive: RecordedRun | null;
+}
+
+function isRecordedRunInfo(value: unknown): value is RecordedRunInfo {
+  return isRecord(value)
+    && typeof value.run_id === "string"
+    && typeof value.scenario_id === "string"
+    && isNullableString(value.legacy_scenario_id)
+    && typeof value.control_mode === "string"
+    && (RECORDED_RUN_STATUSES as readonly unknown[]).includes(value.status)
+    && typeof value.started_at === "string"
+    && typeof value.ended_at === "string"
+    && isNullableNumber(value.sim_start_s)
+    && isNullableNumber(value.sim_end_s)
+    && isNullableNumber(value.sim_duration_s)
+    && isNumber(value.sample_count)
+    && isNullableString(value.error);
+}
+
+function isRecordedRunSummary(value: unknown): value is RecordedRunSummary {
+  return isRecord(value) && RECORDED_RUN_SUMMARY_KEYS.every((key) => isNullableNumber(value[key]));
+}
+
+function isRecordedRunSample(value: unknown): value is RecordedRunSample {
+  return isRecord(value)
+    && isNullableNumber(value.t_s)
+    && isNullableNumber(value.network_queue_vehicles)
+    && isNullableNumber(value.active_vehicle_count)
+    && isNullableNumber(value.departed_cumulative)
+    && isNullableNumber(value.arrived_cumulative)
+    && isRecordOf(value.queue_by_traffic_light, isNullableNumber)
+    && isRecordOf(value.queue_by_approach, isNullableNumber)
+    && isRecordOf(value.phase_by_traffic_light, (item): item is RecordedRunSample["phase_by_traffic_light"][string] =>
+      isRecord(item) && isNullableNumber(item.phase_index) && isNullableString(item.phase_id));
+}
+
+export function isRecordedRun(value: unknown): value is RecordedRun {
+  if (!isRecord(value) || value.kind !== "simulation_run" || typeof value.schema_version !== "string") return false;
+  const { timeseries } = value;
+  return isRecordedRunInfo(value.run)
+    && (value.summary === null || isRecordedRunSummary(value.summary))
+    && isRecord(timeseries)
+    && isNumber(timeseries.interval_s)
+    && typeof timeseries.queue_measurement === "string"
+    && Array.isArray(timeseries.samples) && timeseries.samples.every(isRecordedRunSample)
+    && Array.isArray(value.intersections) && value.intersections.every((item: unknown) => isRecord(item)
+      && typeof item.traffic_light_id === "string" && isNullableNumber(item.mean_queue_vehicles)
+      && isNullableNumber(item.max_queue_vehicles) && isNumber(item.sample_count))
+    && Array.isArray(value.phases) && value.phases.every((item: unknown) => isRecord(item)
+      && typeof item.traffic_light_id === "string" && isNumber(item.phase_change_count)
+      && isNumber(item.completed_green_phases) && isNullableNumber(item.mean_green_duration_s));
+}
+
+export function isRecordedRunPair(value: unknown): value is RecordedRunPair {
+  return isRecord(value)
+    && typeof value.scenario_id === "string"
+    && (value.fixed === null || isRecordedRun(value.fixed))
+    && (value.adaptive === null || isRecordedRun(value.adaptive));
+}
