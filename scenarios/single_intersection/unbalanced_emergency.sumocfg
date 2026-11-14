@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <input><net-file value="demo.net.xml"/><route-files value="unbalanced.rou.xml,emergency_vehicles.rou.xml"/></input>
+    <time><begin value="0"/><end value="900"/><step-length value="1"/></time>
+    <random_number><seed value="42"/></random_number>
+    <output><tripinfo-output value="output/unbalanced_emergency/tripinfo.xml"/><tripinfo-output.write-unfinished value="true"/><summary-output value="output/unbalanced_emergency/summary.xml"/><summary-output.period value="10"/></output>
+    <processing><collision.action value="warn"/><time-to-teleport value="-1"/></processing>
+    <report><verbose value="false"/><no-step-log value="true"/></report>
+</configuration>

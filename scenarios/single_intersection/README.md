@@ -89,6 +89,76 @@ The command prints completed trips, waiting time, queues, collisions, teleports,
 
 `adaptive.json` is a reviewed mapping for the reusable cycle planner. To use it instead of the older per-second demo controller, run `python3 -m backend.simulation.cycle_run --config scenarios/single_intersection/demo.sumocfg --adaptive-manifest scenarios/single_intersection/adaptive.json`.
 
-## Emergency priority demo
+## Emergency vehicle overlay and priority
 
-Choose `single_intersection_emergency` in the browser, or run `python3 -m backend.simulation.runner --config scenarios/single_intersection/emergency.sumocfg --control-mode adaptive_with_emergency_priority`. The additional vehicles have distinct SUMO type IDs, shapes, and colors. The browser highlights those IDs. Only the configured synthetic incoming edges are eligible for priority; leaving the incoming edge and junction releases the request. On an opposing green, the normal 10-second minimum still applies, then SUMO's 3-second yellow and 2-second all-red run unchanged. On a compatible green, the normal 45-second maximum may be exceeded while the emergency vehicle passes. This is a simulation experiment with no pedestrian phases, not a real-world signal plan.
+The current API resolves independent selectors to `normal.sumocfg`, `rush_hour.sumocfg`, and `unbalanced.sumocfg`, plus their `_emergency` variants. Normal reuses the balanced 10-second flows. Rush Hour uses balanced 5-second flows. Unbalanced deterministically gives north/south four times the east/west demand (5-second versus 20-second periods). `emergency_vehicles.rou.xml` is loaded only when Emergency Vehicles is enabled and adds two stable ambulance IDs on valid, conflicting approaches at simulation second 35.
+
+In the browser, select a traffic profile, enable **Emergency Vehicles**, and choose the controller independently. For a direct priority run, use `python3 -m backend.simulation.runner --config scenarios/single_intersection/normal_emergency.sumocfg --control-mode adaptive_with_emergency_priority`. The additional vehicles have distinct SUMO type IDs, shapes, and colors. The browser highlights those IDs. Only the configured incoming edges are eligible for priority; leaving the incoming edge and junction releases the request. On an opposing green, the normal 10-second minimum still applies, then SUMO's 3-second yellow and 2-second all-red run unchanged. On a compatible green, the normal 45-second maximum may be exceeded while the emergency vehicle passes. This is a simulation experiment with no pedestrian phases, not a real-world signal plan.
+
+## Inspect prerecorded AI observations
+
+The Phase 1 adapter validates gate JSONL without starting SUMO or injecting vehicles. From the repository root:
+
+```bash
+python3 -m backend.simulation.ai_input \
+  --counts ~/flowgency_ai_samples/counts.jsonl \
+  --events ~/flowgency_ai_samples/events.jsonl \
+  --summary
+
+python3 -m backend.simulation.ai_input \
+  --counts ~/flowgency_ai_samples/counts.jsonl \
+  --events ~/flowgency_ai_samples/events.jsonl \
+  --second 30
+```
+
+`ai_arm_mapping.json` explicitly maps image-side camera arms to synthetic incoming edges and validates them against `mappings.json`. Its orientation is deliberately marked unverified. Snapshot vehicle counts, event-derived arrivals, cumulative counters, and SUMO queues are distinct measurements.
+
+Generate an offline route file in a temporary location without modifying the checked-in scenarios:
+
+```bash
+python3 -m backend.simulation.ai_demand \
+  --counts ~/flowgency_ai_samples/counts.jsonl \
+  --events ~/flowgency_ai_samples/events.jsonl \
+  --output /tmp/flowgency_ai_demand.rou.xml \
+  --summary-output /tmp/flowgency_ai_demand.summary.json
+```
+
+The generator creates only event-derived arrivals. Initial `t_s=0` observations remain summary metadata. It derives and validates the four straight connections from `demo.net.xml`; it does not infer turns, start SUMO, or modify `demo.rou.xml`.
+
+Run the generated demand with the existing fixed signal program in an isolated temporary directory:
+
+```bash
+python3 -m backend.simulation.ai_fixed_run \
+  --counts ~/flowgency_ai_samples/counts.jsonl \
+  --events ~/flowgency_ai_samples/events.jsonl \
+  --output-directory /tmp/flowgency_ai_fixed \
+  --max-simulation-time 1800
+```
+
+The directory receives the generated demand, runtime config, SUMO tripinfo/summary/collision files, per-vehicle insertion accounting, logs, and `fixed_run_summary.json`. Use `--overwrite` to replace those runtime artifacts. The checked-in route/config files are never selected as outputs.
+
+Run the same generated demand with the existing synthetic TraCI adaptive controller:
+
+```bash
+python3 -m backend.simulation.ai_adaptive_run \
+  --counts ~/flowgency_ai_samples/counts.jsonl \
+  --events ~/flowgency_ai_samples/events.jsonl \
+  --output-directory /tmp/flowgency_ai_adaptive \
+  --max-simulation-time 1800
+```
+
+The adaptive command retains the same network, routes, one-second simulation step, deterministic vehicle type, seed, collision checks, and teleport threshold as the fixed experiment. Only TraCI traffic-light duration commands differ. It writes an adaptive summary, per-vehicle insertion accounting, and an observed phase-transition trace under the requested runtime directory. To explicitly verify identical generated demand against a previous fixed run, add `--fixed-demand-route /tmp/flowgency_ai_fixed/ai_demand.rou.xml`.
+
+Opening `adaptive_runtime.sumocfg` directly in SUMO-GUI does **not** reproduce adaptive control; without TraCI it runs the embedded fixed program. Start the real controlled visualization through the adaptive CLI instead:
+
+```bash
+python3 -m backend.simulation.ai_adaptive_run \
+  --counts ~/flowgency_ai_samples/counts.jsonl \
+  --events ~/flowgency_ai_samples/events.jsonl \
+  --output-directory /tmp/flowgency_ai_adaptive_gui \
+  --sumo-binary sumo-gui \
+  --step-delay-ms 100 \
+  --max-simulation-time 1800
+```
+
+The GUI requires a working Linux display. The step delay affects wall-clock playback only, not SUMO timestamps or controller decisions.

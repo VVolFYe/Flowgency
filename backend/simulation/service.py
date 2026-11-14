@@ -16,7 +16,16 @@ from uuid import uuid4
 
 from .runner import SumoRunner
 from backend.analytics.runs import RunRecorder
-from .scenarios import DEFAULT_SCENARIO_ID, ScenarioDefinition, get_scenario
+from .scenarios import (
+    DEFAULT_CONTROLLER_MODE,
+    DEFAULT_NETWORK,
+    DEFAULT_TRAFFIC_PROFILE,
+    ControllerMode,
+    ScenarioDefinition,
+    SimulationConfiguration,
+    resolve_configuration,
+    validate_configuration,
+)
 from backend.voice.alerts import VoiceAlertPolicy
 
 LOGGER = logging.getLogger(__name__)
@@ -39,8 +48,7 @@ class _Command:
     name: str
     future: Future[dict[str, Any] | None]
     speed: float | None = None
-    control_mode: str | None = None
-    scenario_id: str | None = None
+    configuration: SimulationConfiguration | None = None
 
 
 RunnerFactory = Callable[[ScenarioDefinition], SumoRunner]
@@ -62,8 +70,7 @@ class SimulationService:
         self._runner_factory = runner_factory or self._default_runner_factory
         self._default_speed = self._validate_speed(default_speed)
         self._speed = self._default_speed
-        self._control_mode = "fixed"
-        self._scenario_id = DEFAULT_SCENARIO_ID
+        self._active_configuration: SimulationConfiguration | None = None
         self._command_timeout_s = command_timeout_s
         self._commands: queue.Queue[_Command] = queue.Queue()
         self._lock = threading.Lock()
@@ -91,6 +98,9 @@ class SimulationService:
             seed=scenario.seed,
             output_directory=scenario.output_directory,
             adaptive_manifest_path=scenario.adaptive_manifest_path,
+            network=scenario.network,
+            traffic_profile=scenario.traffic_profile,
+            emergency_vehicles_enabled=scenario.emergency_vehicles_enabled,
         )
 
     @staticmethod
@@ -117,23 +127,28 @@ class SimulationService:
     def start(
         self,
         speed: float | None = None,
-        control_mode: str | None = None,
-        scenario_id: str = DEFAULT_SCENARIO_ID,
+        network: str = DEFAULT_NETWORK,
+        traffic_profile: str = DEFAULT_TRAFFIC_PROFILE,
+        controller_mode: str = DEFAULT_CONTROLLER_MODE,
+        emergency_vehicles_enabled: bool = False,
     ) -> dict[str, Any]:
         selected_speed = self._default_speed if speed is None else self._validate_speed(speed)
-        scenario = get_scenario(scenario_id)
-        selected_mode = scenario.default_control_mode if control_mode is None else control_mode
-        if selected_mode not in {"fixed", "adaptive", "adaptive_with_emergency_priority"}:
-            raise ValueError("unsupported control_mode")
-        if selected_mode != "fixed" and not scenario.supports_adaptive_control:
-            raise ValueError(f"adaptive control is not available for {scenario_id}")
-        if selected_mode == "adaptive_with_emergency_priority" and not scenario.supports_emergency_priority:
-            raise ValueError(f"emergency priority is not available for {scenario_id}")
+        configuration = validate_configuration(
+            network=network,
+            traffic_profile=traffic_profile,
+            controller_mode=controller_mode,
+            emergency_vehicles_enabled=emergency_vehicles_enabled,
+        )
+        scenario = resolve_configuration(configuration)
+        if not scenario.config_path.is_file():
+            raise ValueError(
+                "configuration resolves to a missing SUMO file: "
+                f"{scenario.config_path.relative_to(scenario.config_path.parents[2])}"
+            )
         return self._submit(
             "start",
             speed=selected_speed,
-            control_mode=selected_mode,
-            scenario_id=scenario.scenario_id,
+            configuration=configuration,
         )
 
     def pause(self) -> dict[str, Any]:
@@ -171,8 +186,31 @@ class SimulationService:
             return {
                 "state": self._state.value,
                 "simulation_speed": self._speed,
-                "control_mode": self._control_mode,
-                "scenario_id": self._scenario_id,
+                "active_configuration": (
+                    self._active_configuration.as_dict()
+                    if self._active_configuration is not None
+                    else None
+                ),
+                "network": (
+                    self._active_configuration.network
+                    if self._active_configuration is not None
+                    else None
+                ),
+                "traffic_profile": (
+                    self._active_configuration.traffic_profile
+                    if self._active_configuration is not None
+                    else None
+                ),
+                "controller_mode": (
+                    self._active_configuration.controller_mode
+                    if self._active_configuration is not None
+                    else None
+                ),
+                "emergency_vehicles_enabled": (
+                    self._active_configuration.emergency_vehicles_enabled
+                    if self._active_configuration is not None
+                    else None
+                ),
                 "simulation_time_s": (
                     snapshot["simulation_time_s"] if snapshot is not None else None
                 ),
@@ -190,6 +228,10 @@ class SimulationService:
         with self._lock:
             return self._voice_policy.get(event_id)
 
+    def aggregate_voice_alerts(self, event_ids: list[str]) -> dict[str, Any] | None:
+        with self._lock:
+            return self._voice_policy.aggregate(event_ids)
+
     def _attach_voice_alerts(self, snapshot: dict[str, Any]) -> dict[str, Any]:
         """Keep optional voice processing outside the traffic-control path."""
         try:
@@ -200,17 +242,27 @@ class SimulationService:
             snapshot["voice_alerts"] = []
         return snapshot
 
-    def _begin_run(self, runner: SumoRunner, snapshot: dict[str, Any]) -> None:
+    def _begin_run(
+        self,
+        runner: SumoRunner,
+        snapshot: dict[str, Any],
+        scenario: ScenarioDefinition,
+        configuration: SimulationConfiguration,
+    ) -> None:
         """Start in-memory recording; never raises into the simulation."""
         self._recorder = None
         if self._run_sink is None:
             return
         try:
             run_id = snapshot.get("run_id") or getattr(runner, "run_id", None) or f"service-{uuid4()}"
+            # Run identity: the resolved scenario, plus "_emergency" when emergency vehicles run.
+            scenario_id = scenario.scenario_id + (
+                "_emergency" if configuration.emergency_vehicles_enabled else ""
+            )
             self._recorder = RunRecorder(
                 run_id=str(run_id),
-                scenario_id=self._scenario_id,
-                control_mode=self._control_mode,
+                scenario_id=scenario_id,
+                configuration=configuration.as_dict(),
                 initial_snapshot=snapshot,
             )
         except Exception:
@@ -239,8 +291,7 @@ class SimulationService:
         self,
         name: str,
         speed: float | None = None,
-        control_mode: str | None = None,
-        scenario_id: str | None = None,
+        configuration: SimulationConfiguration | None = None,
     ) -> dict[str, Any]:
         worker = self._worker
         if worker is None or not worker.is_alive():
@@ -251,8 +302,7 @@ class SimulationService:
                 name=name,
                 future=future,
                 speed=speed,
-                control_mode=control_mode,
-                scenario_id=scenario_id,
+                configuration=configuration,
             )
         )
         result = future.result(timeout=self._command_timeout_s)
@@ -335,21 +385,28 @@ class SimulationService:
         if command.name == "start":
             if state is not SimulationState.IDLE:
                 raise InvalidTransition(f"cannot start simulation while {state.value}")
-            scenario = get_scenario(command.scenario_id or DEFAULT_SCENARIO_ID)
+            configuration = command.configuration
+            if configuration is None:
+                raise ValueError("simulation configuration is required")
+            scenario = resolve_configuration(configuration)
             runner = self._runner_factory(scenario)
             try:
-                if command.control_mode != "fixed":
-                    runner.configure_control_mode(command.control_mode or "fixed")
+                internal_mode = {
+                    "fixed_timing": "fixed",
+                    "adaptive_network": "adaptive",
+                    "adaptive_emergency_priority": "adaptive_with_emergency_priority",
+                }[configuration.controller_mode]
+                if internal_mode != "fixed":
+                    runner.configure_control_mode(internal_mode)
                 runner.start()
                 snapshot = self._attach_voice_alerts(runner.extract_snapshot())
             except BaseException:
                 runner.close()
                 raise
             self._speed = command.speed or self._default_speed
-            self._control_mode = command.control_mode or "fixed"
-            self._scenario_id = scenario.scenario_id
+            self._active_configuration = configuration
             self._set_state(SimulationState.RUNNING, snapshot=snapshot, error=None)
-            self._begin_run(runner, snapshot)
+            self._begin_run(runner, snapshot, scenario, configuration)
             return runner, True
 
         if command.name == "pause":
@@ -380,11 +437,18 @@ class SimulationService:
             self._end_run("stopped")
             if runner is not None:
                 runner.close()
-            scenario = get_scenario(self._scenario_id)
+            if self._active_configuration is None:
+                raise InvalidTransition("cannot reset without an active configuration")
+            scenario = resolve_configuration(self._active_configuration)
             runner = self._runner_factory(scenario)
             try:
-                if self._control_mode != "fixed":
-                    runner.configure_control_mode(self._control_mode)
+                internal_mode = {
+                    "fixed_timing": "fixed",
+                    "adaptive_network": "adaptive",
+                    "adaptive_emergency_priority": "adaptive_with_emergency_priority",
+                }[self._active_configuration.controller_mode]
+                if internal_mode != "fixed":
+                    runner.configure_control_mode(internal_mode)
                 runner.start()
                 snapshot = self._attach_voice_alerts(runner.extract_snapshot())
             except BaseException:
@@ -392,7 +456,7 @@ class SimulationService:
                 raise
             self._speed = self._default_speed
             self._set_state(SimulationState.PAUSED, snapshot=snapshot, error=None)
-            self._begin_run(runner, snapshot)
+            self._begin_run(runner, snapshot, scenario, self._active_configuration)
             return runner, True
 
         if command.name == "stop":
@@ -403,8 +467,7 @@ class SimulationService:
                 runner.close()
                 runner = None
             self._speed = self._default_speed
-            self._control_mode = "fixed"
-            self._scenario_id = DEFAULT_SCENARIO_ID
+            self._active_configuration = None
             self._set_state(SimulationState.IDLE, snapshot=None, error=None)
             return runner, True
 
@@ -414,8 +477,7 @@ class SimulationService:
                 runner.close()
                 runner = None
             self._speed = self._default_speed
-            self._control_mode = "fixed"
-            self._scenario_id = DEFAULT_SCENARIO_ID
+            self._active_configuration = None
             self._set_state(SimulationState.IDLE, snapshot=None, error=None)
             return runner, False
 

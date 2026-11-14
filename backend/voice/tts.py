@@ -5,14 +5,18 @@ from __future__ import annotations
 import json
 import os
 import threading
+from collections import OrderedDict
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 
 class VoiceSynthesis:
-    def __init__(self) -> None:
-        self._cache: dict[tuple[str, str, str], bytes] = {}
+    def __init__(self, *, max_cache_entries: int = 32) -> None:
+        if max_cache_entries <= 0:
+            raise ValueError("max_cache_entries must be positive")
+        self._cache: OrderedDict[tuple[str, str, str], bytes] = OrderedDict()
+        self._max_cache_entries = max_cache_entries
         self._lock = threading.Lock()
 
     def render(self, text: str) -> bytes:
@@ -22,12 +26,16 @@ class VoiceSynthesis:
         model_id = os.getenv("ELEVENLABS_MODEL_ID", "eleven_multilingual_v2")
         if not api_key or not voice_id:
             raise RuntimeError("ElevenLabs voice is not configured on the backend")
-        cache_key = (voice_id, model_id, text)
+        normalized_text = " ".join(text.split())
+        if not normalized_text:
+            raise RuntimeError("voice alert text is empty")
+        cache_key = (voice_id, model_id, normalized_text)
         with self._lock:
             if cache_key in self._cache:
+                self._cache.move_to_end(cache_key)
                 return self._cache[cache_key]
         url = f"https://api.elevenlabs.io/v1/text-to-speech/{quote(voice_id, safe='')}/stream"
-        payload = json.dumps({"text": text, "model_id": model_id}).encode("utf-8")
+        payload = json.dumps({"text": normalized_text, "model_id": model_id}).encode("utf-8")
         request = Request(
             url,
             data=payload,
@@ -45,4 +53,7 @@ class VoiceSynthesis:
             raise RuntimeError("ElevenLabs returned empty audio")
         with self._lock:
             self._cache[cache_key] = audio
+            self._cache.move_to_end(cache_key)
+            while len(self._cache) > self._max_cache_entries:
+                self._cache.popitem(last=False)
         return audio

@@ -460,6 +460,19 @@ export function SimulationCanvas({
     drawSyntheticSignals(context);
     drawLondonSignals(context);
     const { screen, scale } = projection(geometry, size, viewRef.current);
+    if (snapshot?.emergency_priority?.active_vehicle_id && snapshot.traffic_light_id) {
+      const controller = geometry.traffic_lights.find(light => light.traffic_light_id === snapshot.traffic_light_id);
+      controller?.junctions?.forEach(junction => {
+        const position = screen(junction);
+        context.save();
+        context.beginPath();
+        context.arc(position.x, position.y, 22, 0, Math.PI * 2);
+        context.strokeStyle = "#ffbe83";
+        context.lineWidth = 2;
+        context.stroke();
+        context.restore();
+      });
+    }
     const vehicles = transitionRef.current
       ? interpolatedVehicles(transitionRef.current, now)
       : vehicleMap(snapshot?.vehicles);
@@ -468,6 +481,20 @@ export function SimulationCanvas({
       const length = Math.min(15, Math.max(3.5, 4.6 * scale));
       const width = Math.min(8, Math.max(2.2, 1.9 * scale));
       const emergencyColor = EMERGENCY_COLORS[vehicle.vehicle_type.toLowerCase()];
+      if (snapshot?.emergency_priority?.active_vehicle_id === vehicle.vehicle_id) {
+        context.save();
+        context.beginPath();
+        context.arc(position.x, position.y, Math.max(16, length * 1.5), 0, Math.PI * 2);
+        context.strokeStyle = "#ffbe83";
+        context.lineWidth = 2;
+        context.setLineDash([5, 4]);
+        context.stroke();
+        context.font = "600 11px Manrope, sans-serif";
+        context.textAlign = "center";
+        context.fillStyle = "#fff1e5";
+        context.fillText("PRIORITY", position.x, position.y - Math.max(23, length * 1.5 + 7));
+        context.restore();
+      }
       context.save();
       context.translate(position.x, position.y);
       context.rotate((vehicle.angle_deg * Math.PI) / 180);
@@ -489,7 +516,7 @@ export function SimulationCanvas({
       }
       context.restore();
     });
-  }, [drawLondonSignals, drawSyntheticSignals, geometry, snapshot?.vehicles]);
+  }, [drawLondonSignals, drawSyntheticSignals, geometry, snapshot]);
 
   useEffect(() => {
     const host = hostRef.current;

@@ -156,52 +156,54 @@ class SimulationServiceTests(unittest.TestCase):
             self.service.set_speed(8.0)
 
     def test_scenario_selection_reset_stop_and_default_compatibility(self) -> None:
-        self.assertEqual(self.service.status()["scenario_id"], "single_intersection")
-        started = self.service.start(scenario_id="london_normal")
-        self.assertEqual(started["scenario_id"], "london_normal")
+        self.assertIsNone(self.service.status()["active_configuration"])
+        started = self.service.start(network="london", traffic_profile="normal")
+        self.assertEqual(started["network"], "london")
         self.assertEqual(self.fixture.created_scenarios, ["london_normal"])
         self.assertEqual(self.service.pause()["state"], "paused")
         self.service.reset()
         self.assertEqual(self.fixture.created_scenarios, ["london_normal", "london_normal"])
-        self.assertEqual(self.service.stop()["scenario_id"], "single_intersection")
+        self.assertIsNone(self.service.stop()["active_configuration"])
 
     def test_invalid_scenario_is_rejected_before_worker_start(self) -> None:
-        with self.assertRaises(ScenarioNotFound):
-            self.service.start(scenario_id="not_a_scenario")
+        with self.assertRaises(ValueError):
+            self.service.start(network="not_a_network")
         self.assertEqual(self.fixture.created_scenarios, [])
 
     def test_adaptive_mode_is_preserved_for_london_profiles(self) -> None:
         started = self.service.start(
-            control_mode="adaptive", scenario_id="london_unbalanced"
+            controller_mode="adaptive_network", network="london", traffic_profile="unbalanced"
         )
-        self.assertEqual(started["control_mode"], "adaptive")
+        self.assertEqual(started["controller_mode"], "adaptive_network")
         self.service.pause()
         reset = self.service.reset()
-        self.assertEqual(reset["control_mode"], "adaptive")
+        self.assertEqual(reset["controller_mode"], "adaptive_network")
         self.service.stop()
 
         rush_hour = self.service.start(
-            control_mode="adaptive", scenario_id="london_rush_hour"
+            controller_mode="adaptive_network", network="london", traffic_profile="rush_hour"
         )
-        self.assertEqual(rush_hour["scenario_id"], "london_rush_hour")
-        self.assertEqual(rush_hour["control_mode"], "adaptive")
+        self.assertEqual(rush_hour["traffic_profile"], "rush_hour")
+        self.assertEqual(rush_hour["controller_mode"], "adaptive_network")
         self.service.stop()
 
-        with self.assertRaises(ValueError):
-            self.service.start(
-                control_mode="adaptive_with_emergency_priority",
-                scenario_id="london_rush_hour",
-            )
+        priority = self.service.start(
+            controller_mode="adaptive_emergency_priority",
+            network="london",
+            traffic_profile="rush_hour",
+        )
+        self.assertEqual(priority["controller_mode"], "adaptive_emergency_priority")
+        self.service.stop()
 
     def test_emergency_scenario_selects_priority_and_reset_preserves_it(self) -> None:
-        started = self.service.start(scenario_id="single_intersection_emergency")
-        self.assertEqual(started["control_mode"], "adaptive_with_emergency_priority")
-        self.assertEqual(self.service.reset()["control_mode"], "adaptive_with_emergency_priority")
+        started = self.service.start(
+            controller_mode="adaptive_emergency_priority",
+            emergency_vehicles_enabled=True,
+        )
+        self.assertEqual(started["controller_mode"], "adaptive_emergency_priority")
+        self.assertTrue(started["emergency_vehicles_enabled"])
+        self.assertEqual(self.service.reset()["controller_mode"], "adaptive_emergency_priority")
         self.service.stop()
-        with self.assertRaises(ValueError):
-            self.service.start(
-                control_mode="adaptive_with_emergency_priority", scenario_id="london_normal"
-            )
 
 
 class SimulationApiTests(unittest.TestCase):

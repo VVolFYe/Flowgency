@@ -7,7 +7,7 @@ which serves a copy from the analytics database: the team's shared Postgres
 when `FLOWGENCY_ANALYTICS_DB` is set, otherwise local SQLite
 (`data/analytics.sqlite3`, gitignored; see `backend/README.md`). File
 formats, the tables, and the endpoints are defined in `docs/DATA_CONTRACTS.md`
-section K. `null` always means unknown; it is never a stand-in for zero.
+section O. `null` always means unknown; it is never a stand-in for zero.
 
 ## Workflow: generate JSON → commit → run the loader
 
@@ -28,7 +28,7 @@ section K. `null` always means unknown; it is never a stand-in for zero.
    load serves everyone. Rows for entries removed from `index.json` are not
    deleted. With local SQLite, delete `data/analytics.sqlite3` and reload to
    drop them, but deleting the file also deletes the simulation runs recorded from Live Simulation (DATA_CONTRACTS.md
-   K.5); the loader itself never touches them.
+   O.5); the loader itself never touches them.
 
 | File | Kind | Producer |
 | --- | --- | --- |

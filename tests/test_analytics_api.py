@@ -75,8 +75,8 @@ class AnalyticsApiTests(unittest.TestCase):
         runs.save_run(runs.build_payload(run=run, summary={"total_time_loss_s": None}, samples=[], phases=[]))
 
     def test_latest_run(self) -> None:
-        self.save_run("a", "fixed", "2026-11-14T10:01:00.000Z")
-        self.save_run("b", "adaptive", "2026-11-14T10:05:00.000Z", scenario="other")
+        self.save_run("a", "fixed_timing", "2026-11-14T10:01:00.000Z")
+        self.save_run("b", "adaptive_network", "2026-11-14T10:05:00.000Z", scenario="other")
         response = self.client.get("/api/analytics/runs/latest")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers["content-type"], "application/json")
@@ -90,10 +90,10 @@ class AnalyticsApiTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/analytics").status_code, 200)
 
     def test_latest_pair(self) -> None:
-        self.save_run("f1", "fixed", "2026-11-14T10:01:00.000Z")
-        self.save_run("f2", "fixed", "2026-11-14T10:02:00.000Z")
-        self.save_run("e1", "adaptive_with_emergency_priority", "2026-11-14T10:03:00.000Z")
-        self.save_run("x1", "adaptive", "2026-11-14T10:09:00.000Z", scenario="other")
+        self.save_run("f1", "fixed_timing", "2026-11-14T10:01:00.000Z")
+        self.save_run("f2", "fixed_timing", "2026-11-14T10:02:00.000Z")
+        self.save_run("e1", "adaptive_emergency_priority", "2026-11-14T10:03:00.000Z")
+        self.save_run("x1", "adaptive_network", "2026-11-14T10:09:00.000Z", scenario="other")
         pair = self.client.get("/api/analytics/runs/latest-pair", params={"scenario_id": "london_normal"}).json()
         self.assertEqual(pair["scenario_id"], "london_normal")
         self.assertEqual(pair["fixed"]["run"]["run_id"], "f2")

@@ -260,6 +260,13 @@ class ContractModelTests(unittest.TestCase):
                 "vehicles_on_approach": -1, "entered_total": 0, "discharged_total": 1}},
                 "in_intersection": 0, "model_id": "m"})
 
+    def test_producer_rejects_nested_unknown_fields(self) -> None:
+        counts = {"schema_version": "1.0", "t_s": 13.0, "approaches": {"north": {
+            "vehicles_on_approach": 6, "entered_total": 14, "discharged_total": 9,
+            "future_confidence": 0.9}}, "in_intersection": 3, "model_id": "m"}
+        with self.assertRaises(ValidationError):
+            GateCounts.model_validate(counts)
+
 
 if __name__ == "__main__":
     unittest.main()

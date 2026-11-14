@@ -6,19 +6,21 @@ import asyncio
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Literal
 
-from fastapi import Depends, FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Response, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictBool
 
 from backend.analytics.runs import save_run
 from backend.api.analytics import router as analytics_router
 from backend.api.auth import Auth0TokenVerifier, require_permission
 
-from backend.simulation.geometry import get_scenario_geometry
+from backend.simulation.geometry import get_network_selection_geometry
 from backend.simulation.scenarios import (
-    DEFAULT_SCENARIO_ID,
+    DEFAULT_CONTROLLER_MODE,
+    DEFAULT_NETWORK,
+    DEFAULT_TRAFFIC_PROFILE,
     ScenarioNotFound,
-    list_scenarios,
+    list_configuration_options,
 )
 from backend.simulation.service import InvalidTransition, SimulationService
 from backend.voice.tts import VoiceSynthesis
@@ -26,8 +28,12 @@ from backend.voice.tts import VoiceSynthesis
 
 class SimulationOptions(BaseModel):
     simulation_speed: float = Field(default=4.0, ge=0.1, le=100.0)
-    control_mode: Literal["fixed", "adaptive", "adaptive_with_emergency_priority"] | None = None
-    scenario_id: str = DEFAULT_SCENARIO_ID
+    network: Literal["single_intersection", "london"] = DEFAULT_NETWORK
+    traffic_profile: Literal["normal", "rush_hour", "unbalanced"] = DEFAULT_TRAFFIC_PROFILE
+    controller_mode: Literal[
+        "fixed_timing", "adaptive_network", "adaptive_emergency_priority"
+    ] = DEFAULT_CONTROLLER_MODE
+    emergency_vehicles_enabled: StrictBool = False
 
 
 class ResumeOptions(BaseModel):
@@ -96,17 +102,18 @@ def create_app(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no snapshot")
         return snapshot
 
-    @app.get("/api/simulation/scenarios")
-    async def supported_scenarios() -> list[dict[str, object]]:
-        return list_scenarios()
+    @app.get("/api/simulation/configuration-options")
+    async def supported_configuration() -> dict[str, object]:
+        return list_configuration_options()
 
     @app.get("/api/simulation/network")
-    async def network_geometry(scenario_id: str | None = None) -> dict[str, object]:
-        selected = scenario_id or str(simulation.status()["scenario_id"])
+    async def network_geometry(network: str | None = None) -> dict[str, object]:
+        status_configuration = simulation.status().get("active_configuration") or {}
+        selected = network or status_configuration.get("network") or DEFAULT_NETWORK
         try:
-            return get_scenario_geometry(selected)
-        except ScenarioNotFound as exc:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+            return get_network_selection_geometry(str(selected))
+        except (ScenarioNotFound, ValueError) as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     @app.get("/api/voice/alerts/{event_id}/audio")
     async def voice_audio(event_id: str) -> Response:
@@ -119,10 +126,31 @@ def create_app(
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
         return Response(audio, media_type="audio/mpeg", headers={"Cache-Control": "no-store"})
 
+    @app.get("/api/voice/audio")
+    async def aggregate_voice_audio(
+        event_ids: list[str] = Query(min_length=1, max_length=8),
+    ) -> Response:
+        alert = simulation.aggregate_voice_alerts(event_ids)
+        if alert is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="voice alerts not found or cannot be aggregated",
+            )
+        try:
+            audio = await asyncio.to_thread(speech.render, alert["text"])
+        except RuntimeError as exc:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+        return Response(audio, media_type="audio/mpeg", headers={"Cache-Control": "private, max-age=300"})
+
     @app.post("/api/simulation/start", dependencies=[control_permission])
     async def start(options: SimulationOptions = SimulationOptions()) -> dict[str, object]:
         return await execute(
-            "start", options.simulation_speed, options.control_mode, options.scenario_id
+            "start",
+            options.simulation_speed,
+            options.network,
+            options.traffic_profile,
+            options.controller_mode,
+            options.emergency_vehicles_enabled,
         )
 
     @app.post("/api/simulation/pause", dependencies=[control_permission])

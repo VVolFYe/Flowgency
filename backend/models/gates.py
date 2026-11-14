@@ -1,9 +1,9 @@
-"""Pydantic models of the gate-mode vision outputs, schema version 1.0.
+"""Strict producer and forward-compatible consumer models for gate JSONL v1.0.
 
-Mirrors ``docs/DATA_CONTRACTS.md`` sections I (gate events, ``events.jsonl``)
-and J (per-second gate counts, ``counts.jsonl``). Arms are named by image side
-of the camera frame (``north`` = top), not by compass bearing. Values are
-camera-derived *estimates*; see the contract text for their limits.
+Vision validates emitted records with the strict ``GateEvent`` and
+``GateCounts`` models. Offline simulation ingestion uses the corresponding
+``*Input`` models so optional future metadata is retained without weakening
+validation of known fields.
 """
 
 from __future__ import annotations
@@ -12,8 +12,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
 
-SCHEMA_VERSION = "1.0"
 
+SCHEMA_VERSION = "1.0"
 Arm = Literal["north", "east", "south", "west"]
 NonNegativeInt = Annotated[StrictInt, Field(ge=0)]
 Seconds = Annotated[float, Field(ge=0.0)]
@@ -21,7 +21,7 @@ NonEmptyStr = Annotated[str, Field(min_length=1)]
 
 
 class GateEvent(BaseModel):
-    """One gate trigger by one tracked vehicle (one line of ``events.jsonl``)."""
+    """One strictly validated event emitted to ``events.jsonl``."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -50,6 +50,8 @@ class GateEvent(BaseModel):
 
 
 class ApproachGateCounts(BaseModel):
+    """Strictly validated producer counts for one configured camera arm."""
+
     model_config = ConfigDict(extra="forbid")
 
     vehicles_on_approach: NonNegativeInt
@@ -58,7 +60,7 @@ class ApproachGateCounts(BaseModel):
 
 
 class GateCounts(BaseModel):
-    """Cumulative state at ``t_s`` (one line of ``counts.jsonl``)."""
+    """One strictly validated cumulative state emitted to ``counts.jsonl``."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -70,3 +72,22 @@ class GateCounts(BaseModel):
 
     def to_contract_dict(self) -> dict[str, Any]:
         return self.model_dump(mode="json")
+
+
+class GateEventInput(GateEvent):
+    """Consumer event model accepting unknown optional future metadata."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class ApproachGateCountsInput(ApproachGateCounts):
+    """Consumer approach model accepting unknown nested optional metadata."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class GateCountsInput(GateCounts):
+    """Consumer count model accepting future top-level and nested metadata."""
+
+    model_config = ConfigDict(extra="allow")
+    approaches: dict[Arm, ApproachGateCountsInput]

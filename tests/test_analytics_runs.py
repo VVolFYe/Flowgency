@@ -14,13 +14,14 @@ from typing import Any
 from unittest import mock
 
 from backend.analytics import db, load, runs
-from backend.simulation.scenarios import DEFAULT_SCENARIO_ID
 from backend.simulation.service import SimulationService
 from tests.test_simulation_service import FakeRunner, ServiceFixture
 
 ROOT = Path(__file__).resolve().parents[1]
 YOUTUBE = ROOT / "frontend" / "public" / "analytics" / "youtube.json"
-RUN_INFO = {"run_id": "r1", "scenario_id": "london_normal", "control_mode": "fixed", "status": "finished"}
+RUN_INFO = {"run_id": "r1", "scenario_id": "london_normal", "control_mode": "fixed_timing", "status": "finished"}
+ADAPTIVE_CONFIGURATION = {"network": "london", "traffic_profile": "normal",
+                          "controller_mode": "adaptive_network", "emergency_vehicles_enabled": False}
 
 
 def fake_sample(t_s: float, queue_a: int | None, queue_b: int | None) -> dict[str, Any]:
@@ -83,7 +84,7 @@ class PayloadBuilderTests(unittest.TestCase):
 
 class RunRecorderTests(unittest.TestCase):
     def recorder(self, first: dict[str, Any]) -> runs.RunRecorder:
-        return runs.RunRecorder(run_id="r1", scenario_id="london_normal", control_mode="adaptive",
+        return runs.RunRecorder(run_id="r1", scenario_id="london_normal", configuration=ADAPTIVE_CONFIGURATION,
                                 initial_snapshot=first, started_at="2026-11-14T10:00:00.000Z")
 
     def test_samples_every_five_simulation_seconds(self) -> None:
@@ -151,28 +152,28 @@ class RunsTableTests(unittest.TestCase):
         return runs.build_payload(run=run, summary=None, samples=[], phases=[])
 
     def test_save_creates_database_and_reads_latest(self) -> None:
-        runs.save_run(self.payload("a", "fixed", "2026-11-14T10:01:00.000Z"), self.database)
-        runs.save_run(self.payload("b", "adaptive", "2026-11-14T10:03:00.000Z"), self.database)
-        runs.save_run(self.payload("c", "fixed", "2026-11-14T10:02:00.000Z", scenario="other"), self.database)
+        runs.save_run(self.payload("a", "fixed_timing", "2026-11-14T10:01:00.000Z"), self.database)
+        runs.save_run(self.payload("b", "adaptive_network", "2026-11-14T10:03:00.000Z"), self.database)
+        runs.save_run(self.payload("c", "fixed_timing", "2026-11-14T10:02:00.000Z", scenario="other"), self.database)
         latest = json.loads(db.latest_run_payload(self.database) or "null")
         self.assertEqual(latest["run"]["run_id"], "b")
-        fixed = json.loads(db.latest_run_payload_for("london_normal", ("fixed",), self.database) or "null")
+        fixed = json.loads(db.latest_run_payload_for("london_normal", db.FIXED_MODES, self.database) or "null")
         self.assertEqual(fixed["run"]["run_id"], "a")
-        self.assertIsNone(db.latest_run_payload_for("london_normal", ("adaptive_with_emergency_priority",), self.database))
+        self.assertIsNone(db.latest_run_payload_for("london_normal", ("adaptive_emergency_priority",), self.database))
         self.assertEqual(db.list_entries(self.database), [])  # runs are not analytics entries
 
     def test_status_check_and_duplicate_run_id(self) -> None:
         with self.assertRaises(ValueError):
-            db.insert_run(run_id="x", scenario_id="s", control_mode="fixed", status="running",
+            db.insert_run(run_id="x", scenario_id="s", control_mode="fixed_timing", status="running",
                           started_at="t", ended_at="t", sim_duration_s=None, payload="{}", path=self.database)
-        runs.save_run(self.payload("a", "fixed", "2026-11-14T10:01:00.000Z"), self.database)
+        runs.save_run(self.payload("a", "fixed_timing", "2026-11-14T10:01:00.000Z"), self.database)
         with self.assertRaises(sqlite3.IntegrityError):
-            runs.save_run(self.payload("a", "fixed", "2026-11-14T10:02:00.000Z"), self.database)
+            runs.save_run(self.payload("a", "fixed_timing", "2026-11-14T10:02:00.000Z"), self.database)
         with closing(sqlite3.connect(self.database)) as connection, self.assertRaises(sqlite3.IntegrityError):
             connection.execute("INSERT INTO runs VALUES ('y', 's', 'fixed', 'paused', 't', 't', NULL, '{}')")
 
     def test_loader_never_touches_runs(self) -> None:
-        runs.save_run(self.payload("a", "fixed", "2026-11-14T10:01:00.000Z"), self.database)
+        runs.save_run(self.payload("a", "fixed_timing", "2026-11-14T10:01:00.000Z"), self.database)
         public = Path(self.temporary.name) / "public"
         public.mkdir()
         shutil.copy(YOUTUBE, public / "youtube.json")
@@ -225,11 +226,26 @@ class ServiceRecordingTests(unittest.TestCase):
         service.stop()  # stopping a finished run must not record it again
         self.assertEqual(len(saved), 1)
         run = saved[0]["run"]
-        self.assertEqual((run["status"], run["control_mode"], run["run_id"]), ("finished", "fixed", "fake-run"))
-        self.assertEqual(run["scenario_id"], DEFAULT_SCENARIO_ID)
+        self.assertEqual((run["status"], run["control_mode"], run["run_id"]), ("finished", "fixed_timing", "fake-run"))
+        self.assertEqual(run["scenario_id"], "single_intersection_normal")
+        self.assertEqual(
+            (run["network"], run["traffic_profile"], run["controller_mode"], run["emergency_vehicles_enabled"]),
+            ("single_intersection", "normal", "fixed_timing", False),
+        )
         self.assertEqual(run["sim_duration_s"], 20.0)
         self.assertEqual([sample["t_s"] for sample in saved[0]["timeseries"]["samples"]], [5.0, 10.0, 15.0, 20.0])
         self.assertIsNone(saved[0]["summary"])  # the fake snapshot has no metrics: unknown, not zero
+
+    def test_run_identity_uses_configuration_and_emergency_suffix(self) -> None:
+        saved: list[dict[str, Any]] = []
+        service = self.make_service(saved.append)
+        service.start(network="single_intersection", traffic_profile="rush_hour",
+                      controller_mode="adaptive_emergency_priority", emergency_vehicles_enabled=True)
+        service.stop()
+        run = saved[0]["run"]
+        self.assertEqual(run["scenario_id"], "single_intersection_rush_hour_emergency")
+        self.assertEqual((run["control_mode"], run["controller_mode"]), ("adaptive_emergency_priority",) * 2)
+        self.assertEqual((run["traffic_profile"], run["emergency_vehicles_enabled"]), ("rush_hour", True))
 
     def test_records_exactly_one_row_on_stop(self) -> None:
         saved: list[dict[str, Any]] = []

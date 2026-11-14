@@ -17,6 +17,9 @@ from backend.simulation.cycle_adapter import (
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "scenarios" / "single_intersection" / "adaptive.json"
+GAP_MANIFEST = (
+    ROOT / "scenarios" / "single_intersection" / "gap_v1.experimental.json"
+)
 
 
 class Light:
@@ -83,6 +86,52 @@ class CycleAdapterTests(unittest.TestCase):
         self.light.phase = 2
         with self.assertRaises(RuntimeError):
             signal.tick()
+
+    def test_synthetic_gap_manifest_is_audited_and_preserves_clearance(self) -> None:
+        spec = json.loads(GAP_MANIFEST.read_text(encoding="utf-8"))["controllers"][0]
+        clock = SimpleNamespace(now=0.0)
+
+        class GapLight(Light):
+            def getNextSwitch(self, _: str) -> float:
+                return 30.0
+
+        light = GapLight(spec)
+        connection = SimpleNamespace(
+            trafficlight=light,
+            lane=Lanes(),
+            simulation=SimpleNamespace(
+                getTime=lambda: clock.now,
+                getDeltaT=lambda: 1.0,
+            ),
+        )
+        loaded = load_adaptive_signal_set(GAP_MANIFEST, connection)
+        self.assertEqual(loaded.profile_id, "single_intersection_gap_v1_experimental")
+        self.assertEqual(len(loaded.signals), 1)
+        signal = loaded.signals[0]
+        self.assertEqual(signal.tls_id, "demo_01")
+        self.assertEqual(signal.strategy, "gap_v1")
+
+        competing_vehicle = [{
+            "vehicle_id": "eastbound",
+            "link_index": 1,
+            "distance_m": 10.0,
+            "speed_mps": 0.0,
+            "waiting_time_s": 10.0,
+        }]
+        for second in range(10):
+            clock.now = float(second)
+            self.assertIsNone(signal.tick(competing_vehicle))
+        clock.now = 10.0
+        event = signal.tick(competing_vehicle)
+        self.assertIsNotNone(event)
+        self.assertEqual(event["strategy"], "gap_v1")
+        self.assertEqual(light.requests, [(0, 1)])
+
+        for phase in (1, 2, 3, 4, 5, 0):
+            light.phase = phase
+            clock.now += 1
+            signal.tick([])
+        self.assertEqual(light.requests, [(0, 1)])
 
 
 class DiscoveryLight:

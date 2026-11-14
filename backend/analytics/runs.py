@@ -1,4 +1,4 @@
-"""Record simulation runs started from the UI (payload schema in docs/DATA_CONTRACTS.md K.5).
+"""Record simulation runs started from the UI (payload schema in docs/DATA_CONTRACTS.md O.5).
 
 :class:`RunRecorder` is fed every snapshot the simulation service already
 extracts. It keeps everything in memory and never touches the database;
@@ -40,7 +40,7 @@ def _count(value: Any) -> int | None:
 
 
 def is_green_state(state: Any) -> bool | None:
-    """K.2 definition: contains ``G``/``g`` and no ``y``/``Y``; ``None`` if the state is unknown."""
+    """O.2 definition: contains ``G``/``g`` and no ``y``/``Y``; ``None`` if the state is unknown."""
     if not isinstance(state, str) or not state:
         return None
     return ("G" in state or "g" in state) and "y" not in state and "Y" not in state
@@ -168,12 +168,17 @@ class RunRecorder:
     """In-memory accumulation for one run; owned by the simulation worker thread."""
 
     def __init__(
-        self, *, run_id: str, scenario_id: str, control_mode: str,
+        self, *, run_id: str, scenario_id: str, configuration: dict[str, Any],
         initial_snapshot: dict[str, Any], started_at: str | None = None,
     ) -> None:
+        """``configuration`` is ``SimulationConfiguration.as_dict()``: network,
+        traffic_profile, controller_mode, emergency_vehicles_enabled."""
         self.run_id = run_id
         self.scenario_id = scenario_id
-        self.control_mode = control_mode
+        self.network = configuration.get("network")
+        self.traffic_profile = configuration.get("traffic_profile")
+        self.controller_mode = configuration["controller_mode"]
+        self.emergency_vehicles_enabled = configuration.get("emergency_vehicles_enabled")
         self.started_at = started_at or utc_now()
         self.legacy_scenario_id = initial_snapshot.get("scenario_id")
         self.sim_start_s = _number(initial_snapshot.get("simulation_time_s"))
@@ -222,7 +227,11 @@ class RunRecorder:
             "run_id": self.run_id,
             "scenario_id": self.scenario_id,
             "legacy_scenario_id": self.legacy_scenario_id,
-            "control_mode": self.control_mode,
+            "control_mode": self.controller_mode,  # = the runs.control_mode column
+            "network": self.network,
+            "traffic_profile": self.traffic_profile,
+            "controller_mode": self.controller_mode,
+            "emergency_vehicles_enabled": self.emergency_vehicles_enabled,
             "status": status,
             "started_at": self.started_at,
             "ended_at": ended_at or utc_now(),

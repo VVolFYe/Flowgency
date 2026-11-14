@@ -1,6 +1,7 @@
 import type {
+  ConfigurationOptions,
   NetworkGeometry,
-  SimulationScenario,
+  SimulationConfiguration,
   SimulationSnapshot,
   SimulationStatus,
 } from "./contracts";
@@ -42,9 +43,9 @@ async function request<T>(path: string, init?: RequestInit, baseUrl = BACKEND_UR
 }
 
 export const api = {
-  scenarios: (signal?: AbortSignal) => request<SimulationScenario[]>("/api/simulation/scenarios", { signal }),
-  network: (scenarioId?: string, signal?: AbortSignal) => request<NetworkGeometry>(
-    `/api/simulation/network${scenarioId ? `?scenario_id=${encodeURIComponent(scenarioId)}` : ""}`,
+  configurationOptions: (signal?: AbortSignal) => request<ConfigurationOptions>("/api/simulation/configuration-options", { signal }),
+  network: (network?: string, signal?: AbortSignal) => request<NetworkGeometry>(
+    `/api/simulation/network${network ? `?network=${encodeURIComponent(network)}` : ""}`,
     { signal },
   ),
   status: () => request<SimulationStatus>("/api/simulation/status"),
@@ -66,8 +67,7 @@ export const api = {
   command: (
     command: "start" | "pause" | "resume" | "reset" | "stop",
     simulationSpeed?: number,
-    scenarioId?: string,
-    controlMode?: "fixed" | "adaptive" | "adaptive_with_emergency_priority",
+    configuration?: SimulationConfiguration,
   ) =>
     request<SimulationStatus>(`/api/simulation/${command}`, {
       method: "POST",
@@ -75,8 +75,12 @@ export const api = {
       body: command === "start"
         ? JSON.stringify({
             simulation_speed: simulationSpeed ?? 4,
-            scenario_id: scenarioId ?? "single_intersection",
-            control_mode: controlMode ?? "fixed",
+            ...(configuration ?? {
+              network: "single_intersection",
+              traffic_profile: "normal",
+              controller_mode: "fixed_timing",
+              emergency_vehicles_enabled: false,
+            }),
           })
         : command === "resume" && simulationSpeed !== undefined
           ? JSON.stringify({ simulation_speed: simulationSpeed })

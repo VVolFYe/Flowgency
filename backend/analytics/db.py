@@ -30,7 +30,9 @@ DB_ENV_VAR = "FLOWGENCY_ANALYTICS_DB"
 DEFAULT_DB = Path("data") / "analytics.sqlite3"
 KINDS = ("simulation", "vision")
 RUN_STATUSES = ("finished", "stopped", "error")
-ADAPTIVE_MODES = ("adaptive", "adaptive_with_emergency_priority")
+# Controller modes of SimulationConfiguration (backend/simulation/scenarios.py).
+FIXED_MODES = ("fixed_timing",)
+ADAPTIVE_MODES = ("adaptive_network", "adaptive_emergency_priority")
 POSTGRES_PREFIXES = ("postgresql://", "postgres://")
 CONNECT_TIMEOUT_S = 5
 # Insertion order: SQLite's implicit rowid, Postgres' identity column ``seq``.
