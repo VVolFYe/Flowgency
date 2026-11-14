@@ -4,5 +4,29 @@
     "label": "YouTube top-down intersection",
     "kind": "vision",
     "file": "youtube.json"
+  },
+  {
+    "id": "london_normal",
+    "label": "London \u2014 Normal Traffic",
+    "kind": "simulation",
+    "file": "london_normal.json"
+  },
+  {
+    "id": "london_rush_hour",
+    "label": "London \u2014 Rush Hour",
+    "kind": "simulation",
+    "file": "london_rush_hour.json"
+  },
+  {
+    "id": "london_unbalanced_network",
+    "label": "London \u2014 Unbalanced Traffic (network adaptive)",
+    "kind": "simulation",
+    "file": "london_unbalanced_network.json"
+  },
+  {
+    "id": "london_unbalanced_j3",
+    "label": "London \u2014 Unbalanced Traffic (historical J3-only)",
+    "kind": "simulation",
+    "file": "london_unbalanced_j3.json"
   }
 ]
