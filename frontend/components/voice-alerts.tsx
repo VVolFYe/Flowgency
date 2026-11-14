@@ -129,23 +129,23 @@ export const VoiceAlerts = memo(function VoiceAlerts({ alerts, runId, simulation
   };
 
   return (
-    <div className="rounded-[20px] border border-white/[.07] bg-[#10171c] p-4">
+    <div className="surface rounded-[14px] p-4">
       <div className="flex items-start justify-between gap-2">
         <div>
-          <p className="font-mono text-[10px] uppercase tracking-[.2em] text-[#667781]">Traffic alerts</p>
+          <p className="font-mono text-[10px] uppercase tracking-[.2em] text-[#ae9785]">Traffic alerts</p>
           <h2 className="mt-1 text-sm font-medium">Voice updates</h2>
         </div>
-        <button type="button" aria-pressed={enabled} onClick={toggleVoice} className="rounded-lg border border-white/15 px-2.5 py-1.5 text-[11px] text-[#d7e1e6] hover:border-[#70e9a6]/50">
+        <button type="button" aria-pressed={enabled} onClick={toggleVoice} className="rounded-lg border border-white/15 px-2.5 py-1.5 text-[11px] text-[#f5e2d3] hover:border-[#70e9a6]/50">
           {enabled ? "Mute" : "Enable voice"}
         </button>
       </div>
-      <p className="mt-3 text-[10px] leading-relaxed text-[#71818a]">Only traffic events trigger speech. Captions remain available when audio is off.</p>
+      <p className="mt-3 text-[10px] leading-relaxed text-[#b69b87]">Only traffic events trigger speech. Captions remain available when audio is off.</p>
       {voiceError && <p role="status" className="mt-3 text-[11px] text-[#f0bc55]">{voiceError}</p>}
       <div aria-live="polite" className="mt-3 space-y-2">
-        {alerts.length === 0 ? <p className="text-xs text-[#71818a]">No traffic alerts yet.</p> : alerts.slice(-3).reverse().map((alert) => (
+        {alerts.length === 0 ? <p className="text-xs text-[#b69b87]">No traffic alerts yet.</p> : alerts.slice(-3).reverse().map((alert) => (
           <div key={alert.event_id} className="rounded-lg border border-white/[.06] bg-white/[.025] px-3 py-2">
             <p className={`text-[10px] uppercase tracking-wide ${alert.priority === "emergency" ? "text-[#ff9278]" : "text-[#70e9a6]"}`}>{alert.message_id.replaceAll(".", " ")}</p>
-            <p className="mt-1 text-xs leading-relaxed text-[#d7e1e6]">{alert.text}</p>
+            <p className="mt-1 text-xs leading-relaxed text-[#f5e2d3]">{alert.text}</p>
           </div>
         ))}
       </div>

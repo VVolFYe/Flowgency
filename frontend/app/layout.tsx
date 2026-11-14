@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "./taste.css";
 
 export const metadata: Metadata = {
   title: "Flowgency · Traffic Simulation",
