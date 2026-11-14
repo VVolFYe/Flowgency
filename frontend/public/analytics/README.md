@@ -3,8 +3,10 @@
 Committed JSON files behind the Statistics page (`/operator/statistics`,
 `/analyst/statistics`). They are the source of truth. The page reads them
 through the backend API (`GET /api/analytics`, `GET /api/analytics/{id}`),
-which serves a local SQLite copy (`data/analytics.sqlite3`, gitignored). File
-formats, the table, and the endpoints are defined in `docs/DATA_CONTRACTS.md`
+which serves a copy from the analytics database: the team's shared Postgres
+when `FLOWGENCY_ANALYTICS_DB` is set, otherwise local SQLite
+(`data/analytics.sqlite3`, gitignored; see `backend/README.md`). File
+formats, the tables, and the endpoints are defined in `docs/DATA_CONTRACTS.md`
 section K. `null` always means unknown; it is never a stand-in for zero.
 
 ## Workflow: generate JSON → commit → run the loader
@@ -20,11 +22,12 @@ section K. `null` always means unknown; it is never a stand-in for zero.
 
    The loader is idempotent (one upserted row per index entry), so rerun it
    after every change or after pulling new JSON. Until it has run, the
-   Statistics page lists no analytics files and shows a note asking for it. The database path can be
-   changed with `FLOWGENCY_ANALYTICS_DB` (relative to the repository root).
-   Rows for entries removed from `index.json` are not deleted; delete
-   `data/analytics.sqlite3` and reload to drop them. Deleting the file also
-   deletes the simulation runs recorded from Live Simulation (DATA_CONTRACTS.md
+   Statistics page lists no analytics files and shows a note asking for it. The database is
+   selected with `FLOWGENCY_ANALYTICS_DB` (a Postgres URL, or a SQLite path
+   relative to the repository root). With the shared Postgres, one teammate's
+   load serves everyone. Rows for entries removed from `index.json` are not
+   deleted. With local SQLite, delete `data/analytics.sqlite3` and reload to
+   drop them, but deleting the file also deletes the simulation runs recorded from Live Simulation (DATA_CONTRACTS.md
    K.5); the loader itself never touches them.
 
 | File | Kind | Producer |

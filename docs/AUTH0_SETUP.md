@@ -95,16 +95,19 @@ Set the result as `AUTH0_SECRET`. The Auth0 application client secret is shared 
 APP_BASE_URL=http://localhost:3000
 ```
 
-Copy `backend/.env.example` to an ignored backend environment file or export the two values before startup. `AUTH0_DOMAIN` and `AUTH0_AUDIENCE` must exactly match the frontend and Dashboard API. No client secret is needed by FastAPI because it validates signed access tokens through the tenant's public JWKS.
+Copy `backend/.env.example` to the ignored `backend/.env` (values in single quotes when they contain shell characters) or export the two values before startup. `AUTH0_DOMAIN` and `AUTH0_AUDIENCE` must exactly match the frontend and Dashboard API. No client secret is needed by FastAPI because it validates signed access tokens through the tenant's public JWKS.
 
 Start the services from the repository root (activate the team's Python environment first):
 
 ```bash
+set -a; source .env; source backend/.env; set +a   # also sets FLOWGENCY_ANALYTICS_DB if present
 python -m uvicorn backend.api.app:app --host 127.0.0.1 --port 8000
 cd frontend
 npm ci
 npm run dev
 ```
+
+`backend/.env` may also hold the team's `FLOWGENCY_ANALYTICS_DB` Postgres URL (shared by everyone, obtained privately). Without it the backend uses local SQLite at `data/analytics.sqlite3`. On Windows PowerShell, set variables with `$env:NAME = 'value'`. See `backend/README.md`.
 
 The frontend uses `NEXT_PUBLIC_BACKEND_URL` for public GET/WebSocket traffic and server-only `BACKEND_URL` for the authenticated command proxy. Do not place tokens in browser storage.
 
