@@ -64,7 +64,7 @@ Foundation is followed by a minimal SUMO intersection, adaptive control, API/web
 
 ## Local prerequisites and setup status
 
-Eventually, development will require Linux/WSL, Python, Node.js/npm, and SUMO with Python TraCI support. SUMO 1.27.1 is available on the current machine and must not be reinstalled for this phase. Exact supported Python/Node versions and setup commands will be added when manifests exist; there are currently no dependencies to install or applications to run.
+Local development requires Linux/WSL, Python, Node.js/npm, and SUMO with Python TraCI support. The London network was generated with SUMO 1.27.1; Ubuntu 24.04's SUMO 1.18 package cannot load it. Follow the current [backend setup](backend/README.md) for a compatible virtual environment and the [frontend setup](frontend/README.md) for the browser application.
 
 The repository is reached through a Linux symlink but physically resides on an NTFS-mounted Windows partition. Executable bits, ownership, case sensitivity, symlink behavior, file watching, and Unix sockets can differ from a native Linux filesystem. Avoid `chmod`/`chown`; if a Python virtual environment behaves poorly on NTFS, create it in a developer-owned Linux-native location outside the repository and keep only reproducible dependency manifests here.
 

@@ -4,22 +4,38 @@ The Phase 1.3 backend runs one local SUMO process behind a dedicated simulation 
 
 ## Dependencies
 
-The current machine already provides compatible FastAPI, Uvicorn, Pydantic, Starlette, and HTTPX versions under Python 3.14.7. No installation was required. For a clean developer environment, create a virtual environment in a Linux-native developer directory outside this NTFS repository, then install the repository manifest:
+Create a virtual environment in a Linux-native developer directory outside this NTFS repository. Install the backend dependencies and the SUMO version used to generate the London network:
 
 ```bash
-python3 -m venv /path/on/linux/flowgency-venv
-/path/on/linux/flowgency-venv/bin/pip install -r backend/requirements.txt
+python3 -m venv "$HOME/.venvs/flowgency-sumo-1.27.1"
+"$HOME/.venvs/flowgency-sumo-1.27.1/bin/python" -m pip install -r backend/requirements.txt 'eclipse-sumo==1.27.1'
 ```
 
-SUMO 1.27.1 and its bundled Python tools must be installed separately. Set `SUMO_HOME` when they are not under a standard Linux path.
+The London network was generated with SUMO 1.27.1. Ubuntu 24.04's `apt` package
+provides SUMO 1.18, which cannot load this network: it reports unknown vehicle
+classes such as `scooter` and `drone`, then TraCI reports `Connection closed by
+SUMO`. Check the active binary with `sumo --version`; use the virtual environment
+above for both the SUMO binary and its matching Python tools.
 
 ## Run locally
 
 From the repository root:
 
 ```bash
+cp -n .env.example .env
+# Edit .env and set ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID for voice audio.
+source "$HOME/.venvs/flowgency-sumo-1.27.1/bin/activate"
+set -a
+source .env
+set +a
+export SUMO_HOME="$(python -c 'import sumo; print(sumo.SUMO_HOME)')"
+sumo --version  # Must report 1.27.1 for the London scenarios.
 python3 -m uvicorn backend.api.app:app --host 127.0.0.1 --port 8000
 ```
+
+The backend reads these values from its process environment; it does not load
+`.env` automatically. The `source` step must run in the same shell that starts
+Uvicorn. `.env` is ignored by Git; `.env.example` contains no credentials.
 
 Useful requests:
 
@@ -35,6 +51,9 @@ curl -X POST http://127.0.0.1:8000/api/simulation/start \
 curl -X POST http://127.0.0.1:8000/api/simulation/start \
   -H 'Content-Type: application/json' \
   -d '{"scenario_id":"london_unbalanced","simulation_speed":4.0}'
+curl -X POST http://127.0.0.1:8000/api/simulation/start \
+  -H 'Content-Type: application/json' \
+  -d '{"scenario_id":"london_unbalanced","control_mode":"adaptive","simulation_speed":4.0}'
 curl -X POST http://127.0.0.1:8000/api/simulation/pause
 curl -X POST http://127.0.0.1:8000/api/simulation/speed \
   -H 'Content-Type: application/json' \
@@ -56,15 +75,34 @@ Development CORS is restricted to `http://localhost:3000` and `http://127.0.0.1:
 
 `simulation_speed` means simulated seconds advanced per wall-clock second and accepts values from `0.1` through `100`. Reset starts a fresh SUMO process at time zero and leaves it paused. Stop releases SUMO and returns to `idle`.
 
-`POST /api/simulation/start` also accepts `"control_mode": "fixed"` (default) or `"adaptive"`. Adaptive mode currently supports only the verified `single_intersection` scenario. It samples halting queues each simulated second, protects a 10-second minimum green, limits green to 45 seconds, starts the opposing transition after 40 seconds without green, smooths demand and requires three sustained samples before an early change. It only adjusts the remaining duration of the active green; the scenario's 3-second yellow and 2-second all-red phases stay in SUMO. `GET /api/simulation/status` includes `control_mode`, and adaptive snapshots include `control_reason`. Reset retains the selected mode; stop returns to fixed.
+`POST /api/simulation/start` accepts `"control_mode": "fixed"`, `"adaptive"`, or `"adaptive_with_emergency_priority"`. Omitting it selects the scenario default (`fixed`, except for `single_intersection_emergency`). The verified synthetic adaptive policy samples halting queues each simulated second, protects a 10-second minimum green, and normally limits green to 45 seconds. Emergency priority recognizes declared SUMO types `ambulance`, `fire_brigade`, and `police` on verified incoming edges. An opposing green keeps its 10-second minimum, then the installed 3-second yellow and 2-second all-red run before the emergency approach gets green. A compatible green can remain active past 45 seconds until the emergency vehicle leaves the junction. London Normal, Rush Hour, and Unbalanced use the separate experimental 22-controller network profile; emergency priority is not enabled for London. `GET /api/simulation/status` includes `control_mode`, and adaptive snapshots include controller decision metadata. Reset retains the selected mode; stop returns to fixed.
 
-For a headless adaptive run: `python3 -m backend.simulation.runner --control-mode adaptive`. This policy is a simulation experiment, not a validated traffic-signal controller. London candidate mappings and pedestrian movements must be verified before extending it to that network.
+For a visible emergency demo, select **Emergency priority demo** in the browser scenario list and press Start. The scenario contains three marked emergency vehicles. A headless run is:
+
+```bash
+python3 -m backend.simulation.runner --config scenarios/single_intersection/emergency.sumocfg --control-mode adaptive_with_emergency_priority
+```
+
+Traffic-triggered voice captions are included in simulation snapshots; no
+scenario-selection, Start/Stop, or pause action triggers speech. The browser's
+**Enable voice** button requests MP3 audio from the backend only for new traffic
+alerts. To test ElevenLabs, set `ELEVENLABS_API_KEY` and
+`ELEVENLABS_VOICE_ID` in the backend process environment before starting
+Uvicorn. Optional `ELEVENLABS_MODEL_ID` defaults to `eleven_multilingual_v2`;
+`FLOWGENCY_VOICE_LANGUAGE=ro` selects Romanian captions and speech (English is
+the default). Keep the API key out of the frontend and Git. Without these
+settings, captions still work and audio requests return 503. See
+[`docs/VOICE_ALERTS.md`](../docs/VOICE_ALERTS.md) for the exact triggers.
+
+For a headless synthetic adaptive run: `python3 -m backend.simulation.runner --control-mode adaptive`. Every adaptive policy is a simulation experiment, not a validated traffic-signal controller. The J3 runtime manifest is checked against SUMO before commands are sent, but real pedestrian movements and real-world clearance remain unverified.
 
 For a repeatable fixed/adaptive comparison and phase-safety audit, run `python3 -m backend.simulation.compare --scenario peak` (or `--scenario demo`). The script reports identical-demand metrics and exits nonzero on an unsafe phase trace, collision, teleport, or unfinished trip.
 
 `POST /api/simulation/speed` changes pacing through the simulation worker while the service is `running` or `paused`; it does not restart SUMO or change vehicle physics. The response is the backend-confirmed status. Invalid values are rejected with HTTP 422, and invalid lifecycle states return HTTP 409.
 
-Start defaults to `single_intersection`. The London selections are `london_normal`, `london_rush_hour`, and `london_unbalanced`. Reset restarts the active scenario; Stop closes SUMO and restores the synthetic default. London snapshots enumerate all active TLS controllers dynamically. The documented four deterministic J5 teleports in `london_rush_hour` are unchanged.
+Start defaults to `single_intersection`. The London selections are `london_normal`, `london_rush_hour`, and `london_unbalanced`. Reset restarts the active scenario; Stop closes SUMO and restores the synthetic default. London snapshots enumerate all active TLS controllers dynamically. Corrected Rush Hour routes completed the validated Fixed/Network Adaptive paired benchmark with 690 arrivals and no collisions or teleports in either mode.
+
+Snapshots contain worker-collected cumulative waiting metrics. Waiting vehicle-seconds are integrated once per SUMO step and retained after arrival; the live average uses every departed vehicle as its denominator. Live time loss is intentionally deferred to completed tripinfo analysis. Adaptive London mode is experimental and uses the audited 22-controller network profile in Normal, Rush Hour, and Unbalanced; emergency priority remains synthetic-only.
 
 ## Test
 

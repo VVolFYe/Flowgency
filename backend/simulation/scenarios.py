@@ -32,6 +32,9 @@ class ScenarioDefinition:
     coordinate_system: str
     seed: int
     supports_adaptive_control: bool = False
+    adaptive_manifest_path: Path | None = None
+    supports_emergency_priority: bool = False
+    default_control_mode: str = "fixed"
     known_limitation: str | None = None
 
 
@@ -51,6 +54,23 @@ SCENARIOS: dict[str, ScenarioDefinition] = {
         coordinate_system="synthetic_cartesian_metres",
         seed=42,
         supports_adaptive_control=True,
+        supports_emergency_priority=True,
+    ),
+    "single_intersection_emergency": ScenarioDefinition(
+        scenario_id="single_intersection_emergency",
+        display_name="Emergency priority demo",
+        description="Synthetic junction with marked ambulance, fire brigade, and police vehicles.",
+        config_path=_SINGLE / "emergency.sumocfg",
+        network_path=_SINGLE / "demo.net.xml",
+        mapping_path=_SINGLE / "mappings.json",
+        output_directory=_SINGLE / "output" / "emergency",
+        legacy_scenario_id="single-intersection-v1",
+        coordinate_system="synthetic_cartesian_metres",
+        seed=42,
+        supports_adaptive_control=True,
+        supports_emergency_priority=True,
+        default_control_mode="adaptive_with_emergency_priority",
+        known_limitation="Simulation demonstration; no pedestrian crossings are modeled.",
     ),
     "london_normal": ScenarioDefinition(
         scenario_id="london_normal",
@@ -63,6 +83,8 @@ SCENARIOS: dict[str, ScenarioDefinition] = {
         legacy_scenario_id="london-oval-kennington-v1",
         coordinate_system="sumo_cartesian_metres_utm_zone_30",
         seed=20261113,
+        supports_adaptive_control=True,
+        adaptive_manifest_path=_LONDON / "network_gap.json",
     ),
     "london_rush_hour": ScenarioDefinition(
         scenario_id="london_rush_hour",
@@ -75,7 +97,8 @@ SCENARIOS: dict[str, ScenarioDefinition] = {
         legacy_scenario_id="london-oval-kennington-v1",
         coordinate_system="sumo_cartesian_metres_utm_zone_30",
         seed=20261113,
-        known_limitation="Four deterministic J5 teleports are documented and expected.",
+        supports_adaptive_control=True,
+        adaptive_manifest_path=_LONDON / "network_gap.json",
     ),
     "london_unbalanced": ScenarioDefinition(
         scenario_id="london_unbalanced",
@@ -88,6 +111,8 @@ SCENARIOS: dict[str, ScenarioDefinition] = {
         legacy_scenario_id="london-oval-kennington-v1",
         coordinate_system="sumo_cartesian_metres_utm_zone_30",
         seed=20261113,
+        supports_adaptive_control=True,
+        adaptive_manifest_path=_LONDON / "network_gap.json",
     ),
 }
 
@@ -137,6 +162,8 @@ def list_scenarios() -> list[dict[str, Any]]:
             "description": scenario.description,
             "coordinate_system": scenario.coordinate_system,
             "supports_adaptive_control": scenario.supports_adaptive_control,
+            "supports_emergency_priority": scenario.supports_emergency_priority,
+            "default_control_mode": scenario.default_control_mode,
             "known_limitation": scenario.known_limitation,
             "target_mappings": (
                 copy.deepcopy(_london_targets())

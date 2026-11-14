@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import copy
+import logging
+import os
 import queue
 import threading
 import time
@@ -14,6 +16,9 @@ from uuid import uuid4
 
 from .runner import SumoRunner
 from .scenarios import DEFAULT_SCENARIO_ID, ScenarioDefinition, get_scenario
+from backend.voice.alerts import VoiceAlertPolicy
+
+LOGGER = logging.getLogger(__name__)
 
 
 class SimulationState(StrEnum):
@@ -49,6 +54,7 @@ class SimulationService:
         *,
         default_speed: float = 4.0,
         command_timeout_s: float = 10.0,
+        voice_policy: VoiceAlertPolicy | None = None,
     ) -> None:
         self._runner_factory = runner_factory or self._default_runner_factory
         self._default_speed = self._validate_speed(default_speed)
@@ -63,6 +69,9 @@ class SimulationService:
         self._error: str | None = None
         self._worker: threading.Thread | None = None
         self._worker_started = threading.Event()
+        self._voice_policy = voice_policy or VoiceAlertPolicy(
+            language=os.getenv("FLOWGENCY_VOICE_LANGUAGE", "en")
+        )
 
     @staticmethod
     def _default_runner_factory(scenario: ScenarioDefinition) -> SumoRunner:
@@ -75,6 +84,7 @@ class SimulationService:
             coordinate_system=scenario.coordinate_system,
             seed=scenario.seed,
             output_directory=scenario.output_directory,
+            adaptive_manifest_path=scenario.adaptive_manifest_path,
         )
 
     @staticmethod
@@ -101,19 +111,22 @@ class SimulationService:
     def start(
         self,
         speed: float | None = None,
-        control_mode: str = "fixed",
+        control_mode: str | None = None,
         scenario_id: str = DEFAULT_SCENARIO_ID,
     ) -> dict[str, Any]:
         selected_speed = self._default_speed if speed is None else self._validate_speed(speed)
-        if control_mode not in {"fixed", "adaptive"}:
-            raise ValueError("control_mode must be fixed or adaptive")
         scenario = get_scenario(scenario_id)
-        if control_mode == "adaptive" and not scenario.supports_adaptive_control:
+        selected_mode = scenario.default_control_mode if control_mode is None else control_mode
+        if selected_mode not in {"fixed", "adaptive", "adaptive_with_emergency_priority"}:
+            raise ValueError("unsupported control_mode")
+        if selected_mode != "fixed" and not scenario.supports_adaptive_control:
             raise ValueError(f"adaptive control is not available for {scenario_id}")
+        if selected_mode == "adaptive_with_emergency_priority" and not scenario.supports_emergency_priority:
+            raise ValueError(f"emergency priority is not available for {scenario_id}")
         return self._submit(
             "start",
             speed=selected_speed,
-            control_mode=control_mode,
+            control_mode=selected_mode,
             scenario_id=scenario.scenario_id,
         )
 
@@ -165,6 +178,21 @@ class SimulationService:
         """Return a deep copy so clients cannot mutate shared worker state."""
         with self._lock:
             return copy.deepcopy(self._latest_snapshot)
+
+    def voice_alert(self, event_id: str) -> dict[str, Any] | None:
+        """Look up emitted text; callers cannot submit arbitrary TTS prompts."""
+        with self._lock:
+            return self._voice_policy.get(event_id)
+
+    def _attach_voice_alerts(self, snapshot: dict[str, Any]) -> dict[str, Any]:
+        """Keep optional voice processing outside the traffic-control path."""
+        try:
+            with self._lock:
+                self._voice_policy.observe(snapshot)
+        except Exception:
+            LOGGER.exception("voice alert generation failed")
+            snapshot["voice_alerts"] = []
+        return snapshot
 
     def _submit(
         self,
@@ -221,7 +249,7 @@ class SimulationService:
                         if runner is None:
                             raise RuntimeError("running state has no SUMO runner")
                         runner.advance()
-                        snapshot = runner.extract_snapshot()
+                        snapshot = self._attach_voice_alerts(runner.extract_snapshot())
                         self._set_state(SimulationState.RUNNING, snapshot=snapshot)
                         if not runner.has_pending_vehicles():
                             runner.close()
@@ -265,10 +293,10 @@ class SimulationService:
             scenario = get_scenario(command.scenario_id or DEFAULT_SCENARIO_ID)
             runner = self._runner_factory(scenario)
             try:
-                if command.control_mode == "adaptive":
-                    runner.configure_control_mode("adaptive")
+                if command.control_mode != "fixed":
+                    runner.configure_control_mode(command.control_mode or "fixed")
                 runner.start()
-                snapshot = runner.extract_snapshot()
+                snapshot = self._attach_voice_alerts(runner.extract_snapshot())
             except BaseException:
                 runner.close()
                 raise
@@ -308,10 +336,10 @@ class SimulationService:
             scenario = get_scenario(self._scenario_id)
             runner = self._runner_factory(scenario)
             try:
-                if self._control_mode == "adaptive":
-                    runner.configure_control_mode("adaptive")
+                if self._control_mode != "fixed":
+                    runner.configure_control_mode(self._control_mode)
                 runner.start()
-                snapshot = runner.extract_snapshot()
+                snapshot = self._attach_voice_alerts(runner.extract_snapshot())
             except BaseException:
                 runner.close()
                 raise

@@ -18,6 +18,10 @@ SUMO --TraCI--> simulation state -> controller --TraCI---------+
 3. `backend/api` publishes bounded state snapshots over WebSocket. The frontend may interpolate for display but does not simulate traffic or become the source of truth.
 4. SUMO output and controller event logs are aggregated into comparable scenario metrics.
 
+Optional spoken demo alerts are specified in [VOICE_ALERTS.md](VOICE_ALERTS.md).
+They are derived from confirmed simulation state changes and rendered through
+a backend text-to-speech adapter; speech never drives the controller.
+
 ## Component responsibilities
 
 ### Frontend
@@ -27,6 +31,8 @@ The Next.js App Router application will provide Dashboard, Simulation Lab, and A
 ### API
 
 FastAPI owns HTTP commands, WebSocket lifecycle, serialization, and orchestration. Initially it may run alongside one simulation worker in one local deployment. It exposes shared schemas, not raw TraCI objects, and should coalesce snapshots if clients cannot keep up.
+
+Auth0 protects the mutation boundary without changing simulation contracts. Next.js keeps the Auth0 access token in its encrypted server session and forwards it through a same-origin command proxy. FastAPI validates the RS256 token against tenant JWKS, issuer, audience, expiration, and the `simulation:control` permission. Public GET endpoints and the read-only WebSocket remain available for the public visualization.
 
 ### Controller
 
@@ -41,6 +47,8 @@ Emergency mode maintains a deterministic request queue (proposed ordering: activ
 This module owns the SUMO process and TraCI connection, stepping, subscriptions/state reads, signal command application, coordinate conversion, and output collection. It maps stable project IDs to verified SUMO IDs. SUMO remains the only traffic physics engine.
 
 A static registry selects one repository-owned SUMO configuration per run. The same worker owns every selected runner; API handlers only enqueue lifecycle commands. Static geometry is parsed and cached per network, while WebSocket snapshots carry dynamic vehicles, deduplicated lane queues, and all TraCI-enumerated signal controllers rather than repeating road geometry.
+
+The worker also integrates cumulative vehicle waiting once per authoritative simulation step and retains it after vehicles arrive. London Normal, Rush Hour, and Unbalanced use a demand-actuated network profile that validates the live SUMO programs, enables only structurally eligible controllers, can finish an audited principal green after a sustained service gap (protected corridor endpoints retain cycle-based pressure control), and leaves every yellow, mixed transition, clearance, and unsupported controller under SUMO's fixed program. The worker reports the active and fixed-fallback controller sets. The historical J3-only profile remains available for benchmark provenance.
 
 ### Vision
 

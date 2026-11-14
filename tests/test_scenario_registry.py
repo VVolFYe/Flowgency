@@ -20,6 +20,7 @@ class ScenarioRegistryTests(unittest.TestCase):
             ids,
             [
                 "single_intersection",
+                "single_intersection_emergency",
                 "london_normal",
                 "london_rush_hour",
                 "london_unbalanced",
@@ -41,6 +42,21 @@ class ScenarioRegistryTests(unittest.TestCase):
     def test_invalid_scenario(self) -> None:
         with self.assertRaises(ScenarioNotFound):
             get_scenario("unknown")
+
+    def test_adaptive_support_is_explicit(self) -> None:
+        self.assertTrue(get_scenario("single_intersection").supports_adaptive_control)
+        for scenario_id in ("london_normal", "london_rush_hour", "london_unbalanced"):
+            scenario = get_scenario(scenario_id)
+            self.assertTrue(scenario.supports_adaptive_control)
+            self.assertTrue(scenario.adaptive_manifest_path.is_file())  # type: ignore[union-attr]
+            self.assertFalse(scenario.supports_emergency_priority)
+
+        rush_hour = next(
+            item for item in list_scenarios() if item["scenario_id"] == "london_rush_hour"
+        )
+        self.assertTrue(rush_hour["supports_adaptive_control"])
+        self.assertFalse(rush_hour["supports_emergency_priority"])
+        self.assertIsNone(rush_hour["known_limitation"])
 
 
 class LondonGeometryTests(unittest.TestCase):

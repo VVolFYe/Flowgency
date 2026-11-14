@@ -1,4 +1,9 @@
-import type { NetworkGeometry, SimulationSnapshot, SimulationStatus } from "./contracts";
+import type {
+  NetworkGeometry,
+  SimulationScenario,
+  SimulationSnapshot,
+  SimulationStatus,
+} from "./contracts";
 
 export const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://127.0.0.1:8000").replace(/\/$/, "");
 
@@ -10,12 +15,12 @@ export const WS_URL = (() => {
   return url.toString();
 })();
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(path: string, init?: RequestInit, baseUrl = BACKEND_URL): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(`${BACKEND_URL}${path}`, { ...init, cache: "no-store" });
+    response = await fetch(`${baseUrl}${path}`, { ...init, cache: "no-store", signal: init?.signal ?? AbortSignal.timeout(4000) });
   } catch {
-    throw new Error(`Cannot reach the Flowgency backend at ${BACKEND_URL}`);
+    throw new Error(baseUrl ? `Cannot reach the Flowgency backend at ${BACKEND_URL}` : "Cannot reach the authenticated command proxy");
   }
   if (!response.ok) {
     let detail = `${response.status} ${response.statusText}`;
@@ -29,28 +34,41 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  network: () => request<NetworkGeometry>("/api/simulation/network"),
+  scenarios: (signal?: AbortSignal) => request<SimulationScenario[]>("/api/simulation/scenarios", { signal }),
+  network: (scenarioId?: string, signal?: AbortSignal) => request<NetworkGeometry>(
+    `/api/simulation/network${scenarioId ? `?scenario_id=${encodeURIComponent(scenarioId)}` : ""}`,
+    { signal },
+  ),
   status: () => request<SimulationStatus>("/api/simulation/status"),
   snapshot: async (): Promise<SimulationSnapshot | null> => {
-    const response = await fetch(`${BACKEND_URL}/api/simulation/snapshot`, { cache: "no-store" }).catch(() => null);
+    const response = await fetch(`${BACKEND_URL}/api/simulation/snapshot`, { cache: "no-store", signal: AbortSignal.timeout(4000) }).catch(() => null);
     if (!response) throw new Error(`Cannot reach the Flowgency backend at ${BACKEND_URL}`);
     if (response.status === 404) return null;
     if (!response.ok) throw new Error(`Snapshot request failed (${response.status})`);
     return response.json() as Promise<SimulationSnapshot>;
   },
-  command: (command: "start" | "pause" | "resume" | "reset" | "stop", simulationSpeed?: number) =>
+  command: (
+    command: "start" | "pause" | "resume" | "reset" | "stop",
+    simulationSpeed?: number,
+    scenarioId?: string,
+    controlMode?: "fixed" | "adaptive" | "adaptive_with_emergency_priority",
+  ) =>
     request<SimulationStatus>(`/api/simulation/${command}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: command === "start"
-        ? JSON.stringify({ simulation_speed: simulationSpeed ?? 4 })
+        ? JSON.stringify({
+            simulation_speed: simulationSpeed ?? 4,
+            scenario_id: scenarioId ?? "single_intersection",
+            control_mode: controlMode ?? "fixed",
+          })
         : command === "resume" && simulationSpeed !== undefined
           ? JSON.stringify({ simulation_speed: simulationSpeed })
           : undefined,
-    }),
+    }, ""),
   setSpeed: (simulationSpeed: number) => request<SimulationStatus>("/api/simulation/speed", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ simulation_speed: simulationSpeed }),
-  }),
+  }, ""),
 };

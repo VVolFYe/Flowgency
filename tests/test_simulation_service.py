@@ -8,8 +8,6 @@ import time
 import unittest
 from typing import Any
 
-import httpx
-
 from backend.api.app import create_app
 from backend.simulation.service import InvalidTransition, SimulationService
 from backend.simulation.scenarios import ScenarioDefinition, ScenarioNotFound
@@ -28,6 +26,7 @@ class FakeRunner:
         self.operation_threads = operation_threads
         self.close_events = close_events
         self.scenario = scenario
+        self.control_mode = "fixed"
 
     def _record(self) -> None:
         self.operation_threads.append(threading.current_thread().name)
@@ -35,6 +34,10 @@ class FakeRunner:
     def start(self) -> None:
         self._record()
         self.started = True
+
+    def configure_control_mode(self, control_mode: str) -> None:
+        self._record()
+        self.control_mode = control_mode
 
     def advance(self) -> float:
         self._record()
@@ -167,6 +170,39 @@ class SimulationServiceTests(unittest.TestCase):
             self.service.start(scenario_id="not_a_scenario")
         self.assertEqual(self.fixture.created_scenarios, [])
 
+    def test_adaptive_mode_is_preserved_for_london_profiles(self) -> None:
+        started = self.service.start(
+            control_mode="adaptive", scenario_id="london_unbalanced"
+        )
+        self.assertEqual(started["control_mode"], "adaptive")
+        self.service.pause()
+        reset = self.service.reset()
+        self.assertEqual(reset["control_mode"], "adaptive")
+        self.service.stop()
+
+        rush_hour = self.service.start(
+            control_mode="adaptive", scenario_id="london_rush_hour"
+        )
+        self.assertEqual(rush_hour["scenario_id"], "london_rush_hour")
+        self.assertEqual(rush_hour["control_mode"], "adaptive")
+        self.service.stop()
+
+        with self.assertRaises(ValueError):
+            self.service.start(
+                control_mode="adaptive_with_emergency_priority",
+                scenario_id="london_rush_hour",
+            )
+
+    def test_emergency_scenario_selects_priority_and_reset_preserves_it(self) -> None:
+        started = self.service.start(scenario_id="single_intersection_emergency")
+        self.assertEqual(started["control_mode"], "adaptive_with_emergency_priority")
+        self.assertEqual(self.service.reset()["control_mode"], "adaptive_with_emergency_priority")
+        self.service.stop()
+        with self.assertRaises(ValueError):
+            self.service.start(
+                control_mode="adaptive_with_emergency_priority", scenario_id="london_normal"
+            )
+
 
 class SimulationApiTests(unittest.TestCase):
     @unittest.skip(
@@ -176,6 +212,8 @@ class SimulationApiTests(unittest.TestCase):
         asyncio.run(self._exercise_http_lifecycle())
 
     async def _exercise_http_lifecycle(self) -> None:
+        import httpx
+
         fixture = ServiceFixture()
         service = fixture.service()
         service.open()
