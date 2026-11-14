@@ -24,9 +24,13 @@ def main() -> int:
                         help="wall-clock delay after each simulation step, useful with sumo-gui")
     parser.add_argument("--output-directory", type=Path,
                         help="override generated tripinfo and summary output directory")
+    parser.add_argument("--max-steps", type=int, default=5000,
+                        help="hard simulation-step cap for bounded benchmark runs")
     args = parser.parse_args()
     if args.step_delay_ms < 0:
         parser.error("--step-delay-ms must be nonnegative")
+    if args.max_steps <= 0:
+        parser.error("--max-steps must be positive")
     config = args.config.resolve()
     if not config.is_file():
         parser.error(f"SUMO config not found: {config}")
@@ -46,11 +50,14 @@ def main() -> int:
     try:
         signals = load_adaptive_signals(args.adaptive_manifest, connection) if args.adaptive_manifest else []
         decisions = steps = departed = arrived = collisions = teleports = 0
+        decision_events: list[dict[str, object]] = []
+        departed_vehicle_ids: list[str] = []
+        arrived_vehicle_ids: list[str] = []
         observed_phases: dict[str, int] = {}
         for signal in signals:
             signal.tick()  # align control with a phase boundary at simulation time zero
             observed_phases[signal.tls_id] = int(connection.trafficlight.getPhase(signal.tls_id))
-        while connection.simulation.getMinExpectedNumber() > 0:
+        while connection.simulation.getMinExpectedNumber() > 0 and steps < args.max_steps:
             connection.simulationStep()
             steps += 1
             if args.step_delay_ms:
@@ -65,16 +72,37 @@ def main() -> int:
                 event = signal.tick()
                 if event is not None:
                     decisions += 1
-                    print(json.dumps({"simulation_time_s": connection.simulation.getTime(), **event}), file=sys.stderr)
+                    event_record = {
+                        "simulation_time_s": float(connection.simulation.getTime()),
+                        **event,
+                    }
+                    decision_events.append(event_record)
+                    print(json.dumps(event_record), file=sys.stderr)
             simulation = connection.simulation
+            departed_vehicle_ids.extend(simulation.getDepartedIDList())
+            arrived_vehicle_ids.extend(simulation.getArrivedIDList())
             departed += int(simulation.getDepartedNumber())
             arrived += int(simulation.getArrivedNumber())
             collisions += int(simulation.getCollidingVehiclesNumber())
             teleports += int(simulation.getStartingTeleportNumber())
-        print(json.dumps({"mode": "adaptive" if signals else "fixed", "steps": steps,
-                          "departed": departed, "arrived": arrived, "collisions": collisions,
-                          "teleports": teleports, "cycle_decisions": decisions}, sort_keys=True))
-        return 0 if collisions == 0 and teleports == 0 and departed == arrived else 1
+        terminated_by_step_limit = (
+            steps >= args.max_steps and connection.simulation.getMinExpectedNumber() > 0
+        )
+        print(json.dumps({
+            "mode": "adaptive" if signals else "fixed",
+            "steps": steps,
+            "max_steps": args.max_steps,
+            "terminated_by_step_limit": terminated_by_step_limit,
+            "departed": departed,
+            "arrived": arrived,
+            "departed_vehicle_ids": departed_vehicle_ids,
+            "arrived_vehicle_ids": arrived_vehicle_ids,
+            "collisions": collisions,
+            "teleports": teleports,
+            "cycle_decisions": decisions,
+            "cycle_decision_events": decision_events,
+        }, sort_keys=True))
+        return 0 if not terminated_by_step_limit and collisions == 0 and teleports == 0 and departed == arrived else 1
     finally:
         connection.close()
 
