@@ -20,10 +20,12 @@ section K. `null` always means unknown; it is never a stand-in for zero.
 
    The loader is idempotent (one upserted row per index entry), so rerun it
    after every change or after pulling new JSON. Until it has run, the
-   Statistics page shows a 503 message asking for it. The database path can be
+   Statistics page lists no analytics files and shows a note asking for it. The database path can be
    changed with `FLOWGENCY_ANALYTICS_DB` (relative to the repository root).
    Rows for entries removed from `index.json` are not deleted; delete
-   `data/analytics.sqlite3` and reload to drop them.
+   `data/analytics.sqlite3` and reload to drop them. Deleting the file also
+   deletes the simulation runs recorded from Live Simulation (DATA_CONTRACTS.md
+   K.5); the loader itself never touches them.
 
 | File | Kind | Producer |
 | --- | --- | --- |

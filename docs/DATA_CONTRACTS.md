@@ -359,7 +359,7 @@ Written by `python -m backend.vision.export_analytics` from section I/J files (v
 
 ### K.4 Local database and read-only API
 
-`backend/analytics/db.py` keeps one SQLite table, written only by the loader (`python -m backend.analytics.load [--db PATH] [--index PATH]`):
+`backend/analytics/db.py` keeps two independent SQLite tables in one file. `init_db` creates both. `analytics` is written only by the loader (`python -m backend.analytics.load [--db PATH] [--index PATH]`). `runs` is written only by the simulation service (K.5), and the loader never reads or changes it:
 
 ```sql
 CREATE TABLE analytics (
@@ -373,10 +373,49 @@ CREATE TABLE analytics (
 )
 ```
 
-The path is `$FLOWGENCY_ANALYTICS_DB`, default `data/analytics.sqlite3`. A relative value resolves against the repository root. The file is gitignored and can be deleted and rebuilt at any time. The loader validates every index entry and file before writing anything. It upserts one row per entry, so rerunning it is idempotent. It skips listed files that are missing (with a warning) and fails on invalid JSON, an unknown kind, an unsafe file name, or a payload `kind` that differs from the index. It does not delete rows whose entry was later removed from `index.json`; delete the database file and reload to drop them.
+The path is `$FLOWGENCY_ANALYTICS_DB`, default `data/analytics.sqlite3`. A relative value resolves against the repository root. The file is gitignored. The `analytics` rows can be rebuilt at any time, but **deleting the file also deletes every recorded run (K.5)**, which exists nowhere else. The loader validates every index entry and file before writing anything. It upserts one row per entry, so rerunning it is idempotent. It skips listed files that are missing (with a warning) and fails on invalid JSON, an unknown kind, an unsafe file name, or a payload `kind` that differs from the index. It does not delete rows whose entry was later removed from `index.json`; delete the database file and reload to drop them.
 
 Both routes are unauthenticated GETs, like the other read routes:
 
 - `GET /api/analytics` returns `[{"id", "label", "kind", "schema_version", "loaded_at"}]` in first-loaded order (`index.json` order).
 - `GET /api/analytics/{id}` returns the stored payload unchanged (a K.2 or K.3 document, `application/json`). An unknown id returns 404.
-- If the database file is missing or has no table, both return 503 with `detail` `"Analytics database is not available; run python -m backend.analytics.load"`. Reads never create the file.
+- If the database file is missing or has no table, both return 503 with `detail` `"Analytics database is not available; run python -m backend.analytics.load"`. Reads never create the file. The first recorded run creates the file with both tables, so the list can then be empty (`[]`) instead of 503 until the loader runs.
+
+### K.5 Recorded Live Simulation runs (`runs` table)
+
+Every run started from the UI (`POST /api/simulation/start`) is recorded by `SimulationService` through `backend/analytics/runs.py`. The service only records when it is given a `run_sink`. `create_app()` passes `save_run` for its default service, and test services pass nothing, so tests never write the real database.
+
+```sql
+CREATE TABLE runs (
+    run_id TEXT PRIMARY KEY,          -- the runner's run_id (section F snapshot run_id)
+    scenario_id TEXT NOT NULL,        -- scenario registry id (section H)
+    control_mode TEXT NOT NULL,       -- fixed | adaptive | adaptive_with_emergency_priority
+    status TEXT NOT NULL CHECK (status IN ('finished', 'stopped', 'error')),
+    started_at TEXT NOT NULL,         -- ISO 8601 UTC with milliseconds, e.g. 2026-11-14T19:38:08.123Z
+    ended_at TEXT NOT NULL,
+    sim_duration_s REAL,              -- simulated seconds; NULL if unknown
+    payload TEXT NOT NULL             -- the JSON document below
+)
+```
+
+Recording rules:
+
+- On start, the service remembers `run_id`, `scenario_id`, `control_mode` and `started_at`.
+- Every extracted snapshot is passed to an in-memory recorder. A sample is taken at the first snapshot at or after each 5 s boundary of simulation time, counted from the start. If one step crosses several boundaries, only one sample is taken.
+- Exactly one row is written when the run ends: `finished` (no pending vehicles), `stopped` (`stop`, `reset` or API shutdown), or `error` (worker or runner failure, with the message in `run.error`). A `reset` saves the previous run as `stopped` and records the restarted SUMO run as a new run. Stopping an already finished or failed run writes nothing more.
+- Nothing is written inside the step loop. The write is wrapped in `try/except`, so a database failure (locked file, unwritable path, duplicate `run_id`) is logged and never changes the simulation state, status or snapshots. A run shorter than one sample is still saved, with an empty `timeseries.samples`.
+
+Payload (`schema_version: "1.0"`, `kind: "simulation_run"`):
+
+- `run`: `{run_id, scenario_id, legacy_scenario_id, control_mode, status, started_at, ended_at, sim_start_s, sim_end_s, sim_duration_s, sample_count, error}`. `legacy_scenario_id` is the snapshot `scenario_id`. `sim_duration_s` = `sim_end_s − sim_start_s` from the first and last snapshot.
+- `summary`: the last snapshot's `metrics` (section E, `RunMetrics.snapshot()`) copied unchanged, so its null semantics are kept: `total_time_loss_s` and `average_time_loss_s` stay `null`, and `average_waiting_time_s` is `null` with no departures. The whole `summary` is `null` if the snapshot had no `metrics`.
+- `timeseries`: `interval_s` (5), `queue_measurement` (`sumo_halting_number`), and `samples`, each `{t_s, network_queue_vehicles, active_vehicle_count, departed_cumulative, arrived_cumulative, queue_by_traffic_light, queue_by_approach, phase_by_traffic_light}`. `network_queue_vehicles` is `network_queue.vehicles` (section B). The counts come from `metrics`. `queue_by_traffic_light` maps each controller to its `total_queue_vehicles`. `queue_by_approach` is the legacy `queue_lengths_by_approach` (empty for network scenarios). `phase_by_traffic_light` maps each controller to `{phase_index, phase_id}`. Missing values are `null`, never 0.
+- `intersections`: one entry per traffic light, `{traffic_light_id, mean_queue_vehicles, max_queue_vehicles, sample_count}`, over the samples with a known queue. Mean and max are `null` when `sample_count` is 0.
+- `phases`: one entry per traffic light, `{traffic_light_id, phase_change_count, completed_green_phases, mean_green_duration_s}`. These are observed at every simulation step, not from the 5 s samples, because 5 s sampling would miss short yellow and all-red phases. The values are held in memory, and nothing is written per step. Green uses the K.2 definition: the state contains `G`/`g` and no `y`/`Y`. The phase still running at the end is excluded. `mean_green_duration_s` is `null` with no completed green phase, or if a completed phase had an unknown state.
+
+Read-only routes, unauthenticated like the other GETs, with the same 503 behaviour as above:
+
+- `GET /api/analytics/runs/latest` returns the payload of the run with the latest `ended_at`, or 404 if none is recorded.
+- `GET /api/analytics/runs/latest-pair?scenario_id=X` returns `{"scenario_id", "fixed", "adaptive"}`. `fixed` is the latest `fixed` run of that scenario, and `adaptive` is the latest `adaptive` or `adaptive_with_emergency_priority` run. Either is `null` if not recorded. Any status counts, and the page warns when a run did not finish. A missing `scenario_id` returns 422.
+
+The Statistics page shows the latest run as its first option ("Last simulation"). It adds a fixed-vs-adaptive section when `latest-pair` has both modes for that run's scenario. These are live service runs, not the matched tripinfo comparison of K.2.
