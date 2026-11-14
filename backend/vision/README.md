@@ -63,7 +63,7 @@ where it looked and to set `UNIHACK_DIR` or fill `data/`. The committed samples
 
 | standalone tool | purpose |
 |---|---|
-| `python -m backend.vision.eval_emergency VIDEO [--cls emergency_cls.pt] [--every 3] [--window 10] [--min-votes 5] [--thresh 0.6] [--out <mp4>]` | evaluates the emergency classifier on an eye-level video: tracked boxes are classified every N frames (boxes within 1 % of a frame edge are skipped) and voted per track; writes `<video>_emergency.mp4` (thin grey = normal; flashing red/blue, filled, labelled `EMERGENCY` = flagged) and prints flagged track IDs with first-flag times. Not part of the pipeline yet |
+| `python -m backend.vision.eval_emergency VIDEO [--cls emergency_cls.pt] [--every 3] [--window 10] [--min-votes 5] [--thresh 0.6] [--vote-p 0.99] [--out <mp4>]` | evaluates the emergency classifier on an eye-level video: tracked boxes are classified every N frames (boxes within 1 % of a frame edge are skipped) and voted per track; writes `<video>_emergency.mp4` (thin grey = normal; flashing red/blue, filled, labelled `EMERGENCY` = flagged) and prints flagged track IDs with first-flag times. Not part of the pipeline yet |
 
 ## Definitions
 

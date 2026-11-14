@@ -27,7 +27,9 @@ STREET_PROFILE = get_profile("yolo11s_coco")  # the COCO detector used for stree
 CROP_PAD = 0.10  # per side, as in training
 MIN_CROP_SIDE = 32  # px
 EDGE_MARGIN = 0.01  # boxes within this share of the frame width/height of an edge are cut off: not classified
-POSITIVE_P = 0.5  # a single prediction counts as an emergency vote at p >= this
+# A prediction counts as an emergency vote at p >= this. 0.5 let red vans and an ice-cream truck through
+# (p 0.95-0.98 on every crop); real emergencies reach 0.99 on 33-88 % of crops (3 demo clips).
+DEFAULT_VOTE_P = 0.99
 GREY, RED, BLUE, WHITE = (160, 160, 160), (0, 0, 255), (255, 0, 0), (255, 255, 255)  # BGR
 BLINK_S = 0.25  # flagged boxes alternate red/blue at this period of video time
 
@@ -35,10 +37,11 @@ BLINK_S = 0.25  # flagged boxes alternate red/blue at this period of video time
 class EmergencyVoter:
     """Sliding-window vote per track; once flagged, a track stays flagged."""
 
-    def __init__(self, window: int = 10, min_votes: int = 5, thresh: float = 0.6) -> None:
-        if not 1 <= min_votes <= window or not 0.0 < thresh <= 1.0:
-            raise ValueError("need 1 <= min_votes <= window and 0 < thresh <= 1")
-        self.window, self.min_votes, self.thresh = window, min_votes, thresh
+    def __init__(self, window: int = 10, min_votes: int = 5, thresh: float = 0.6,
+                 vote_p: float = DEFAULT_VOTE_P) -> None:
+        if not 1 <= min_votes <= window or not 0.0 < thresh <= 1.0 or not 0.0 < vote_p <= 1.0:
+            raise ValueError("need 1 <= min_votes <= window, 0 < thresh <= 1 and 0 < vote_p <= 1")
+        self.window, self.min_votes, self.thresh, self.vote_p = window, min_votes, thresh, vote_p
         self.history: dict[int, deque[float]] = {}
         self.flagged_at: dict[int, float] = {}  # track_id -> time (s) first flagged
 
@@ -51,7 +54,7 @@ class EmergencyVoter:
         return track_id in self.flagged_at
 
     def positives(self, track_id: int) -> int:
-        return sum(p >= POSITIVE_P for p in self.history.get(track_id, ()))
+        return sum(p >= self.vote_p for p in self.history.get(track_id, ()))
 
     def is_flagged(self, track_id: int) -> bool:
         return track_id in self.flagged_at
@@ -123,11 +126,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--window", type=int, default=10)
     p.add_argument("--min-votes", type=int, default=5)
     p.add_argument("--thresh", type=float, default=0.6, help="share of positive votes needed to flag")
+    p.add_argument("--vote-p", type=float, default=DEFAULT_VOTE_P, help="a prediction is a positive vote at p >= this")
     p.add_argument("--out", type=Path, help="annotated mp4 (default: <video>_emergency.mp4 next to the input)")
     args = p.parse_args(argv)
     if args.every < 1:
         p.error("--every must be >= 1")
-    voter = EmergencyVoter(args.window, args.min_votes, args.thresh)
+    voter = EmergencyVoter(args.window, args.min_votes, args.thresh, args.vote_p)
     if not args.video.exists():
         raise FileNotFoundError(f"video not found: {args.video}")
     if Path(args.cls).name == args.cls:

@@ -8,7 +8,7 @@ from backend.vision.eval_emergency import EmergencyVoter, pad_crop, touches_edge
 
 class EmergencyVoterTest(unittest.TestCase):
     def test_flags_at_min_votes_and_threshold_then_stays_flagged(self) -> None:
-        voter = EmergencyVoter(window=10, min_votes=5, thresh=0.6)
+        voter = EmergencyVoter(window=10, min_votes=5, thresh=0.6, vote_p=0.5)
         for i, p in enumerate([0.9, 0.8, 0.2, 0.7]):
             self.assertFalse(voter.update(1, p, i))  # fewer than min_votes predictions
         self.assertTrue(voter.update(1, 0.1, 4.0))  # 3/5 = 0.6
@@ -18,10 +18,20 @@ class EmergencyVoterTest(unittest.TestCase):
         self.assertEqual((voter.positives(1), len(voter.history[1])), (0, 10))  # window capped
 
     def test_below_threshold_never_flags(self) -> None:
-        voter = EmergencyVoter(window=10, min_votes=5, thresh=0.6)
+        voter = EmergencyVoter(window=10, min_votes=5, thresh=0.6, vote_p=0.5)
         for i in range(10):
             voter.update(2, 0.55 if i % 2 else 0.4, i)  # 5/10 < 0.6
         self.assertFalse(voter.is_flagged(2))
+
+    def test_default_vote_p_ignores_confident_but_not_certain_predictions(self) -> None:
+        voter = EmergencyVoter()  # vote_p 0.99
+        for i in range(10):
+            voter.update(3, 0.98, i)
+        self.assertEqual(voter.positives(3), 0)
+        self.assertFalse(voter.is_flagged(3))
+        for i in range(10):
+            voter.update(3, 0.995, 10 + i)
+        self.assertTrue(voter.is_flagged(3))
 
 
 class CropTest(unittest.TestCase):
