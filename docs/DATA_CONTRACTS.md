@@ -272,7 +272,7 @@ Produced by `backend/vision` gate mode from one recorded top-down video of one i
 
 - `arm` is one of `north`, `east`, `south`, `west`, named by the **side of the camera image** (`north` = top edge), not by compass bearing. Mapping arms to SUMO approaches is separate and must not be inferred from the names.
 - Each arm has three hand-drawn gates (4-point pixel polygons in the scene config): `<arm>_in.far` (inbound lanes at the frame edge) emits `approach_entered`; `<arm>_in.stop` (inbound lanes just past the stop line) emits `intersection_entered`; `<arm>_out` (outbound lanes just past the crosswalk) emits `intersection_exited`.
-- Gate rule: a track triggers a gate once, at the first frame where its counting point (box centre for top-down views) has been inside the gate in two consecutive video frames.
+- Gate rule: a track triggers a gate once, at the first frame where its counting point (box centre for top-down views) has been inside the gate in at least 2 of the last 3 video frames (one missed frame tolerated; configurable per scene as `gate_min_inside` of `gate_window_frames`). A frame without the track counts as not inside.
 - `origin_arm` is present only on `intersection_exited`. It is the `arm` of the same track's earlier `intersection_entered` event, or `null` when unknown: the tracker lost the vehicle, the vehicle was already in the junction at the start, or the track entered from more than one arm. It is never guessed.
 - `track_id` is a tracker ID, unique within one file; the same physical vehicle can appear under two IDs if the tracker loses it.
 - `t_s` is seconds from the start of the video (video time, not wall-clock time); `frame` is the 0-based decoded frame index.

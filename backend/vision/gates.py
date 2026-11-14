@@ -6,9 +6,12 @@ per frame (box centre for top-down scenes). Everything here is deterministic.
 Gate rule
 ---------
 A track triggers a gate **once**, at the first frame ``f`` where its counting
-point is inside the gate polygon (boundary included) in both frame ``f - 1``
-and frame ``f``. Both frames must be consecutive *video* frames in which the
-track was observed; a frame without the track breaks the run.
+point has been inside the gate polygon (boundary included) in at least
+``min_inside`` of the last ``window`` *video* frames ``f - window + 1 .. f``
+(scene fields ``gate_min_inside`` / ``gate_window_frames``, default 2 of 3, so
+one missed frame is tolerated). A frame in which the track was not observed
+counts as not inside. The trigger frame is always a frame where the point is
+inside.
 
 Gate -> event
 -------------
@@ -163,10 +166,15 @@ def initial_state(scene: SceneConfig, frames: Sequence[tuple[int, Sequence[Track
     )
 
 
-def detect_triggers(scene: SceneConfig, frames: Sequence[tuple[int, Sequence[TrackPoint]]]) -> list[GateTrigger]:
-    """Apply the 2-consecutive-frame gate rule; frames must be in increasing order."""
+def detect_triggers(scene: SceneConfig, frames: Sequence[tuple[int, Sequence[TrackPoint]]],
+                    min_inside: int | None = None, window: int | None = None) -> list[GateTrigger]:
+    """Apply the ``min_inside``-of-``window`` gate rule (default: the scene's); frames in increasing order."""
+    min_inside = scene.gate_min_inside if min_inside is None else min_inside
+    window = scene.gate_window_frames if window is None else window
+    if not 1 <= min_inside <= window:
+        raise ValueError(f"gate rule needs 1 <= min_inside <= window, got {min_inside} of {window}")
     index = _GateIndex(scene)
-    last_inside: dict[tuple[int, str], int] = {}
+    recent: dict[tuple[int, str], list[int]] = {}  # frames inside the gate within the window
     fired: set[tuple[int, str]] = set()
     out: list[GateTrigger] = []
     previous = -1
@@ -177,10 +185,15 @@ def detect_triggers(scene: SceneConfig, frames: Sequence[tuple[int, Sequence[Tra
         for tp in sorted(points, key=lambda p: p.track_id):
             for gate_id in index.inside(tp.point):
                 key = (tp.track_id, gate_id)
-                if key not in fired and last_inside.get(key) == frame - 1:
+                if key in fired:
+                    continue
+                inside = [f for f in recent.get(key, ()) if f > frame - window] + [frame]
+                if len(inside) >= min_inside:
                     fired.add(key)
+                    recent.pop(key, None)
                     out.append(GateTrigger(tp.track_id, gate_id, frame))
-                last_inside[key] = frame
+                else:
+                    recent[key] = inside
     order = {g: i for i, g in enumerate(GATE_IDS)}
     return sorted(out, key=lambda t: (t.frame, t.track_id, order[t.gate_id]))
 

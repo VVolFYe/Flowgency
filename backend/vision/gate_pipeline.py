@@ -100,6 +100,7 @@ def run_summary(run: GateRun, scene: SceneConfig, meta: dict[str, Any]) -> dict[
         **meta,
         "scene_id": scene.scene_id,
         "counting_point": scene.counting_point,
+        "gate_rule": {"min_inside": scene.gate_min_inside, "window_frames": scene.gate_window_frames},
         "initial": {
             "window_frames": run.initial.window_frames,
             "min_observations": run.initial.min_observations,

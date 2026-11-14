@@ -103,6 +103,15 @@ class SceneTests(unittest.TestCase):
                 scene(gates=gates)
         with self.assertRaises(ValidationError):
             scene(model_id="yolo11s.pt")
+        with self.assertRaises(ValidationError):
+            scene(gate_min_inside=3, gate_window_frames=2)
+        with self.assertRaises(ValidationError):
+            scene(gate_min_inside=0)
+
+    def test_gate_rule_defaults_to_two_of_three(self) -> None:
+        s = SceneConfig.model_validate({k: v for k, v in scene().model_dump().items()
+                                        if k not in ("gate_min_inside", "gate_window_frames")})
+        self.assertEqual((s.gate_min_inside, s.gate_window_frames), (2, 3))
 
     def test_overlap_thin_and_region_warnings(self) -> None:
         gates = dict(GATES)

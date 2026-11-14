@@ -79,6 +79,9 @@ class SceneConfig(BaseModel):
     model_id: str
     drive_side: Literal["right", "left"]
     reference_frame_index: Annotated[int, Field(ge=0)] | None = None
+    # Gate rule: trigger once inside in >= gate_min_inside of the last gate_window_frames video frames.
+    gate_min_inside: Annotated[int, Field(ge=1)] = 2
+    gate_window_frames: Annotated[int, Field(ge=1, le=25)] = 3
     gates: dict[str, Quad] = {}
     notes: str = ""
 
@@ -91,6 +94,8 @@ class SceneConfig(BaseModel):
 
     @model_validator(mode="after")
     def _gates_valid(self) -> SceneConfig:
+        if self.gate_min_inside > self.gate_window_frames:
+            raise ValueError("gate_min_inside must not exceed gate_window_frames")
         for gate_id, polygon in self.gates.items():
             validate_gate_polygon(gate_id, polygon, self.frame_size)
         self.gates = {g: self.gates[g] for g in GATE_IDS if g in self.gates}  # canonical order
@@ -136,7 +141,7 @@ class SceneConfig(BaseModel):
             depth = polygon_width(polygon)
             if depth < MIN_GATE_DEPTH_PX:
                 out.append(f"{gate_id}: only {depth:.0f} px deep (< {MIN_GATE_DEPTH_PX:.0f}); a fast vehicle may "
-                           "not stay inside for 2 frames")
+                           f"not stay inside for {self.gate_min_inside} frames")
             if not is_convex(polygon):
                 out.append(f"{gate_id}: not convex; check the corner order")
         regions = self.approach_regions()

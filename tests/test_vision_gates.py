@@ -35,11 +35,35 @@ class GateRuleTests(unittest.TestCase):
         triggers = detect_triggers(scene(), frames_of({1: {f: (170, 20) for f in range(10, 30)}}, 30))
         self.assertEqual([(t.track_id, t.gate_id, t.frame) for t in triggers], [(1, "north_in.far", 11)])
 
-    def test_two_consecutive_frames_required(self) -> None:
+    def test_one_frame_inside_is_not_enough(self) -> None:
         one_frame = {1: {10: (170, 20), 11: (170, 60), 12: (170, 70)}}
         self.assertEqual(detect_triggers(scene(), frames_of(one_frame, 20)), [])
-        gap = {1: {10: (170, 20), 12: (170, 20), 13: (170, 25)}}  # missing frame 11 breaks the run
-        self.assertEqual([t.frame for t in detect_triggers(scene(), frames_of(gap, 20))], [13])
+
+    def test_two_of_last_three_frames_tolerates_one_miss(self) -> None:
+        unobserved = {1: {10: (170, 20), 12: (170, 20)}}              # tracker missed frame 11
+        self.assertEqual([t.frame for t in detect_triggers(scene(), frames_of(unobserved, 20))], [12])
+        outside = {1: {10: (170, 20), 11: (170, 45), 12: (170, 25)}}   # jittered out for frame 11
+        self.assertEqual([t.frame for t in detect_triggers(scene(), frames_of(outside, 20))], [12])
+        consecutive = {1: {10: (170, 20), 11: (170, 25)}}
+        self.assertEqual([t.frame for t in detect_triggers(scene(), frames_of(consecutive, 20))], [11])
+
+    def test_two_misses_reset_the_window(self) -> None:
+        spread = {1: {10: (170, 20), 13: (170, 20), 16: (170, 20), 17: (170, 60)}}
+        self.assertEqual(detect_triggers(scene(), frames_of(spread, 20)), [])
+        late = {1: {10: (170, 20), 13: (170, 20), 15: (170, 20)}}      # 13 and 15 are 2 of 13..15
+        self.assertEqual([t.frame for t in detect_triggers(scene(), frames_of(late, 20))], [15])
+
+    def test_window_is_configurable(self) -> None:
+        path = {1: {10: (170, 20), 12: (170, 20), 13: (170, 20), 14: (170, 20)}}
+        frames = frames_of(path, 20)
+        self.assertEqual([t.frame for t in detect_triggers(scene(), frames, min_inside=2, window=2)], [13])
+        self.assertEqual([t.frame for t in detect_triggers(scene(), frames, min_inside=3, window=3)], [14])
+        self.assertEqual([t.frame for t in detect_triggers(scene(), frames, min_inside=3, window=4)], [13])
+        self.assertEqual([t.frame for t in detect_triggers(scene(), frames, min_inside=1, window=1)], [10])
+        strict = scene(gate_min_inside=3, gate_window_frames=3)
+        self.assertEqual([t.frame for t in detect_triggers(strict, frames)], [14])
+        with self.assertRaises(ValueError):
+            detect_triggers(scene(), frames, min_inside=3, window=2)
 
     def test_boundary_counts_as_inside(self) -> None:
         on_edge = {1: {10: (150, 20), 11: (195, 40)}}
