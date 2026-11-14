@@ -1,0 +1,8 @@
+[
+  {
+    "id": "youtube",
+    "label": "YouTube top-down intersection",
+    "kind": "vision",
+    "file": "youtube.json"
+  }
+]
