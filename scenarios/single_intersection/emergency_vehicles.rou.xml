@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes>
+    <vType id="ambulance" vClass="passenger" guiShape="emergency" color="255,65,65" accel="2.6" decel="4.5" sigma="0.0" length="5.5" minGap="2.5" maxSpeed="13.89"/>
+    <route id="emergency_east_to_west" edges="east_in west_out"/>
+    <route id="emergency_south_to_north" edges="south_in north_out"/>
+    <vehicle id="ambulance_single_1" type="ambulance" route="emergency_east_to_west" depart="35" departLane="best" departSpeed="max"/>
+    <vehicle id="ambulance_single_2" type="ambulance" route="emergency_south_to_north" depart="35" departLane="best" departSpeed="max"/>
+</routes>

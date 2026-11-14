@@ -60,6 +60,9 @@ export function signalFeatures(geometry: NetworkGeometry, snapshot: SimulationSn
       signal && "rR".includes(signal) ? "#ff5362" : "#839293";
     features.push({ type: "Feature", properties: {
       color, tls, link: link.link_index, state: signal ?? "unavailable",
+      priority: snapshot?.emergency_events?.some(event =>
+        event.intersection_id === tls && event.priority_supported && event.state === "priority_active",
+      ) ?? Boolean(snapshot?.emergency_priority?.active_vehicle_id && snapshot.traffic_light_id === tls),
     }, geometry: { type: "Point", coordinates: coordinates(point.x_m, point.y_m) } });
   }
   return { type: "FeatureCollection", features };

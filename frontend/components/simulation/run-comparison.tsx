@@ -25,7 +25,7 @@ function readStorage() {
 }
 
 export function RunComparison() {
-  const { selectedScenarioId, status, snapshot } = useSimulation();
+  const { selectedConfiguration, status, snapshot } = useSimulation();
   const storedRuns = useSyncExternalStore(subscribe, readStorage, () => "{}");
   const runs = useMemo(() => {
     try {
@@ -50,13 +50,15 @@ export function RunComparison() {
     return {} as Record<string, RunPair>;
   }, [storedRuns]);
   useEffect(() => {
-    const mode = status.control_mode;
+    const mode = status.controller_mode === "fixed_timing" ? "fixed"
+      : status.controller_mode === "adaptive_network" ? "adaptive" : null;
     const metrics = snapshot?.metrics;
     if (status.state !== "finished" || !snapshot || !metrics ||
-        (mode !== "fixed" && mode !== "adaptive") ||
+        mode === null ||
         metrics.active_vehicle_count !== 0 || metrics.arrived_vehicle_count <= 0 ||
         metrics.arrived_vehicle_count !== metrics.departed_vehicle_count) return;
-    const scenario = snapshot.scenario_selection_id;
+    const configuration = snapshot.active_configuration;
+    const scenario = `${configuration.network}:${configuration.traffic_profile}:${configuration.emergency_vehicles_enabled}`;
     if (!scenario) return;
     if (runs[scenario]?.[mode]?.runId !== snapshot.run_id) {
       const updated = {
@@ -70,8 +72,9 @@ export function RunComparison() {
         window.dispatchEvent(new Event(UPDATED_EVENT));
       } catch { /* Storage may be unavailable. */ }
     }
-  }, [status.state, status.control_mode, snapshot, runs]);
-  const pair = runs[selectedScenarioId];
+  }, [status.state, status.controller_mode, snapshot, runs]);
+  const comparisonKey = `${selectedConfiguration.network}:${selectedConfiguration.traffic_profile}:${selectedConfiguration.emergency_vehicles_enabled}`;
+  const pair = runs[comparisonKey];
   const fixed = pair?.fixed;
   const adaptive = pair?.adaptive;
   const comparable = fixed && adaptive && fixed.arrived === adaptive.arrived;

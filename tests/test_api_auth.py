@@ -25,6 +25,8 @@ class StaticJwksClient:
 
 
 class StubSimulationService:
+    def __init__(self) -> None:
+        self.started: dict[str, object] | None = None
     def open(self) -> None:
         pass
 
@@ -41,6 +43,16 @@ class StubSimulationService:
             "has_snapshot": False,
             "error": None,
         }
+
+    def start(self, speed: float, network: str, profile: str, controller: str, emergency: bool) -> dict[str, object]:
+        self.started = {
+            "speed": speed,
+            "network": network,
+            "profile": profile,
+            "controller": controller,
+            "emergency": emergency,
+        }
+        return {"state": "running", **self.started}
 
 
 def make_token(
@@ -127,6 +139,36 @@ class Auth0ApiSecurityTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"authorized": True})
+
+    def test_operator_can_start_full_validated_configuration(self) -> None:
+        service = StubSimulationService()
+        verifier = Auth0TokenVerifier(DOMAIN, AUDIENCE, StaticJwksClient())
+        response = request(
+            create_app(service=service, auth0_verifier=verifier),
+            "POST",
+            "/api/simulation/start",
+            headers={"Authorization": f"Bearer {make_token(['simulation:control'])}"},
+            json={
+                "network": "london",
+                "traffic_profile": "unbalanced",
+                "controller_mode": "adaptive_emergency_priority",
+                "emergency_vehicles_enabled": True,
+                "simulation_speed": 8,
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(service.started["network"], "london")
+        self.assertTrue(service.started["emergency"])
+
+    def test_invalid_configuration_is_rejected_before_control(self) -> None:
+        response = request(
+            make_app(),
+            "POST",
+            "/api/simulation/start",
+            headers={"Authorization": f"Bearer {make_token(['simulation:control'])}"},
+            json={"network": "unknown", "emergency_vehicles_enabled": 1},
+        )
+        self.assertEqual(response.status_code, 422)
 
     def test_wrong_issuer_is_unauthorized(self) -> None:
         response = request(

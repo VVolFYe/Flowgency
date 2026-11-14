@@ -16,7 +16,13 @@ class VoiceSumoTests(unittest.TestCase):
         service.open()
         seen: dict[str, dict] = {}
         try:
-            service.start(speed=100, scenario_id="single_intersection_emergency")
+            service.start(
+                speed=100,
+                network="single_intersection",
+                traffic_profile="normal",
+                controller_mode="adaptive_emergency_priority",
+                emergency_vehicles_enabled=True,
+            )
             deadline = time.monotonic() + 45
             while time.monotonic() < deadline:
                 current = service.latest_snapshot()
@@ -32,8 +38,8 @@ class VoiceSumoTests(unittest.TestCase):
             else:
                 self.fail("emergency simulation did not finish in time")
             message_ids = {alert["message_id"] for alert in seen.values()}
-            self.assertIn("emergency.requested", message_ids)
-            self.assertIn("emergency.green_confirmed", message_ids)
+            self.assertIn("emergency.detected", message_ids)
+            self.assertIn("emergency.priority_activated", message_ids)
             self.assertNotIn("emergency.request_ended", message_ids)
             self.assertTrue(all(alert["priority"] == "emergency" for alert in seen.values()))
             last = list(seen.values())[-1]

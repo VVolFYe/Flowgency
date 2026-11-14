@@ -4,9 +4,10 @@ Next.js control center for the server-owned SUMO simulation. The browser reads n
 
 ## Run
 
-Start the backend from the repository root:
+Start the backend from the repository root (details, Windows commands and the analytics database setup are in `backend/README.md`):
 
 ```bash
+set -a; source .env; source backend/.env; set +a   # FLOWGENCY_ANALYTICS_DB unset = local SQLite
 python3 -m uvicorn backend.api.app:app --host 127.0.0.1 --port 8000
 ```
 
@@ -22,9 +23,9 @@ Node.js 22 or newer is required by the pinned frontend toolchain.
 
 Open <http://localhost:3000>. Port 3000 is required by the backend's development CORS policy.
 
-The simulation page loads its scenario list from the backend. Select the synthetic intersection or a London demand profile while the service is idle, then Start. The selected network uses actual SUMO Cartesian geometry; use the mouse wheel to zoom, drag to pan, and **Fit network** to restore the full extent. Scenario selection is locked during active and paused runs.
+The Operator simulation page loads four independent selectors from the backend: Map / Network, Traffic Profile, Controller Mode, and Emergency Vehicles. All selectors lock during an active or paused run and the backend-confirmed Active configuration replaces the pre-start Selected configuration. The selected network uses actual SUMO Cartesian geometry; use the mouse wheel to zoom, drag to pan, and **Fit network** to restore the full extent.
 
-Control mode is selected before Start. **Emergency priority demo** defaults to `adaptive_with_emergency_priority` and highlights the declared ambulance, fire brigade, and police vehicles. London adaptive mode uses the audited experimental 22-controller network profile in Normal, Rush Hour, and Unbalanced. Emergency priority remains synthetic-only. Live metrics report cumulative vehicle-seconds waiting, average waiting per departed vehicle, arrivals, and current/maximum controlled-lane queues.
+Controller mode is selected before Start. Emergency Vehicles is independent: Fixed Timing and Adaptive Network still load and display ambulances but do not grant signal preemption. Adaptive Network + Emergency Priority composes deterministic per-intersection emergency handling with adaptive control. London adaptive mode uses the audited experimental network profile in Normal, Rush Hour, and Unbalanced. Live metrics report cumulative vehicle-seconds waiting, average waiting per departed vehicle, arrivals, and current/maximum controlled-lane queues.
 
 The simulation view also displays traffic alert captions. Click **Enable voice**
 to hear new alerts through the backend's optional ElevenLabs integration; the

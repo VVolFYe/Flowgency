@@ -460,8 +460,16 @@ export function SimulationCanvas({
     drawSyntheticSignals(context);
     drawLondonSignals(context);
     const { screen, scale } = projection(geometry, size, viewRef.current);
-    if (snapshot?.emergency_priority?.active_vehicle_id && snapshot.traffic_light_id) {
-      const controller = geometry.traffic_lights.find(light => light.traffic_light_id === snapshot.traffic_light_id);
+    const activeEvents = snapshot?.emergency_events?.filter(event =>
+      event.priority_supported && event.state === "priority_active") ?? [];
+    const priorityVehicles = new Set(activeEvents.map(event => event.emergency_vehicle_id));
+    const priorityControllers = new Set(activeEvents.map(event => event.intersection_id));
+    if (!snapshot?.emergency_events && snapshot?.emergency_priority?.active_vehicle_id) {
+      priorityVehicles.add(snapshot.emergency_priority.active_vehicle_id);
+      if (snapshot.traffic_light_id) priorityControllers.add(snapshot.traffic_light_id);
+    }
+    for (const controllerId of priorityControllers) {
+      const controller = geometry.traffic_lights.find(light => light.traffic_light_id === controllerId);
       controller?.junctions?.forEach(junction => {
         const position = screen(junction);
         context.save();
@@ -481,7 +489,7 @@ export function SimulationCanvas({
       const length = Math.min(15, Math.max(3.5, 4.6 * scale));
       const width = Math.min(8, Math.max(2.2, 1.9 * scale));
       const emergencyColor = EMERGENCY_COLORS[vehicle.vehicle_type.toLowerCase()];
-      if (snapshot?.emergency_priority?.active_vehicle_id === vehicle.vehicle_id) {
+      if (priorityVehicles.has(vehicle.vehicle_id)) {
         context.save();
         context.beginPath();
         context.arc(position.x, position.y, Math.max(16, length * 1.5), 0, Math.PI * 2);

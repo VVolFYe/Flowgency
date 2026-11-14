@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 from uuid import uuid4
 
+from .analytics import StepSampler
 from .cycle_adapter import collect_vehicle_observations, load_adaptive_signal_set
 from .runner import _import_traci
 
@@ -26,6 +27,8 @@ def main() -> int:
                         help="override generated tripinfo and summary output directory")
     parser.add_argument("--max-steps", type=int, default=5000,
                         help="hard simulation-step cap for bounded benchmark runs")
+    parser.add_argument("--analytics-samples", type=Path,
+                        help="optional JSON path for per-step queue/phase samples (analytics export)")
     args = parser.parse_args()
     if args.step_delay_ms < 0:
         parser.error("--step-delay-ms must be nonnegative")
@@ -63,6 +66,7 @@ def main() -> int:
         phase_started_s: dict[str, float] = {}
         phase_transition_count = 0
         fixed_phase_timing_errors: list[str] = []
+        sampler = StepSampler(connection) if args.analytics_samples is not None else None
         for signal in signals:
             signal.tick([])  # align control with a phase boundary at simulation time zero
             observed_phases[signal.tls_id] = int(connection.trafficlight.getPhase(signal.tls_id))
@@ -114,6 +118,10 @@ def main() -> int:
             arrived += int(simulation.getArrivedNumber())
             collisions += int(simulation.getCollidingVehiclesNumber())
             teleports += int(simulation.getStartingTeleportNumber())
+            if sampler is not None:
+                sampler.record(arrived_cumulative=arrived)
+        if sampler is not None:
+            sampler.write(args.analytics_samples.resolve())
         terminated_by_step_limit = (
             steps >= args.max_steps and connection.simulation.getMinExpectedNumber() > 0
         )

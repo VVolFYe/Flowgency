@@ -18,12 +18,7 @@ a separate announcement policy recognizes meaningful state transitions; the
 browser displays the text and, if the operator enabled sound, plays the audio.
 Voice must never block a SUMO step or influence the signal controller.
 
-Adaptive cycle-plan changes do not trigger speech. Congestion alerts are implemented but disabled until a scenario-specific
-threshold is configured and validated. Emergency announcements currently use
-the synthetic emergency scenario only. Its emergency vehicles are declared SUMO types, not camera or YOLO
-detections. Do not announce an ambulance from camera data until that
-integration is present and its source is explicit. London emergency control is
-not enabled.
+Adaptive cycle-plan changes do not trigger speech. Congestion alerts are implemented but disabled until a scenario-specific threshold is configured and validated. Emergency announcements use declared SUMO emergency types in both networks, not camera or YOLO detections. Do not announce an ambulance from camera data until that integration is present and its source is explicit. Fixed Timing and Adaptive Network announce detection only; priority activation is announced only for `adaptive_emergency_priority`.
 
 ## Spoken message catalog
 
@@ -77,17 +72,16 @@ been measured.
 5. If another emergency request remains, announce the next selected vehicle
    according to the same rules; do not speak when the old request ends.
 6. Include simulation time and run ID in the event. The browser ignores
-   historical alerts more than eight simulated seconds old when they arrive,
-   cancels playback on a new run, and queues timely alerts so each spoken
-   sentence finishes before the next begins. Emergency audio goes ahead of
-   routine traffic alerts waiting in the queue; voices never overlap.
+   historical alerts more than eight simulated seconds old, cancels playback
+   on a new run, aggregates matching events for 650 ms, and uses one FIFO
+   player. The next item starts only after `ended`, error, or timeout; voices
+   never overlap.
 7. Adaptive plan changes do not trigger speech. A congestion alert needs
    a scenario-specific threshold; when configured, it requires 10 simulated
    seconds above that threshold and resets below 60% of it. No scenario has a
    congestion threshold configured yet.
-8. Give emergency messages priority over routine updates waiting to play,
-   without cutting off a sentence already in progress. Never claim that the
-   algorithm saved time until a fixed/adaptive comparison has been completed.
+8. Preserve FIFO order after aggregation. Never claim that the algorithm saved
+   time until a fixed/adaptive comparison has been completed.
 
 ## Delivery path
 
@@ -96,7 +90,7 @@ SUMO/TraCI snapshot
   -> backend announcement policy (state transitions, deduplication)
   -> bounded `voice_alerts` history in WebSocket snapshots
   -> browser alert list and optional playback of new, timely alerts
-  -> GET /api/voice/alerts/{event_id}/audio -> backend ElevenLabs call
+  -> GET /api/voice/audio?event_ids=... -> backend validation, aggregation, and ElevenLabs call
   -> browser playback
 ```
 

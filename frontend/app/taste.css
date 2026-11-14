@@ -175,3 +175,12 @@ select { color-scheme: dark; }
 }
 .map-follow-button { display: block; margin-top: 10px; padding: 8px 12px; min-height: 36px; background: #253b42; color: white; border-radius: 6px; width: 100%; }
 .simulation-map-frame[data-technical="true"] .map-view-switch { top: auto; bottom: 14px; }
+
+/* Independent configuration selectors introduced on main. */
+.run-toolbar > .space-y-3 { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.run-toolbar > .space-y-3 > .toolbar-field { margin-block: 0; }
+.run-toolbar > div:nth-child(3) { grid-column: span 2; }
+@media (max-width: 767px) {
+  .run-toolbar > .space-y-3 { grid-template-columns: 1fr; }
+  .run-toolbar > div:nth-child(3) { grid-column: auto; }
+}

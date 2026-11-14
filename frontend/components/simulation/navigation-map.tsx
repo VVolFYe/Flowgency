@@ -74,6 +74,10 @@ export function NavigationMap({ geometry, snapshot, status, onTechnical }: {
         map.addLayer({ id: "sumo-markings", type: "line", source: "sumo-roads", minzoom: 17,
           paint: { "line-color": "#f5edc9", "line-width": .6, "line-opacity": .65, "line-dasharray": [6, 8] } });
         map.addSource("signals", { type: "geojson", data: signalFeatures(geometry, latest.current) });
+        map.addLayer({ id: "priority-signals", type: "circle", source: "signals",
+          filter: ["==", ["get", "priority"], true],
+          paint: { "circle-radius": 10, "circle-color": "#ffb653", "circle-opacity": .15,
+            "circle-stroke-color": "#b94604", "circle-stroke-width": 2 } });
         map.addLayer({ id: "signals", type: "circle", source: "signals", paint: {
           "circle-radius": ["interpolate", ["linear"], ["zoom"], 13, 2.5, 18, 6],
           "circle-color": ["get", "color"], "circle-stroke-color": "#1b2529", "circle-stroke-width": 2,
@@ -132,6 +136,10 @@ export function NavigationMap({ geometry, snapshot, status, onTechnical }: {
     (map.getSource("signals") as GeoJSONSource)?.setData(signalFeatures(geometry, snapshot));
     const coordinates = mapCoordinates(geometry);
     const target = snapshot?.vehicles ?? [];
+    const priorityVehicles = new Set(snapshot?.emergency_events
+      ?.filter(event => event.priority_supported && event.state === "priority_active")
+      .map(event => event.emergency_vehicle_id) ??
+      (snapshot?.emergency_priority?.active_vehicle_id ? [snapshot.emergency_priority.active_vehicle_id] : []));
     const source = new Map(
       renderedRun.current === snapshot?.run_id ? renderedVehicles.current.map(v => [v.vehicle_id, v]) : [],
     );
@@ -158,7 +166,7 @@ export function NavigationMap({ geometry, snapshot, status, onTechnical }: {
           type: "Feature", properties: {
             id: v.vehicle_id, type: v.vehicle_type, speed: v.speed_mps, angle: v.angle_deg,
             icon: `flowgency-${["ambulance", "police", "fire_brigade"].includes(v.vehicle_type) ? v.vehicle_type : v.vehicle_type.includes("bus") ? "bus" : "car"}`,
-            priority: v.vehicle_id === snapshot?.emergency_priority?.active_vehicle_id,
+            priority: priorityVehicles.has(v.vehicle_id),
           }, geometry: { type: "Point", coordinates: coordinates(v.x_m, v.y_m) },
         })) };
         (map.getSource("vehicles") as GeoJSONSource)?.setData(data);
