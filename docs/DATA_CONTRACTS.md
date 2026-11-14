@@ -311,3 +311,48 @@ Produced alongside section I, for the traffic-light adaptor: one line per whole 
 - Every trigger that drives a raw value below zero is a *clamp*; clamps are logged in the producer's run log (`gate_run.json`), never hidden. The clamp applies to the reported value only; later triggers move the raw value back up.
 - An arm is present in `approaches` only when both of its inbound gates are configured; `in_intersection` is `null` unless all four stop and all four out gates are configured. Absent or `null` means unknown, never zero.
 - **These are estimates that can drift.** They accumulate detector misses, duplicate or broken tracks, and gate-placement errors over the whole video, and there is no reset or re-synchronisation. They are camera-derived counts, not SUMO queue lengths (section B), and `vehicles_on_approach` includes moving vehicles, not only queued ones.
+
+## K. Static analytics files (`frontend/public/analytics/`)
+
+Committed JSON files for the Statistics page. They are static files, not API endpoints. Regeneration commands are in `frontend/public/analytics/README.md`. All three formats use `schema_version: "1.0"`. `null` means unknown or not produced (for example a run that failed before writing samples), never zero. Frontend types and runtime guards are in `frontend/lib/contracts.ts`.
+
+### K.1 Index (`index.json`)
+
+```json
+[{"id": "youtube", "label": "YouTube top-down intersection", "kind": "vision", "file": "youtube.json"}]
+```
+
+`kind` is `simulation` or `vision`. `file` is a bare file name in the same directory (`[A-Za-z0-9_.-]+.json`). `id` is the file stem. Exporters upsert their own entry (`backend/models/analytics_index.py`) after writing the file, so every entry points at an existing file.
+
+### K.2 Simulation fixed vs adaptive (`<scenario>.json`)
+
+Written by `python -m backend.simulation.compare_cycles ... --analytics-out PATH`. It reuses `compare()`, `validate_run()` and `config_metadata()`, so trip metrics keep exactly the definitions of the comparison report. Top-level keys:
+
+- `kind: "simulation"`, `scenario_id`, `scenario_name`.
+- `provenance` and `experiment`: the same fields as the benchmark snapshots in `frontend/public/benchmarks/`. Paths are relative to the repository. `experiment.adaptive_scope` and `adaptive_controller_count` come from the adaptive run's reported controllers.
+- `runs.<mode>`: `steps`, `cycle_decisions`.
+- `summary.<metric>`: `{fixed, adaptive, absolute_improvement, percentage_improvement, better}`. A positive improvement favours adaptive. `better` is `lower`, except for throughput, which is `higher` (improvement = adaptive − fixed). `percentage_improvement` is relative to fixed and is `null` when fixed is 0. The metrics:
+  - `total_waiting_time_s`, `average_waiting_time_s`, `total_time_loss_s`, `average_time_loss_s`, `average_trip_duration_s`: copied from `compare()` (tripinfo, matched completed vehicles). Averages use `compare()`'s per-vehicle saving. All are `null` when the completed vehicle sets differ.
+  - `throughput_vehicles_per_hour`: completed trips × 3600 / (last arrival − config `begin`, default 0).
+  - `mean_network_queue_vehicles`, `max_network_queue_vehicles`: over every simulation step.
+- `timeseries`: `interval_s` (10 s, doubled until each mode has ≤ 600 samples), `queue_measurement`, and per mode a list of `{t_s, network_queue_vehicles, active_vehicles, arrived_cumulative}`. Each sample is the first step at or after an interval boundary, and the final step is always included.
+- `distributions.<waiting_time_s | time_loss_s | trip_duration_s>`: `bin_edges` shared by both modes, plus per mode `{count, p50, p90, p95, max, histogram}` over completed trips. Percentiles use linear interpolation (NumPy's default method). Bins are `[edge_i, edge_i+1)`; the last bin is closed. Edges start at 0, and the width is a 1/2/2.5/5 × 10^k step aiming at 20 bins.
+- `intersections`: `queue_measurement`, plus per mode a map of traffic-light ID to `{mean_queue, max_queue, mean_green_s, completed_green_phases, decision_count}`. `mean_green_s` averages completed phases whose state contains `G`/`g` and no `y`/`Y`; the phase still running at the end is excluded. `decision_count` counts the run's `cycle_decision_events` for that controller (0 in fixed mode).
+- `emergency`: `null` unless a completed trip has SUMO vType `ambulance`, `fire_brigade` or `police`. Otherwise it holds `vehicle_types` plus per mode `{emergency_trip_count, normal_trip_count, emergency_average_time_loss_s, normal_average_time_loss_s}`.
+- `validation`: `passed`, `matched_vehicle_count`, `errors` (prefixed with the mode), plus per mode the benchmark run shape (`passed`, `departed`, `arrived`, `completed`, `unfinished`, `duplicate_tripinfo_ids` as a count, `collisions`, `teleports`, `process_exit_code`, `terminated_by_step_limit`) and its `errors`. A failed validation is exported with `passed: false`, never dropped.
+- `limitations`: strings. The exporter adds definitions plus any failed-validation, teleport and missing-sample notes; `--analytics-limitation` appends more.
+
+Queues use `sumo_halting_number_unique_controlled_lanes`, the same measurement as `network_queue` in section B. They are SUMO state, not camera observations. The per-step samples come from `cycle_run --analytics-samples`. That opt-in file lives in the ignored run output directory; without the flag, `cycle_run` output is unchanged.
+
+### K.3 Vision gate counts (`youtube.json`)
+
+Written by `python -m backend.vision.export_analytics` from section I/J files (validated with `backend/models/gates.py`):
+
+- `kind: "vision"`.
+- `source`: `{label, duration_s, duration_definition, fps, model_id, sample_readme, counts_path, events_path, video_in_repository}`. `duration_s` is the last `t_s` in `counts.jsonl`. `fps` is derived from the latest event as `frame / t_s`, or `null` without events.
+- `arms`: arms present in the counts, as image sides (section I).
+- `timeseries`: columnar `t_s`, `vehicles_on_approach.<arm>`, and `in_intersection` (one entry per counts line; `null` where the arm or junction is unknown).
+- `flow_per_minute`: windows `(60 m, 60 (m+1)]` with `start_s`, `end_s`, `partial`, and per arm `entered` / `discharged`. Values are differences of the cumulative `entered_total` / `discharged_total`; the first window starts from zero.
+- `totals.<arm>`: `{entered, discharged, peak_vehicles_on_approach}` from the last counts line and the series maximum.
+- `turning_matrix`: `origins` (the arms plus `unknown`), `exits`, `counts[origin][exit]` from `intersection_exited` events (a `null` `origin_arm` is counted as `unknown`), `total_exits`, `unknown_origin_exits`.
+- `limitations`: includes the first-frame offset (`vehicles_on_approach` includes initial vehicles that the totals do not count) and the top-down VisDrone model.
