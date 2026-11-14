@@ -48,7 +48,7 @@ This module owns the SUMO process and TraCI connection, stepping, subscriptions/
 
 A static registry selects one repository-owned SUMO configuration per run. The same worker owns every selected runner; API handlers only enqueue lifecycle commands. Static geometry is parsed and cached per network, while WebSocket snapshots carry dynamic vehicles, deduplicated lane queues, and all TraCI-enumerated signal controllers rather than repeating road geometry.
 
-The worker also integrates cumulative vehicle waiting once per authoritative simulation step and retains it after vehicles arrive. London Normal, Rush Hour, and Unbalanced can use an experimental network pressure profile that validates the live SUMO programs, enables only structurally eligible controllers, changes verified green dwell durations at phase boundaries, and leaves every yellow, mixed transition, clearance, and unsupported controller under SUMO's fixed program. The worker reports the active and fixed-fallback controller sets. The historical J3-only profile remains available for benchmark provenance.
+The worker also integrates cumulative vehicle waiting once per authoritative simulation step and retains it after vehicles arrive. London Normal, Rush Hour, and Unbalanced use a demand-actuated network profile that validates the live SUMO programs, enables only structurally eligible controllers, can finish an audited principal green after a sustained service gap (protected corridor endpoints retain cycle-based pressure control), and leaves every yellow, mixed transition, clearance, and unsupported controller under SUMO's fixed program. The worker reports the active and fixed-fallback controller sets. The historical J3-only profile remains available for benchmark provenance.
 
 ### Vision
 

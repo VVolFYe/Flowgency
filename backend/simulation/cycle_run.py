@@ -54,7 +54,7 @@ def main() -> int:
             else None
         )
         signals = list(loaded.signals) if loaded is not None else []
-        pressure_signals = [signal for signal in signals if signal.strategy == "pressure_v1"]
+        pressure_signals = [signal for signal in signals if signal.strategy in {"pressure_v1", "gap_v1"}]
         decisions = steps = departed = arrived = collisions = teleports = 0
         decision_events: list[dict[str, object]] = []
         departed_vehicle_ids: list[str] = []

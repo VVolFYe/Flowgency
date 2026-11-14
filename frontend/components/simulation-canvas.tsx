@@ -234,7 +234,7 @@ export function SimulationCanvas({
     }),
   ) ?? [], [junctionById, scenario]);
   const signalLampGroups = useMemo(() => {
-    if (geometry.scenario_selection_id === "single_intersection") return [];
+    if (geometry.coordinate_system === "synthetic_cartesian_metres") return [];
     const groupedLinks = new Map<string, typeof geometry.controlled_links>();
     geometry.controlled_links.forEach((link) => {
       if (!link.traffic_light_id) return;
@@ -384,7 +384,7 @@ export function SimulationCanvas({
   }, [controllerPoints, geometry, lanes, targetPoints]);
 
   const drawSyntheticSignals = useCallback((context: CanvasRenderingContext2D) => {
-    if (geometry.scenario_selection_id !== "single_intersection") return;
+    if (geometry.coordinate_system !== "synthetic_cartesian_metres") return;
     const size = sizeRef.current;
     const { screen } = projection(geometry, size, viewRef.current);
     const junction = geometry.junctions.find((item) => item.type === "traffic_light");
@@ -418,7 +418,7 @@ export function SimulationCanvas({
   }, [geometry, laneById, snapshot?.traffic_light_state]);
 
   const drawLondonSignals = useCallback((context: CanvasRenderingContext2D) => {
-    if (geometry.scenario_selection_id === "single_intersection") return;
+    if (geometry.coordinate_system === "synthetic_cartesian_metres") return;
     const { screen } = projection(geometry, sizeRef.current, viewRef.current);
     const radius = Math.min(6, Math.max(3.25, 3.25 + Math.log2(Math.max(1, viewRef.current.zoom)) * 0.7));
     signalLampGroups.forEach((group) => {
