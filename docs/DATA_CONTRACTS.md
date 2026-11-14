@@ -311,3 +311,31 @@ Produced alongside section I, for the traffic-light adaptor: one line per whole 
 - Every trigger that drives a raw value below zero is a *clamp*; clamps are logged in the producer's run log (`gate_run.json`), never hidden. The clamp applies to the reported value only; later triggers move the raw value back up.
 - An arm is present in `approaches` only when both of its inbound gates are configured; `in_intersection` is `null` unless all four stop and all four out gates are configured. Absent or `null` means unknown, never zero.
 - **These are estimates that can drift.** They accumulate detector misses, duplicate or broken tracks, and gate-placement errors over the whole video, and there is no reset or re-synchronisation. They are camera-derived counts, not SUMO queue lengths (section B), and `vehicles_on_approach` includes moving vehicles, not only queued ones.
+
+Vision producers validate these payloads strictly with `GateEvent`, `GateCounts`, and `ApproachGateCounts`: unknown output fields are rejected so JSONL does not change silently. Offline consumers use the corresponding `GateEventInput`, `GateCountsInput`, and `ApproachGateCountsInput` models. Consumer models retain unknown optional top-level and nested fields for forward compatibility, including future emergency metadata, while known malformed fields, invalid schema versions, and incorrect `origin_arm` usage still fail validation. Optional metadata is not interpreted as vehicle demand.
+
+## K. Offline AI timeline adapter
+
+`backend.simulation.ai_input` validates sections I/J and groups `approach_entered` events into half-open video intervals `[t_s, next_observation_t_s)`. The last interval uses the observed cadence, allowing a final partial second without fabricating another count snapshot. Each timeline point keeps event-derived arrivals separate from observed vehicle counts and cumulative totals. Duplicate arrival track IDs, decreasing cumulative counters, unordered input, invalid mappings, and arrivals outside the recording are rejected.
+
+`scenarios/single_intersection/ai_arm_mapping.json` is an explicit demo convention validated against `mappings.json`. Every arm remains marked `unverified_camera_to_sumo`; it is not evidence of camera orientation or a real-world approach mapping.
+
+## L. Offline AI-derived SUMO demand
+
+`backend.simulation.ai_demand` creates one SUMO vehicle for each unique `approach_entered` event. Vehicle IDs are `ai_<camera_arm>_<track_id>`, departures preserve event `t_s`, and simultaneous events are ordered deterministically by video time, camera-arm order, then track ID. Unknown optional event fields do not affect vehicle type or demand.
+
+For the synthetic MVP, each mapped incoming edge uses its single verified `dir="s"` connection. Turns are neither inferred nor generated. The camera-to-SUMO orientation remains unverified. Vehicles observed at `t_s=0` are recorded in summary metadata and are not inserted because their positions and arrival times are unknown.
+
+Generated `.rou.xml` and summary JSON are runtime artifacts, not shared API payloads or tracked scenario definitions. They are not connected to a running SUMO worker in Phase 2A.
+
+## M. Isolated fixed/adaptive AI experiments
+
+`backend.simulation.ai_fixed_run` generates Phase 2A demand, writes an isolated runtime `.sumocfg`, and invokes stock SUMO using the unchanged `demo_01` static fixed program. `backend.simulation.ai_adaptive_run` generates the same demand and executes that configuration through adaptive TraCI control. Its default `legacy` strategy remains the existing synthetic per-step controller. The explicit experimental `gap_v1` strategy loads the audited `scenarios/single_intersection/gap_v1.experimental.json` manifest; it never falls back to legacy control. Neither strategy applies AI `intersection_entered` or `intersection_exited` timestamps to simulated vehicles, and adaptive control uses simulated SUMO traffic measurements rather than camera snapshot counts.
+
+The reports distinguish planned AI video timestamps from actual SUMO insertion times. With the existing one-second simulation step, delays up to one step include timestep quantization; delays beyond one step indicate additional insertion-capacity pressure. Tripinfo provides completed-trip waiting time and time loss. The adaptive report also records planned-to-final-arrival duration (`SUMO arrival time - AI planned departure time`), validates observed phase order, yellow, all-red, and green bounds, and adds controller provenance: selected and runtime-verified strategy, profile, manifest path and SHA-256 where applicable, active TLS IDs, gap release count, and validation errors. Existing report fields retain their previous meanings. Collision output and per-step summary telemetry provide collision and teleport counts. Each run continues until all demand completes or its documented maximum simulation time is reached; incomplete or failed insertions remain explicit validation failures.
+
+## N. Paired AI-demand comparison
+
+`backend.simulation.ai_compare` compares isolated Fixed and Adaptive artifacts only after validating identical vehicle IDs, planned departures, routes, vehicle parameters, AI source hashes, network bytes, and SUMO settings. Every planned vehicle must have one completed tripinfo record and both raw diagnostics must be collision- and teleport-free. The requested adaptive strategy must match runtime provenance. Historical reports without the additive provenance object remain eligible only as legacy comparisons and cannot be relabeled as `gap_v1`.
+
+Insertion delay (`actual SUMO depart - AI planned depart`) remains separate from SUMO waiting time. Planned-to-arrival duration (`SUMO arrival - AI planned depart`) includes insertion delay. For lower-is-better metrics, `adaptive_minus_fixed > 0` is a regression, while `absolute_improvement = fixed - adaptive > 0` is a saving. Invalid pairs do not produce comparison metrics.

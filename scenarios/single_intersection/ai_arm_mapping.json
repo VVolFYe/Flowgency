@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0",
+  "scenario_id": "single-intersection-v1",
+  "description": "Explicit demo convention between camera image arms and synthetic SUMO incoming edges.",
+  "orientation_note": "Camera arm names describe image sides only. Their geographic orientation is unknown and this mapping must be manually verified before use with a real location.",
+  "arms": {
+    "north": {
+      "sumo_incoming_edge_id": "north_in",
+      "orientation_status": "unverified_camera_to_sumo"
+    },
+    "east": {
+      "sumo_incoming_edge_id": "east_in",
+      "orientation_status": "unverified_camera_to_sumo"
+    },
+    "south": {
+      "sumo_incoming_edge_id": "south_in",
+      "orientation_status": "unverified_camera_to_sumo"
+    },
+    "west": {
+      "sumo_incoming_edge_id": "west_in",
+      "orientation_status": "unverified_camera_to_sumo"
+    }
+  }
+}
