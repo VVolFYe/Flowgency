@@ -153,3 +153,25 @@ select { color-scheme: dark; }
   .run-toolbar .run-actions button:first-child { grid-column: 1 / -1; }
   .emergency-banner > span:last-child { margin-left: 28px; }
 }
+
+.simulation-map-frame { position: relative; height: 100%; min-height: 390px; overflow: hidden; border-radius: 16px; background: #cad8bc; }
+.navigation-map, .navigation-map-host { height: 100%; min-height: 390px; width: 100%; }
+.map-camera-controls { position: absolute; top: 14px; right: 14px; display: flex; gap: 6px; }
+.map-camera-controls button, .map-view-switch { background: #18232bec; color: #f5eee5; border: 1px solid #ffffff35; border-radius: 9px; box-shadow: 0 3px 12px #0002; }
+.map-camera-controls button { min-height: 40px; padding: 8px 12px; font-size: 12px; }
+.map-camera-controls button:disabled { opacity: .5; }
+.map-view-switch { position: absolute; left: 14px; top: 14px; padding: 3px; display: flex; gap: 3px; }
+.map-view-switch button { min-height: 34px; padding: 7px 12px; font-size: 12px; border-radius: 6px; }
+.map-view-switch button[aria-pressed="true"] { background: #f2e7d8; color: #1f2a2d; }
+.map-scene-label { position: absolute; left: 12px; bottom: 28px; border-radius: 6px; background: #18232bd9; padding: 6px 10px; color: #f2e7d8; font-size: 10px; max-width: calc(100% - 70px); pointer-events: none; }
+.map-resource-error { position: absolute; left: 12px; right: 55px; bottom: 54px; padding: 12px; background: #332618f2; color: #ffe3bc; border-radius: 9px; font-size: 12px; }
+.map-resource-error button { text-decoration: underline; text-underline-offset: 3px; padding: 8px; }
+.map-loading { position: absolute; inset: 64px 0 0; display: grid; place-items: center; color: #253d3c; background: #cad8bc; font-size: 14px; }
+.maplibregl-popup-content { color: #1b2b2e; font: 12px Manrope, sans-serif; padding: 12px; max-width: 260px; overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .map-camera-controls { top: 61px; right: 10px; }
+  .map-view-switch { left: 10px; top: 10px; }
+  .map-scene-label { font-size: 9px; }
+}
+.map-follow-button { display: block; margin-top: 10px; padding: 8px 12px; min-height: 36px; background: #253b42; color: white; border-radius: 6px; width: 100%; }
+.simulation-map-frame[data-technical="true"] .map-view-switch { top: auto; bottom: 14px; }

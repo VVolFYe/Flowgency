@@ -14,7 +14,9 @@
   },
   "dependencies": {
     "@auth0/nextjs-auth0": "^4.33.0",
+    "maplibre-gl": "^6.18.0",
     "next": "16.4.6",
+    "proj4": "^2.23.0",
     "react": "19.3.1",
     "react-dom": "19.3.1"
   },

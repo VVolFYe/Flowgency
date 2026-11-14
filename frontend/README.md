@@ -76,3 +76,13 @@ npm run build
 ```
 
 For an end-to-end local check, start `npm run dev`, visit the public routes, then verify that opening `/operator` in a signed-out browser redirects to `/operator/login`. Sign in with the local environment credentials, exercise the controls, inspect Analytics, and use Logout.
+
+## Road-map presentation
+
+Simulation views default to a MapLibre road map, with a Technical switch for the SUMO canvas. London uses the public OpenFreeMap Liberty style with its OpenStreetMap attribution. Its tiles, fonts and sprites require internet access. The technical canvas stays available when those resources or WebGL are unavailable.
+
+The synthetic intersection uses a local engineering scene with illustrative buildings, explicitly labeled in the view. Its surroundings are decoration. Road shapes, signal states, vehicle positions and headings come from the existing SUMO geometry and snapshots. Geographic positions for London use the supplied projection and subtract SUMO's net offset before conversion with proj4. No real-world location is assigned to the synthetic scene.
+
+The map supports top-down/tilted views, fit-to-network, zoom, signal tooltips and vehicle details. Click a vehicle and choose Follow vehicle to center the camera on it. Dragging the map, fitting the network or Stop following releases the camera. Cars, buses, ambulances, police and fire vehicles use locally generated icons. New runs reset interpolation.
+
+Dependencies: maplibre-gl supplies vector-map/WebGL rendering and camera controls; proj4 converts the supplied SUMO projection without changing the API contract. The worker asset is referenced explicitly through Next.js so it is bundled locally in development and production.

@@ -500,7 +500,7 @@ export function SimulationCanvas({
       context.rotate((vehicle.angle_deg * Math.PI) / 180);
       context.beginPath();
       context.roundRect(-width / 2, -length / 2, width, length, Math.min(2.5, width / 2));
-      context.fillStyle = emergencyColor ?? (vehicle.vehicle_type.toLowerCase().includes("bus") ? "#f3bd4b" : "#dce9ef");
+      context.fillStyle = emergencyColor ?? (vehicle.vehicle_type.toLowerCase().includes("bus") ? "#f3bd4b" : "#f03232");
       context.shadowColor = emergencyColor ?? "rgba(115,226,255,.5)";
       context.shadowBlur = emergencyColor ? 14 : viewRef.current.zoom >= 2 ? 5 : 2;
       context.fill();
