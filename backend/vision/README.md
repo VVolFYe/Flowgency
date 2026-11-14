@@ -130,6 +130,44 @@ zooms were rejected on every camera.
 London time in November. Day 08:00-15:59, night 17:00-06:59; the twilight hours
 07:00-07:59 and 16:00-16:59 are excluded from the eval sample. Configurable.
 
+## Gate mode (one top-down video)
+
+A second, independent mode for one recorded top-down video of one intersection
+(currently `UNIHACK_DIR/youtube/clip.mp4`, 1920x1080, 23.976 fps, 6329 decoded
+frames). It writes **contract I** gate events and **contract J** per-second
+counts (`docs/DATA_CONTRACTS.md`). The London line-counting mode above is unchanged.
+Teammate setup and consumer notes: `backend/vision/COLLEAGUE_SETUP.md`.
+
+```text
+scene JSON (12 gates) -> detect (YOLO once, cached) -> process (ByteTrack -> gates) -> events.jsonl, counts.jsonl, gate_run.json
+```
+
+| command | purpose |
+|---|---|
+| `draw-gates --scene backend/vision/config/scenes/<id>.json [--video V]` | interactive editor for the 12 gates (`<arm>_in.far`, `<arm>_in.stop`, `<arm>_out`); `r` redraws a gate (4 clicks), `s` saves the scene and a preview `<scene output>/<id>_gates.jpg` |
+| `detect --scene S [--no-cache]` | runs the scene's detector profile over every frame once; cached under `cache/gate_detections/<model>_imgsz<N>_floor0.10/` with a JSON sidecar (backend, weights, timing, fallback reason) |
+| `process --scene S [--sample-seconds 30]` | tracks the cached detections and writes `events.jsonl`, `counts.jsonl`, `gate_run.json` to `vision_output/<scene_id>/`; `--sample-seconds N` also writes the first N s to `sample_<N>s/` for sharing |
+| `render-gate-demo --scene S [--start-s A --end-s B] [--scale 0.667]` | 1280x720 demo: tracks coloured by arm, gates flashing on triggers, and the `counts.jsonl` line consumers would read at that moment |
+
+**Detector per scene.** The scene's `model_id` picks a profile in
+`detections.py`. Top-down: `yolo11s_visdrone` (team-trained on VisDrone,
+`car`/`van`/`truck`/`bus`/`motor` merged into `vehicle`), imgsz 960, conf 0.15,
+detections cached at a 0.10 floor. A static 544x960 ONNX export is used when the
+video letterboxes to exactly 544x960 (any 16:9 size); otherwise the `.pt` is used
+and the reason is logged and stored in the cache sidecar and `gate_run.json`.
+COCO weights find no vehicles top-down (they label cars `cell phone`).
+
+**Speed (CPU, i7-1265U).** Detection 163 ms/frame with the ONNX export (17 min
+for the clip, once); `process` about 16 s; demo render a few minutes.
+
+**`gate_run.json`.** Initial state (track IDs per approach and in the junction),
+triggers per gate, suppressed initial-state triggers, every clamp, `origin_arm`
+null reasons, scene warnings, detector provenance, and `tracking`: track count
+and tracks whose counting point never spans 20 px over the clip
+(`static_tracks`, parked vehicles) with those among the initial counts
+(`static_initial_tracks`; `process` warns when it is not empty). On the current
+clip 21 tracks are static and none is counted in the initial state.
+
 ## Status and known limitations
 
 - Accuracy is **not yet measured**; see `vision_output/eval/report.md` once the

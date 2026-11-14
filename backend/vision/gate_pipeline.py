@@ -22,7 +22,7 @@ from backend.models.gates import GateCounts, GateEvent
 
 from .counting import TrackedBox
 from .detections import merge_vehicle_classes
-from .gates import GateRun, TrackPoint
+from .gates import GateRun, TrackPoint, run_gates
 from .scene import SceneConfig
 from .track_filter import DuplicateTrackFilter
 
@@ -73,6 +73,38 @@ def track_all(frames: Iterable[tuple[int, np.ndarray]], frame_size: tuple[int, i
               conf: float) -> list[TrackedFrame]:
     tracker = GateTracker(frame_size, class_ids, conf)
     return [tracker.update(frame, dets) for frame, dets in frames]
+
+
+STATIC_TRAVEL_PX = 20.0  # a track whose counting point never spans more than this is treated as parked
+
+
+def track_travel(tracked: Sequence[TrackedFrame], counting_point: str) -> dict[int, float]:
+    """Per track: diagonal of the bounding box of all its counting points over the clip (pixels)."""
+    extent: dict[int, list[float]] = {}
+    for tf in tracked:
+        for tp in tf.points(counting_point):
+            x, y = tp.point
+            e = extent.setdefault(tp.track_id, [x, y, x, y])
+            e[0], e[1], e[2], e[3] = min(e[0], x), min(e[1], y), max(e[2], x), max(e[3], y)
+    return {tid: float(np.hypot(e[2] - e[0], e[3] - e[1])) for tid, e in extent.items()}
+
+
+def process_scene(scene: SceneConfig, frames: Sequence[tuple[int, np.ndarray]], *, class_ids: Sequence[int],
+                  conf: float, fps: float, model_id: str) -> tuple[list[TrackedFrame], GateRun, dict[str, Any]]:
+    """Track cached detections and run the gate engine. Returns tracks, run, and diagnostics for the run log."""
+    tracked = track_all(frames, tuple(scene.frame_size), class_ids, conf)
+    points = [(tf.frame, tf.points(scene.counting_point)) for tf in tracked]
+    run = run_gates(scene, points, fps=fps, frame_count=len(frames), model_id=model_id)
+    travel = track_travel(tracked, scene.counting_point)
+    initial_ids = {tid for ids in run.initial.approach_tracks.values() for tid in ids}
+    initial_ids |= set(run.initial.junction_tracks or ())
+    diagnostics = {
+        "track_ids": len(travel),
+        "static_travel_px": STATIC_TRAVEL_PX,
+        "static_tracks": sorted(tid for tid, d in travel.items() if d < STATIC_TRAVEL_PX),
+        "static_initial_tracks": sorted(tid for tid in initial_ids if travel.get(tid, 0.0) < STATIC_TRAVEL_PX),
+    }
+    return tracked, run, diagnostics
 
 
 # --- outputs ----------------------------------------------------------------------
@@ -140,3 +172,15 @@ def write_run_outputs(out_dir: Path, run: GateRun, scene: SceneConfig, meta: dic
     tmp.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     tmp.replace(out_dir / "gate_run.json")
     return summary
+
+
+def write_sample(out_dir: Path, run: GateRun, seconds: float) -> tuple[int, int]:
+    """First ``seconds`` of a run (events with ``t_s <= seconds``, counts lines ``t_s <= seconds``), for sharing.
+
+    Consistent with each other: a counts line at ``t_s`` reflects exactly the triggers with ``frame / fps <= t_s``.
+    """
+    events = [e for e in run.events if e["t_s"] <= seconds]
+    counts = [c for c in run.counts if c["t_s"] <= seconds]
+    write_jsonl(out_dir / "events.jsonl", events, GateEvent)
+    write_jsonl(out_dir / "counts.jsonl", counts, GateCounts)
+    return len(events), len(counts)

@@ -74,6 +74,81 @@ def cmd_draw_gates(args: argparse.Namespace) -> int:
     return 0
 
 
+def _scene_and_video(args: argparse.Namespace):
+    from .scene import load_scene
+
+    paths = _paths()
+    scene = load_scene(args.scene)
+    video = paths.resolve(scene.video)
+    if not video.exists():
+        raise SystemExit(f"video {video} not found")
+    return paths, scene, video
+
+
+def cmd_detect(args: argparse.Namespace) -> int:
+    from .detections import get_profile
+    from .gate_detect import detect_video
+
+    paths, scene, video = _scene_and_video(args)
+    detect_video(paths, get_profile(scene.model_id), video, use_cache=not args.no_cache, log=_log)
+    return 0
+
+
+def _process(args: argparse.Namespace):
+    from .detections import get_profile
+    from .gate_detect import detect_video
+    from .gate_pipeline import process_scene
+
+    paths, scene, video = _scene_and_video(args)
+    profile = get_profile(scene.model_id)
+    frames, meta = detect_video(paths, profile, video, log=_log)
+    if tuple(meta["frame_size"]) != tuple(scene.frame_size):
+        raise SystemExit(f"video is {meta['frame_size']}, scene {scene.scene_id} was drawn on {list(scene.frame_size)}")
+    tracked, run, diagnostics = process_scene(scene, frames, class_ids=meta["class_ids"], conf=profile.conf,
+                                              fps=meta["fps"], model_id=profile.model_id)
+    return paths, scene, video, profile, meta, tracked, run, diagnostics
+
+
+def cmd_process(args: argparse.Namespace) -> int:
+    from .gate_pipeline import write_run_outputs, write_sample
+
+    paths, scene, video, profile, meta, _tracked, run, diagnostics = _process(args)
+    out_dir = paths.scene_output_dir(scene.scene_id)
+    detector = {k: meta[k] for k in ("model_id", "backend", "weights", "imgsz", "fallback_reason", "floor",
+                                     "class_names", "ms_per_frame")}
+    summary = write_run_outputs(out_dir, run, scene, {
+        "model_id": profile.model_id, "conf": profile.conf, "detector": detector, "video": scene.video,
+        "fps": meta["fps"], "frames": meta["frames"], "header_frames": meta["header_frames"],
+        "tracking": diagnostics,
+    })
+    _log(f"wrote {out_dir}/events.jsonl ({summary['events']} events), counts.jsonl ({len(run.counts)} lines), "
+         f"gate_run.json")
+    _log(f"initial on approach: {summary['initial']['vehicles_on_approach']}, in junction: "
+         f"{summary['initial']['in_intersection']}; clamps: {len(summary['clamps'])}; origin_arm null: "
+         f"{summary['origin_arm_null']}/{summary['intersection_exited']} {summary['origin_arm_null_reasons']}")
+    if diagnostics["static_initial_tracks"]:
+        _log(f"WARNING: initial-state tracks that never move >= {diagnostics['static_travel_px']:.0f} px: "
+             f"{diagnostics['static_initial_tracks']}")
+    if args.sample_seconds:
+        sample_dir = out_dir / f"sample_{args.sample_seconds:g}s"
+        n_events, n_counts = write_sample(sample_dir, run, args.sample_seconds)
+        _log(f"wrote sample {sample_dir}: {n_events} events, {n_counts} counts lines")
+    return 0
+
+
+def cmd_render_gate_demo(args: argparse.Namespace) -> int:
+    from .gate_render import render_gate_demo
+
+    paths, scene, video, _profile, meta, tracked, run, _diag = _process(args)
+    out = args.out or paths.scene_output_dir(scene.scene_id) / "demo" / f"{scene.scene_id}_gates_demo.mp4"
+    start = round(args.start_s * meta["fps"])
+    end = None if args.end_s is None else round(args.end_s * meta["fps"])
+    render_gate_demo(video, scene, tracked, run, out, fps=meta["fps"], scale=args.scale, start_frame=start,
+                     end_frame=end, log=_log)
+    _log(f"wrote {out}")
+    return 0
+
+
 def _log(message: str) -> None:
     print(message, file=sys.stderr, flush=True)
 
@@ -380,6 +455,25 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--scale", type=float, default=0.7, help="display scale (default 0.7 = 1344x756 for 1080p)")
     p.add_argument("--frame", type=int, help="start frame (default: the scene's reference frame, else 0)")
     p.set_defaults(func=cmd_draw_gates)
+
+    p = sub.add_parser("detect", help="gate mode: run the scene's detector over its whole video once (cached)")
+    p.add_argument("--scene", type=Path, required=True, help="scene file, e.g. backend/vision/config/scenes/youtube.json")
+    p.add_argument("--no-cache", action="store_true", help="re-run YOLO even when cached detections exist")
+    p.set_defaults(func=cmd_detect)
+
+    p = sub.add_parser("process", help="gate mode: track cached detections, write events/counts/gate_run")
+    p.add_argument("--scene", type=Path, required=True)
+    p.add_argument("--sample-seconds", type=float, default=0,
+                   help="also write sample_<N>s/events.jsonl and counts.jsonl with the first N seconds")
+    p.set_defaults(func=cmd_process)
+
+    p = sub.add_parser("render-gate-demo", help="gate mode: annotated demo video (tracks, gates, published counts)")
+    p.add_argument("--scene", type=Path, required=True)
+    p.add_argument("--out", type=Path, help="output .mp4 (default <scene output>/demo/<scene>_gates_demo.mp4)")
+    p.add_argument("--scale", type=float, default=2 / 3, help="output scale (default 2/3 = 1280x720 for 1080p)")
+    p.add_argument("--start-s", type=float, default=0.0)
+    p.add_argument("--end-s", type=float)
+    p.set_defaults(func=cmd_render_gate_demo)
 
     p = sub.add_parser("replay", help="count vehicles in recorded clips and emit contract-A observations")
     p.add_argument("--camera", required=True, help="JamCam ID or 'all'")

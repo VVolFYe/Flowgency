@@ -45,6 +45,17 @@ def north_to_east(step: int) -> tuple[float, float] | None:
 
 @unittest.skipUnless(HAS_ULTRALYTICS, "ultralytics not installed")
 class GatePipelineTests(unittest.TestCase):
+    def test_track_travel_is_the_counting_point_extent(self) -> None:
+        from backend.vision.counting import TrackedBox
+        from backend.vision.gate_pipeline import TrackedFrame, track_travel
+
+        frames = [TrackedFrame(f, (TrackedBox(1, "vehicle", 0.9, (f * 3, 0, f * 3 + 10, 10)),
+                                   TrackedBox(2, "vehicle", 0.9, (50, 50 + f % 2, 60, 60 + f % 2))))
+                  for f in range(5)]
+        travel = track_travel(frames, "center")
+        self.assertAlmostEqual(travel[1], 12.0)
+        self.assertAlmostEqual(travel[2], 1.0)
+
     def frames(self, flip_labels: bool) -> list[tuple[int, np.ndarray]]:
         out = []
         for f in range(80):
@@ -99,6 +110,34 @@ class GatePipelineTests(unittest.TestCase):
             self.assertEqual(summary["initial"]["vehicles_on_approach"]["north"], 1)
             self.assertEqual(summary["origin_arm_null_share"], 0.0)
             self.assertTrue((Path(tmp) / "gate_run.json").exists())
+
+    def test_process_scene_flags_the_never_moving_initial_track(self) -> None:
+        from backend.vision.gate_pipeline import process_scene
+
+        tracked, run, diag = process_scene(scene(), self.frames(False), class_ids=VISDRONE_VEHICLES, conf=0.25,
+                                           fps=FPS, model_id="yolo11s_visdrone")
+        self.assertEqual(len(tracked), 80)
+        self.assertEqual([(e["event"], e["arm"]) for e in run.events],
+                         [("approach_entered", "north"), ("intersection_entered", "north"), ("intersection_exited", "east")])
+        queued = run.initial.approach_tracks["north"]
+        self.assertEqual(diag["static_initial_tracks"], list(queued))  # the car at (172, 90) never moves
+        self.assertEqual(diag["static_tracks"], list(queued))
+        self.assertEqual(diag["track_ids"], 2)
+
+    def test_sample_keeps_the_first_seconds_consistently(self) -> None:
+        from backend.vision.gate_pipeline import write_sample
+
+        run, _ = self.run_chain(flip_labels=False)
+        cut = run.events[1]["t_s"]
+        with tempfile.TemporaryDirectory() as tmp:
+            n_events, n_counts = write_sample(Path(tmp), run, cut)
+            events = [json.loads(x) for x in (Path(tmp) / "events.jsonl").read_text().splitlines()]
+            counts = [json.loads(x) for x in (Path(tmp) / "counts.jsonl").read_text().splitlines()]
+        self.assertEqual(n_events, len(events))
+        self.assertEqual(n_counts, len(counts))
+        self.assertTrue(all(e["t_s"] <= cut for e in events) and all(c["t_s"] <= cut for c in counts))
+        self.assertEqual(events, run.events[:len(events)])
+        self.assertEqual(counts, run.counts[:len(counts)])
 
     def test_refuses_to_write_inside_repo(self) -> None:
         from backend.vision.gate_pipeline import write_jsonl
