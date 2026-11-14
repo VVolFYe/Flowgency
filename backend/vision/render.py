@@ -19,7 +19,6 @@ CLASS_COLOURS = {
     "bus": (0, 0, 255),
     "truck": (0, 140, 255),
     "motorcycle": (255, 0, 255),
-    "bicycle": (0, 255, 0),
 }
 BAR = 52
 FLASH_FRAMES = 12

@@ -88,7 +88,7 @@ class EntryTests(unittest.TestCase):
         self.assertEqual(parse_count_entry("3"), (3, None))
         total, split = parse_count_entry("3 car=2 bus=1")
         self.assertEqual(total, 3)
-        self.assertEqual(split, {"car": 2, "motorcycle": 0, "bus": 1, "truck": 0, "bicycle": 0})
+        self.assertEqual(split, {"car": 2, "motorcycle": 0, "bus": 1, "truck": 0})
         for bad in ("", "-1", "x", "3 car=2", "3 van=3", "3 car=two", "3 car3"):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 parse_count_entry(bad)
@@ -132,7 +132,7 @@ class EntryTests(unittest.TestCase):
     def test_load_ground_truth(self) -> None:
         rows = [
             {"camera_id": "c", "clip": "a", "approach_id": "s", "status": "labelled", "total": "2",
-             "car": "", "motorcycle": "", "bus": "", "truck": "", "bicycle": ""},
+             "car": "", "motorcycle": "", "bus": "", "truck": ""},
             {"camera_id": "c", "clip": "b", "approach_id": "s", "status": "unusable", "total": ""},
         ]
         labels, unusable = load_ground_truth(rows)

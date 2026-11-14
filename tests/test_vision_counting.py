@@ -105,7 +105,7 @@ class CounterTests(unittest.TestCase):
         self.assertEqual(counts["car"], 1)
         self.assertEqual(counts["truck"], 0)
         self.assertEqual(counts["total"], 1)
-        self.assertEqual(set(counts), {"car", "motorcycle", "bus", "truck", "bicycle", "total"})
+        self.assertEqual(set(counts), {"car", "motorcycle", "bus", "truck", "total"})
 
     def test_majority_tie_broken_by_confidence(self) -> None:
         counter = self.counter()

@@ -63,7 +63,7 @@ where it looked and to set `UNIHACK_DIR` or fill `data/`. The committed samples
 
 | standalone tool | purpose |
 |---|---|
-| `python -m backend.vision.eval_emergency VIDEO [--cls emergency_cls.pt] [--every 3] [--window 10] [--min-votes 5] [--thresh 0.6] [--out <mp4>]` | evaluates the emergency classifier on an eye-level video: tracked boxes are classified every N frames and voted per track; writes `<video>_emergency.mp4` (thin grey = normal; flashing red/blue, filled, labelled `EMERGENCY` = flagged) and prints flagged track IDs with first-flag times. Not part of the pipeline yet |
+| `python -m backend.vision.eval_emergency VIDEO [--cls emergency_cls.pt] [--every 3] [--window 10] [--min-votes 5] [--thresh 0.6] [--out <mp4>]` | evaluates the emergency classifier on an eye-level video: tracked boxes are classified every N frames (boxes within 1 % of a frame edge are skipped) and voted per track; writes `<video>_emergency.mp4` (thin grey = normal; flashing red/blue, filled, labelled `EMERGENCY` = flagged) and prints flagged track IDs with first-flag times. Not part of the pipeline yet |
 
 ## Definitions
 
@@ -76,7 +76,7 @@ measured between consecutive observations of the track, so short tracking gaps
 still count. Outbound crossings are ignored; a track first seen already past the
 line is never counted for that approach. Its class is the majority class over
 the track's whole life in the clip (ties: higher summed confidence, then name).
-COCO `car`, `motorcycle`, `bus`, `truck`, `bicycle` map to the same contract keys.
+COCO `car`, `motorcycle`, `bus`, `truck` map to the same contract keys; bicycles are dropped at detection.
 The counting point is per camera (`counting_point` in `cameras.json`):
 `bottom_center` (default, all JamCams) or `center` (top-down views).
 

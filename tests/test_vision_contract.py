@@ -23,7 +23,7 @@ def documented_example() -> dict:
         "window_duration_s": 10.0,
         "visible_approaches": ["southbound_in", "eastbound_in"],
         "vehicle_counts_by_approach": {
-            "southbound_in": {"car": 12, "bus": 1, "bicycle": 2, "total": 15},
+            "southbound_in": {"car": 12, "bus": 1, "motorcycle": 2, "total": 15},
             "eastbound_in": {"car": 0, "total": 0},
         },
         "emergency_detections": [
@@ -129,7 +129,7 @@ class ObservationBuilderTests(unittest.TestCase):
         self.assertNotIn("northbound_in", json.dumps(payload))
         self.assertEqual(
             payload["vehicle_counts_by_approach"]["southbound_in"],
-            {"car": 0, "motorcycle": 0, "bus": 1, "truck": 0, "bicycle": 0, "total": 1},
+            {"car": 0, "motorcycle": 0, "bus": 1, "truck": 0, "total": 1},
         )
         self.assertEqual(payload["vehicle_counts_by_approach"]["eastbound_in"]["total"], 0)
         self.assertNotIn("emergency_detections", payload)

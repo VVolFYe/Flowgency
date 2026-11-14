@@ -25,7 +25,7 @@ Only evaluated approaches appear in `vehicle_counts_by_approach`; an empty map d
   "window_duration_s": 10.0,
   "visible_approaches": ["southbound_in", "eastbound_in"],
   "vehicle_counts_by_approach": {
-    "southbound_in": {"car": 12, "bus": 1, "bicycle": 2, "total": 15},
+    "southbound_in": {"car": 12, "bus": 1, "motorcycle": 2, "total": 15},
     "eastbound_in": {"car": 0, "total": 0}
   },
   "emergency_detections": [

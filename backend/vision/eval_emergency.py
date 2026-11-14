@@ -26,6 +26,7 @@ EMERGENCY_CLASS = "emergency"
 STREET_PROFILE = get_profile("yolo11s_coco")  # the COCO detector used for street-level (eye-level) views
 CROP_PAD = 0.10  # per side, as in training
 MIN_CROP_SIDE = 32  # px
+EDGE_MARGIN = 0.01  # boxes within this share of the frame width/height of an edge are cut off: not classified
 POSITIVE_P = 0.5  # a single prediction counts as an emergency vote at p >= this
 GREY, RED, BLUE, WHITE = (160, 160, 160), (0, 0, 255), (255, 0, 0), (255, 255, 255)  # BGR
 BLINK_S = 0.25  # flagged boxes alternate red/blue at this period of video time
@@ -67,6 +68,13 @@ def load_classifier(path: Path) -> tuple[Any, int]:
     if len(names) < 2:  # softmax over one output is always 1.0
         raise ValueError(f"{path} has a single class {names}; p_emergency would be 1.0 for every crop")
     return model, next(i for i, n in names.items() if n == EMERGENCY_CLASS)
+
+
+def touches_edge(bbox: tuple[float, float, float, float], width: int, height: int) -> bool:
+    """True when the box is within ``EDGE_MARGIN`` of any frame edge (a partly visible vehicle)."""
+    x1, y1, x2, y2 = bbox
+    mx, my = EDGE_MARGIN * width, EDGE_MARGIN * height
+    return x1 <= mx or y1 <= my or x2 >= width - mx or y2 >= height - my
 
 
 def pad_crop(frame: np.ndarray, bbox: tuple[float, float, float, float]) -> np.ndarray | None:
@@ -158,7 +166,8 @@ def main(argv: list[str] | None = None) -> int:
             boxes = tracker.track(frame, frame_index)
             seen.update(b.track_id for b in boxes)
             if frame_index % args.every == 0:
-                crops = [(b.track_id, c) for b in boxes if (c := pad_crop(frame, b.bbox)) is not None]
+                crops = [(b.track_id, c) for b in boxes
+                         if not touches_edge(b.bbox, *size) and (c := pad_crop(frame, b.bbox)) is not None]
                 if crops:
                     results = classifier.predict([c for _, c in crops], device="cpu", verbose=False)
                     for (track_id, _), result in zip(crops, results):

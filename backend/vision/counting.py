@@ -28,7 +28,9 @@ from dataclasses import dataclass, field
 
 from .detections import counting_point
 
-VEHICLE_CLASSES = ("car", "motorcycle", "bus", "truck", "bicycle")
+# COCO classes tracked as vehicles (single source for tracking, counting, labelling, evaluation and the
+# emergency eval). Bicycles are not vehicles here: they are dropped at detection, like in gate mode.
+VEHICLE_CLASSES = ("car", "motorcycle", "bus", "truck")
 
 Point = tuple[float, float]
 
