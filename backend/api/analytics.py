@@ -21,7 +21,7 @@ router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 def _unavailable(exc: Exception) -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        detail=f"Analytics database is not available; {LOAD_HINT}",
+        detail=f"Analytics database is not available; check FLOWGENCY_ANALYTICS_DB (unset = local SQLite) and {LOAD_HINT}",
     )
 
 

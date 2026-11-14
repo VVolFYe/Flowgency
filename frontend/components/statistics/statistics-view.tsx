@@ -33,7 +33,7 @@ type LastRun = Load<{ run: RecordedRun; pair: RecordedRunPair | null }> | { stat
 
 function errorMessage(reason: unknown, what: string) {
   if (reason instanceof ApiError && reason.status === 503) {
-    return `The analytics database has not been loaded. Run ${LOADER_COMMAND} from the repository root, then reload this page.`;
+    return `The analytics database is not available. Check FLOWGENCY_ANALYTICS_DB on the backend (unset = local SQLite), run ${LOADER_COMMAND} from the repository root if it is empty, then reload this page.`;
   }
   if (reason instanceof ApiError && reason.status === 404) {
     return `${what} is not in the analytics database. Re-run ${LOADER_COMMAND} after regenerating the JSON files.`;

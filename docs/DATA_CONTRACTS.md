@@ -379,7 +379,7 @@ Both routes are unauthenticated GETs, like the other read routes:
 
 - `GET /api/analytics` returns `[{"id", "label", "kind", "schema_version", "loaded_at"}]` in first-loaded order (`index.json` order).
 - `GET /api/analytics/{id}` returns the stored payload unchanged (a K.2 or K.3 document, `application/json`). An unknown id returns 404.
-- If the database file is missing or has no table, both return 503 with `detail` `"Analytics database is not available; run python -m backend.analytics.load"`. Reads never create the file. The first recorded run creates the file with both tables, so the list can then be empty (`[]`) instead of 503 until the loader runs.
+- If the database file is missing or has no table, both return 503 with `detail` `"Analytics database is not available; check FLOWGENCY_ANALYTICS_DB (unset = local SQLite) and run python -m backend.analytics.load"`. Reads never create the file. The first recorded run creates the file with both tables, so the list can then be empty (`[]`) instead of 503 until the loader runs.
 
 ### K.5 Recorded Live Simulation runs (`runs` table)
 
