@@ -3,8 +3,9 @@
 The panel shows the ``counts.jsonl`` line consumers would read at that moment
 (the last whole second ``t_s <= frame / fps``), so the demo shows exactly what
 is published, including its up-to-1-s lag. Gates flash white for a few frames
-when a track triggers them (suppressed initial-state triggers flash too and are
-marked ``(init)`` in the event list). Box colour: the arm of the track's latest
+when a track triggers them. Suppressed triggers flash too and are marked in the
+event list: ``(init)`` for initial-state vehicles, ``SUPPRESSED (already
+entered)`` for a second stop-gate trigger by a track that already entered. Box colour: the arm of the track's latest
 event (grey after ``intersection_exited``); before any event, its arm if it was
 counted on that approach at the start, white if it started in the junction,
 else green.
@@ -87,11 +88,16 @@ def render_gate_demo(video: Path, scene: SceneConfig, tracked: Sequence[TrackedF
     return out
 
 
+SUPPRESSED_LABEL = {"initial_on_approach": " (init)", "initial_in_junction": " (init)",
+                    "already_entered": " SUPPRESSED (already entered)"}
+
+
 def _apply(t, colour: dict, recent: list[str], fps: float) -> None:
     kind, arm = gate_kind(t.gate_id), gate_arm(t.gate_id)
-    colour[t.track_id] = EXITED if kind == "out" else ARM_COLOURS[arm]
+    if t.suppressed != "already_entered":  # a suppressed second entry keeps the track's origin colour
+        colour[t.track_id] = EXITED if kind == "out" else ARM_COLOURS[arm]
     name = {"in.far": "approach_entered", "in.stop": "intersection_entered", "out": "intersection_exited"}[kind]
-    recent.append(f"{time_s(t.frame, fps):7.2f}s #{t.track_id} {name} {arm}" + (" (init)" if t.suppressed else ""))
+    recent.append(f"{time_s(t.frame, fps):7.2f}s #{t.track_id} {name} {arm}" + SUPPRESSED_LABEL.get(t.suppressed, ""))
     del recent[:-EVENT_LINES]
 
 

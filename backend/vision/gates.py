@@ -18,9 +18,15 @@ Gate -> event
 ``<arm>_in.far`` -> ``approach_entered``; ``<arm>_in.stop`` ->
 ``intersection_entered``; ``<arm>_out`` -> ``intersection_exited`` with
 ``origin_arm`` = the arm of the same track's earlier ``intersection_entered``.
-``origin_arm`` is ``null`` when the track has no such event (tracker lost the
-vehicle, or it was already in the junction at the start) or when it has
-entries from more than one arm (ambiguous; never guessed).
+
+A track enters the intersection **once**: only its first stop-gate trigger
+emits ``intersection_entered`` (and counts as a discharge). A later stop-gate
+trigger by the same track, e.g. a left-turner whose path clips another arm's
+stop gate (south -> west on the youtube clip), is suppressed with reason
+``already_entered``. So ``origin_arm`` is always the arm of the track's single
+entry, or ``null`` when the track has no entry: the tracker lost the vehicle
+(``no_entry_seen``) or it was already in the junction at the start
+(``in_junction_at_start``). It is never guessed.
 
 Initial state
 -------------
@@ -32,7 +38,8 @@ form that arm's ``initial``; stable tracks starting in the junction form the
 initial junction occupancy. To avoid counting a vehicle twice, an initial
 approach vehicle's trigger of its own arm's far gate, and an initial junction
 vehicle's trigger of any stop gate, are *suppressed*: kept in the trigger log,
-but no event and no count.
+but no event and no count. Suppressed triggers keep the counting point at the
+trigger frame for the run log.
 
 Counts
 ------
@@ -48,7 +55,7 @@ back up. Arms appear only when both of their inbound gates exist;
 from __future__ import annotations
 
 import math
-from collections import Counter, defaultdict
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
@@ -73,7 +80,8 @@ class GateTrigger:
     track_id: int
     gate_id: str
     frame: int
-    suppressed: str | None = None  # "initial_on_approach" | "initial_in_junction"
+    suppressed: str | None = None  # "initial_on_approach" | "initial_in_junction" | "already_entered"
+    point: Point | None = None  # counting point at the trigger frame
 
 
 @dataclass(frozen=True)
@@ -191,7 +199,7 @@ def detect_triggers(scene: SceneConfig, frames: Sequence[tuple[int, Sequence[Tra
                 if len(inside) >= min_inside:
                     fired.add(key)
                     recent.pop(key, None)
-                    out.append(GateTrigger(tp.track_id, gate_id, frame))
+                    out.append(GateTrigger(tp.track_id, gate_id, frame, point=tp.point))
                 else:
                     recent[key] = inside
     order = {g: i for i, g in enumerate(GATE_IDS)}
@@ -217,6 +225,7 @@ def run_gates(
     in_junction = set(initial.junction_tracks or ())
 
     triggers = []
+    entered_via: dict[int, str] = {}  # track -> stop gate of its single intersection entry
     for t in detect_triggers(scene, frames):
         kind, arm = gate_kind(t.gate_id), gate_arm(t.gate_id)
         reason = None
@@ -224,11 +233,15 @@ def run_gates(
             reason = "initial_on_approach"
         elif kind == "in.stop" and t.track_id in in_junction:
             reason = "initial_in_junction"
-        triggers.append(GateTrigger(t.track_id, t.gate_id, t.frame, reason))
+        elif kind == "in.stop" and t.track_id in entered_via:
+            reason = "already_entered"
+        elif kind == "in.stop":
+            entered_via[t.track_id] = t.gate_id
+        triggers.append(GateTrigger(t.track_id, t.gate_id, t.frame, reason, t.point))
 
     # --- events ---------------------------------------------------------------
     events: list[dict] = []
-    entries: dict[int, list[str]] = defaultdict(list)
+    entries: dict[int, str] = {}
     origin_null: Counter[str] = Counter()
     for t in triggers:
         if t.suppressed:
@@ -237,19 +250,11 @@ def run_gates(
         payload = {"event": EVENT_FOR_KIND[kind], "track_id": t.track_id, "arm": arm,
                    "t_s": time_s(t.frame, fps), "frame": t.frame, "model_id": model_id}
         if kind == "in.stop":
-            entries[t.track_id].append(arm)
+            entries[t.track_id] = arm  # at most one unsuppressed stop trigger per track
         elif kind == "out":
-            arms = set(entries.get(t.track_id, ()))
-            if len(arms) == 1:
-                payload["origin_arm"] = arms.pop()
-            else:
-                payload["origin_arm"] = None
-                if arms:
-                    origin_null["ambiguous_entry"] += 1
-                elif t.track_id in in_junction:
-                    origin_null["in_junction_at_start"] += 1
-                else:
-                    origin_null["no_entry_seen"] += 1
+            payload["origin_arm"] = entries.get(t.track_id)
+            if payload["origin_arm"] is None:
+                origin_null["in_junction_at_start" if t.track_id in in_junction else "no_entry_seen"] += 1
         events.append(GateEvent.model_validate(payload).to_contract_dict())
 
     # --- counts ---------------------------------------------------------------

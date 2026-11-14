@@ -11,6 +11,7 @@ scene's counting point. No YOLO model is loaded here.
 from __future__ import annotations
 
 import json
+from collections import Counter
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -127,6 +128,7 @@ def write_jsonl(path: Path, lines: Sequence[dict[str, Any]], model: type[GateEve
 
 def run_summary(run: GateRun, scene: SceneConfig, meta: dict[str, Any]) -> dict[str, Any]:
     exits = [e for e in run.events if e["event"] == "intersection_exited"]
+    entered_via = {t.track_id: t.gate_id for t in run.triggers if t.suppressed is None and t.gate_id.endswith("in.stop")}
     null_exits = sum(e["origin_arm"] is None for e in exits)
     return {
         **meta,
@@ -143,9 +145,15 @@ def run_summary(run: GateRun, scene: SceneConfig, meta: dict[str, Any]) -> dict[
         },
         "triggers_by_gate": run.triggers_by_gate(),
         "suppressed_triggers": [
-            {"track_id": t.track_id, "gate_id": t.gate_id, "frame": t.frame, "reason": t.suppressed}
+            {"track_id": t.track_id, "gate_id": t.gate_id, "frame": t.frame, "reason": t.suppressed,
+             "x": None if t.point is None else round(t.point[0], 1),
+             "y": None if t.point is None else round(t.point[1], 1),
+             **({"entered_via": entered_via.get(t.track_id)} if t.suppressed == "already_entered" else {})}
             for t in run.triggers if t.suppressed
         ],
+        "already_entered_by_gate_pair": dict(sorted(Counter(
+            f"{entered_via.get(t.track_id)} -> {t.gate_id}" for t in run.triggers
+            if t.suppressed == "already_entered").items())),
         "events": len(run.events),
         "intersection_exited": len(exits),
         "origin_arm_null": null_exits,

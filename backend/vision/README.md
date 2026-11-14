@@ -161,9 +161,19 @@ COCO weights find no vehicles top-down (they label cars `cell phone`).
 **Speed (CPU, i7-1265U).** Detection 163 ms/frame with the ONNX export (17 min
 for the clip, once); `process` about 16 s; demo render a few minutes.
 
+**One entry per track.** Only a track's first stop-gate trigger is an
+`intersection_entered` event and a discharge. Later stop-gate triggers by the
+same track are suppressed as `already_entered`. On the youtube clip these are
+left-turners whose curve clips another arm's stop gate: south -> west turners
+cross the top-right corner of `west_in.stop`, and east -> south turners cross
+the top-left corner of `south_in.stop`. Before this rule they caused false
+discharges, 101 clamps, and ambiguous `origin_arm` values.
+
 **`gate_run.json`.** Initial state (track IDs per approach and in the junction),
-triggers per gate, suppressed initial-state triggers, every clamp, `origin_arm`
-null reasons, scene warnings, detector provenance, and `tracking`: track count
+unsuppressed triggers per gate, every suppressed trigger (reason, frame,
+counting point `x`/`y`, and for `already_entered` the gate of the track's entry),
+`already_entered_by_gate_pair`, every clamp, `origin_arm` null reasons, scene
+warnings, detector provenance, and `tracking`: track count
 and tracks whose counting point never spans 20 px over the clip
 (`static_tracks`, parked vehicles) with those among the initial counts
 (`static_initial_tracks`; `process` warns when it is not empty). On the current

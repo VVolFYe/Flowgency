@@ -27,6 +27,15 @@ def run(paths, n=60, gates=None, **kw):
     return run_gates(s, frames_of(paths, n), fps=FPS, frame_count=n, model_id="test_model", **kw)
 
 
+def polyline(waypoints: list[tuple[float, float]], step: float = 8.0) -> list[tuple[float, float]]:
+    """One point every ``step`` px along the waypoints (one point per frame)."""
+    out = [waypoints[0]]
+    for (x1, y1), (x2, y2) in zip(waypoints, waypoints[1:]):
+        n = max(1, round(((x2 - x1) ** 2 + (y2 - y1) ** 2) ** 0.5 / step))
+        out += [(x1 + (x2 - x1) * k / n, y1 + (y2 - y1) * k / n) for k in range(1, n + 1)]
+    return out
+
+
 NORTH_THROUGH_TO_EAST = [(170, y) for y in range(20, 160, 10)] + [(200, 200), (250, 220), (300, 225), (300, 228)]
 
 
@@ -97,13 +106,41 @@ class OriginTests(unittest.TestCase):
         self.assertEqual(exit_[0]["track_id"], 2)
         self.assertEqual(r.origin_null, {"no_entry_seen": 1})
 
-    def test_entries_from_two_arms_are_ambiguous(self) -> None:
-        path = [(170, 130), (170, 140), (130, 220), (130, 230), (100, 170), (100, 175)]
-        r = run({1: line(path, 10)})
-        self.assertEqual([e["event"] for e in r.events],
-                         ["intersection_entered", "intersection_entered", "intersection_exited"])
-        self.assertIsNone(r.events[-1]["origin_arm"])
-        self.assertEqual(r.origin_null, {"ambiguous_entry": 1})
+    def test_left_turner_clipping_a_second_stop_gate_enters_once(self) -> None:
+        # South -> west left turn whose curve clips the top-right corner of west_in.stop (x 120-155, y 205-250),
+        # as on the youtube clip. Only the first stop trigger is an entry; the second is suppressed and logged.
+        from backend.vision.gate_pipeline import run_summary
+
+        r = run({7: line(polyline([(228, 395), (228, 262), (200, 236), (150, 212), (140, 206), (100, 172)]), 5)})
+        self.assertEqual([(e["event"], e["arm"]) for e in r.events],
+                         [("approach_entered", "south"), ("intersection_entered", "south"), ("intersection_exited", "west")])
+        self.assertEqual(r.events[-1]["origin_arm"], "south")
+        self.assertEqual(r.origin_null, {})
+        suppressed = [t for t in r.triggers if t.suppressed]
+        self.assertEqual([(t.track_id, t.gate_id, t.suppressed) for t in suppressed],
+                         [(7, "west_in.stop", "already_entered")])
+        x, y = suppressed[0].point
+        self.assertTrue(120 <= x <= 155 and 205 <= y <= 250)
+        last = r.counts[-1]
+        self.assertEqual(last["approaches"]["west"]["discharged_total"], 0)
+        self.assertEqual(last["approaches"]["south"], {"vehicles_on_approach": 0, "entered_total": 1, "discharged_total": 1})
+        self.assertEqual(last["in_intersection"], 0)
+        self.assertEqual(r.clamps, [])
+        summary = run_summary(r, scene(), {})
+        entry = summary["suppressed_triggers"][0]
+        self.assertEqual((entry["track_id"], entry["gate_id"], entry["reason"], entry["entered_via"]),
+                         (7, "west_in.stop", "already_entered", "south_in.stop"))
+        self.assertEqual((entry["x"], entry["y"]), (round(x, 1), round(y, 1)))
+        self.assertEqual(summary["already_entered_by_gate_pair"], {"south_in.stop -> west_in.stop": 1})
+        self.assertEqual(summary["triggers_by_gate"]["west_in.stop"], 0)
+
+    def test_straight_through_vehicle_is_not_suppressed(self) -> None:
+        r = run({3: line(polyline([(228, 395), (228, 90)]), 5)})
+        self.assertEqual([(e["event"], e["arm"]) for e in r.events],
+                         [("approach_entered", "south"), ("intersection_entered", "south"), ("intersection_exited", "north")])
+        self.assertEqual(r.events[-1]["origin_arm"], "south")
+        self.assertEqual([t.suppressed for t in r.triggers], [None, None, None])
+        self.assertEqual(r.clamps, [])
 
 
 class InitialStateTests(unittest.TestCase):
