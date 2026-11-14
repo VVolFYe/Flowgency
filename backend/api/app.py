@@ -10,6 +10,7 @@ from fastapi import Depends, FastAPI, HTTPException, Response, WebSocket, WebSoc
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from backend.api.analytics import router as analytics_router
 from backend.api.auth import Auth0TokenVerifier, require_permission
 
 from backend.simulation.geometry import get_scenario_geometry
@@ -62,6 +63,7 @@ def create_app(
     app.state.simulation_service = simulation
     app.state.auth0_verifier = auth0_verifier or Auth0TokenVerifier()
     control_permission = Depends(require_permission("simulation:control"))
+    app.include_router(analytics_router)
 
     async def execute(operation: str, *args: object) -> dict[str, object]:
         method = getattr(simulation, operation)
