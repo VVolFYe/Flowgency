@@ -78,6 +78,7 @@ Replay streams generated with cumulative metrics show Fixed and gap_v1 waiting v
 ```bash
 npm run lint
 npm run typecheck
+npm run test:map
 npm run build
 ```
 
@@ -92,3 +93,6 @@ The synthetic intersection uses a local engineering scene with illustrative buil
 The map supports top-down/tilted views, fit-to-network, zoom, signal tooltips and vehicle details. Click a vehicle and choose Follow vehicle to center the camera on it. Dragging the map, fitting the network or Stop following releases the camera. Cars, buses, ambulances, police and fire vehicles use locally generated icons. New runs reset interpolation.
 
 Dependencies: maplibre-gl supplies vector-map/WebGL rendering and camera controls; proj4 converts the supplied SUMO projection without changing the API contract. The worker asset is referenced explicitly through Next.js so it is bundled locally in development and production.
+
+`npm run test:map` checks the London projection/offset, synthetic coordinates,
+unknown signal states, and supported active emergency events per intersection.
