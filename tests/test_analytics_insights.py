@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import builtins
 import json
 import tempfile
 import unittest
@@ -131,6 +132,22 @@ class InsightsApiTests(unittest.TestCase):
             response = self.reader({"entry_id": "youtube"})
         self.assertEqual(response.status_code, 503)
         self.assertIn("GEMINI_API_KEY", response.json()["detail"])
+
+    def test_google_genai_import_error_is_503(self) -> None:
+        load.load(ANALYTICS / "index.json")
+        self.app.state.insights = GeminiInsights(config_factory=lambda: {"fake": True})  # real client factory
+        real_import = builtins.__import__
+
+        def failing_import(name: str, *args: Any, **kwargs: Any) -> Any:
+            if name == "google" or name.startswith("google."):
+                raise ImportError("broken google-genai install")
+            return real_import(name, *args, **kwargs)
+
+        with mock.patch("builtins.__import__", side_effect=failing_import):
+            response = self.reader({"entry_id": "youtube"})
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["detail"], "google-genai is not installed; pip install -r backend/requirements.txt")
+        self.assertEqual(self.models.calls, [])
 
     def test_missing_database_is_503(self) -> None:
         self.assertEqual(self.reader({"entry_id": "youtube"}).status_code, 503)

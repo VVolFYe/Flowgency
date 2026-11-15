@@ -145,7 +145,7 @@ GEMINI_API_KEY=your-key            # required; https://aistudio.google.com/apike
 # GEMINI_MODEL=gemini-3.5-flash    # optional; this is the default
 ```
 
-The key is read on every request, like `ELEVENLABS_API_KEY`. Results are cached in memory until the API restarts, keyed on the sha256 of the trimmed summary sent to Gemini plus the model, so repeated clicks on unchanged data do not spend quota and any data change asks Gemini again. One attempt with a 25 s timeout. Errors: 503 without `GEMINI_API_KEY`, without the `google-genai` package or without the database; 404 for no recorded run or an unknown id; 502 when Gemini fails or times out (for example `503 high demand`; try again or set another flash model in `GEMINI_MODEL`). The review is generated text about simulation output; check it against the numbers on the page.
+The key is read on every request, like `ELEVENLABS_API_KEY`. Results are cached in memory until the API restarts, keyed on the sha256 of the trimmed summary sent to Gemini plus the model, so repeated clicks on unchanged data do not spend quota and any data change asks Gemini again. One attempt with a 25 s timeout. Errors: 503 without `GEMINI_API_KEY`, without the `google-genai` package ("google-genai is not installed; pip install -r backend/requirements.txt") or without the database; 404 for no recorded run or an unknown id; 502 when Gemini fails or times out (for example `503 high demand`; try again or set another flash model in `GEMINI_MODEL`). The review is generated text about simulation output; check it against the numbers on the page.
 
 ## Test
 

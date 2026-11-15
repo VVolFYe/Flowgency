@@ -72,9 +72,9 @@ def _default_client(api_key: str) -> Any:
     try:
         from google import genai
         from google.genai import types
-    except ModuleNotFoundError as exc:
+    except ImportError as exc:  # missing package (ModuleNotFoundError) or a broken install
         raise InsightsNotConfigured(
-            "google-genai is not installed on the backend (pip install -r backend/requirements.txt)"
+            "google-genai is not installed; pip install -r backend/requirements.txt"
         ) from exc
     # The SDK default is 5 attempts with up to 60 s back-off; the user can click again instead.
     retry = types.HttpRetryOptions(attempts=1)
