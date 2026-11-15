@@ -84,9 +84,22 @@ class ObservationTimeline:
                 return point
         raise KeyError(f"no count observation exists at video time {t_s:g}s")
 
+    @property
+    def initial_point(self) -> TimelinePoint | None:
+        """First observation with every mapped arm's vehicle count known, or None if there is none.
+
+        That is the ``t_s = 0`` line in files produced before 2026-11-15. Since the causal gate engine, lines before
+        its warm-up carry no arms (unknown), and the starting offset first appears at the warm-up line.
+        """
+        for point in self.points:
+            if all(state.observed_vehicles is not None for state in point.approaches.values()):
+                return point
+        return None
+
     def summary(self) -> dict[str, Any]:
         first = self.points[0]
         last = self.points[-1]
+        initial = self.initial_point
         return {
             "schema_version": "1.0",
             "observation_count": len(self.points),
@@ -95,8 +108,10 @@ class ObservationTimeline:
             "recording_end_s": self.recording_end_s,
             "model_ids": list(self.model_ids),
             "orientation_status": sorted({item.orientation_status for item in self.mapping.values()}),
+            "initial_observation_t_s": initial.t_s if initial is not None else None,
             "initial_observed_vehicles": {
-                arm: state.observed_vehicles for arm, state in first.approaches.items()
+                arm: initial.approaches[arm].observed_vehicles if initial is not None else None
+                for arm in self.mapping
             },
             "new_arrivals": {
                 arm: sum(point.approaches[arm].new_arrival_count for point in self.points)
@@ -110,7 +125,7 @@ class ObservationTimeline:
                 }
                 for arm in self.mapping
             },
-            "initial_in_intersection": first.in_intersection,
+            "initial_in_intersection": initial.in_intersection if initial is not None else None,
             "final_in_intersection": last.in_intersection,
             "approach_left": {
                 arm: sum(item.camera_arm == arm for item in self.approach_left)

@@ -432,7 +432,7 @@ def compare_experiments(
         "limitations": [
             initial_exclusion_limitation(
                 fixed["demand_summary"],
-                "The {count} vehicles already observed at video t=0 are excluded.",
+                "The {count} vehicles already observed at video {at} are excluded.",
             ),
             "Camera-to-SUMO orientation is unverified.",
             "The synthetic network supports straight-through movements only.",
@@ -531,7 +531,7 @@ def main() -> int:
     parser.add_argument(
         "--allow-unknown-initial-observations",
         action="store_true",
-        help="with --run-experiments: accept a t_s=0 count snapshot without arm data",
+        help="with --run-experiments: accept recordings where no counts line has every arm known",
     )
     args = parser.parse_args()
     try:

@@ -88,7 +88,7 @@ class VisionExportTests(unittest.TestCase):
 
     def test_limitations_cover_offset_and_top_down_model(self) -> None:
         text = " ".join(self.document["limitations"])
-        self.assertIn("first 0.5 s", text)
+        self.assertIn("when counting starts", text)
         self.assertIn("VisDrone", text)
 
 

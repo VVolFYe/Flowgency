@@ -191,3 +191,14 @@ class EditorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DistanceToPolygonTests(unittest.TestCase):
+    def test_distance(self) -> None:
+        from backend.vision.geometry import distance_to_polygon
+
+        square = rect(0, 0, 10, 10)
+        self.assertEqual(distance_to_polygon((5, 5), square), 0.0)
+        self.assertEqual(distance_to_polygon((10, 5), square), 0.0)
+        self.assertAlmostEqual(distance_to_polygon((13, 5), square), 3.0)
+        self.assertAlmostEqual(distance_to_polygon((13, 14), square), 5.0)

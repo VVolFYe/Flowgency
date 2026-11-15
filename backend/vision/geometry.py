@@ -122,5 +122,19 @@ def polygon_width(poly: Polygon) -> float:
     return best
 
 
+def distance_to_polygon(p: Point, poly: Polygon) -> float:
+    """0 inside (boundary included), else the distance to the nearest edge."""
+    if point_in_polygon(p, poly):
+        return 0.0
+    best = float("inf")
+    for i in range(len(poly)):
+        a, b = poly[i], poly[(i + 1) % len(poly)]
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        length2 = dx * dx + dy * dy
+        t = 0.0 if length2 == 0 else max(0.0, min(1.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / length2))
+        best = min(best, ((p[0] - a[0] - t * dx) ** 2 + (p[1] - a[1] - t * dy) ** 2) ** 0.5)
+    return best
+
+
 def centroid(poly: Polygon) -> Point:
     return (sum(p[0] for p in poly) / len(poly), sum(p[1] for p in poly) / len(poly))

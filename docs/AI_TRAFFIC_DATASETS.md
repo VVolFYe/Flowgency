@@ -38,10 +38,15 @@ Demo 2 is refused if it points at the Demo 1 directory or if its manifest
 - Only the AI-annotated video exists. The manifest has no `original_video`
   asset, `video.duration_s` is `null` and `video.source_kind` is
   `annotated_only`. The page disables the Original option.
-- The first three count observations (t = 0–2 s) contain no arm data. The
-  vehicles present at t = 0 are therefore unknown, not zero. Generation requires
-  the explicit `--allow-unknown-initial-observations` flag and records the
-  count as `null`.
+- The first three count observations (t = 0–2 s) are the vision warm-up and
+  contain no arm data (unknown, not zero). Per the data contract, the starting
+  offset comes from the first complete line, t = 3 s (16 vehicles on approach),
+  and is metadata only. Current code therefore does not need
+  `--allow-unknown-initial-observations` for this recording; the flag remains
+  valid in the commands below, which match how the committed bundle was
+  generated. That bundle was produced before this warm-up rule was merged, so
+  its limitation text describes the starting vehicles as unknown at t = 0. The
+  route file, replays and metrics do not depend on this metadata.
 - Three `approach_left` events (west arm, tracks 41, 10, 550) are validated
   against their `approach_entered` event and do not change demand.
 

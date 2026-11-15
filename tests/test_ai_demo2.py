@@ -45,6 +45,8 @@ def counts(t_s: float, *, known: bool = True) -> dict[str, object]:
 
 
 def event(kind: str, track_id: int, t_s: float, arm: str = "west", **extra: object) -> dict[str, object]:
+    if kind == "approach_left":
+        extra.setdefault("via", "region")  # required by the section I contract
     return {
         "schema_version": "1.0",
         "event": kind,
@@ -66,15 +68,20 @@ def write(directory: Path, count_records: list[dict], event_records: list[dict])
 
 
 class ApproachLeftTests(unittest.TestCase):
-    def test_consumer_accepts_approach_left_while_producer_stays_strict(self) -> None:
+    def test_producer_and_consumer_share_the_approach_left_contract(self) -> None:
         record = event("approach_left", 41, 35.452, via="region")
         self.assertEqual(GateEventInput.model_validate(record).event, "approach_left")
-        with self.assertRaises(ValidationError):
-            GateEvent.model_validate({key: value for key, value in record.items() if key != "via"})
-        with self.assertRaises(ValidationError):
-            GateEventInput.model_validate({**record, "origin_arm": "north"})
-        with self.assertRaises(ValidationError):
-            GateEventInput.model_validate({**record, "event": "approach_vanished"})
+        self.assertEqual(GateEvent.model_validate(record).event, "approach_left")
+        for model in (GateEvent, GateEventInput):
+            with self.subTest(model.__name__):
+                for invalid in (
+                    {key: value for key, value in record.items() if key != "via"},  # via required
+                    {**record, "via": "far_gate"},  # entry-only via
+                    {**record, "origin_arm": "north"},
+                    {**record, "event": "approach_vanished"},
+                ):
+                    with self.assertRaises(ValidationError):
+                        model.model_validate(invalid)
 
     def test_approach_left_never_creates_or_removes_demand(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -122,29 +129,55 @@ class ApproachLeftTests(unittest.TestCase):
                 with self.assertRaisesRegex(JsonlValidationError, message):
                     build_timeline(counts_path, events_path, MAPPING, SCENARIO_MAPPING)
 
-    def test_unknown_initial_observations_require_explicit_opt_in(self) -> None:
+    def test_warm_up_line_is_the_starting_offset_without_any_flag(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             counts_path, events_path = write(
                 directory,
                 [counts(0.0, known=False), counts(1.0)],
+                [event("approach_entered", 1, 1.3)],
+            )
+            summary = generate_demand(counts_path, events_path, directory / "warm.rou.xml")
+        initial = summary["initial_observed_vehicles_not_inserted"]
+        self.assertEqual((initial["observed_at_t_s"], initial["total"]), (1.0, 4))
+        self.assertNotIn("status", initial)
+        self.assertEqual(summary["vehicle_count"], 1)
+        self.assertEqual(
+            initial_exclusion_limitation(summary, "The {count} vehicles seen at video {at}."),
+            "The 4 vehicles seen at video t=1s (first counts line with every arm known).",
+        )
+
+    def test_no_complete_line_requires_explicit_opt_in_and_stays_unknown(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            counts_path, events_path = write(
+                directory,
+                [counts(0.0, known=False), counts(1.0, known=False)],
                 [event("approach_entered", 1, 0.3)],
             )
-            with self.assertRaisesRegex(JsonlValidationError, "allow-unknown-initial-observations"):
+            with self.assertRaisesRegex(JsonlValidationError, "vehicle count known for every arm"):
                 generate_demand(counts_path, events_path, directory / "strict.rou.xml")
+            self.assertFalse((directory / "strict.rou.xml").exists())
             summary = generate_demand(
                 counts_path,
                 events_path,
                 directory / "opt-in.rou.xml",
                 allow_unknown_initial_observations=True,
             )
+            vehicles = ET.parse(directory / "opt-in.rou.xml").getroot().findall("vehicle")
         initial = summary["initial_observed_vehicles_not_inserted"]
         self.assertIsNone(initial["total"])
-        self.assertEqual(initial["status"], "unknown_at_t0")
+        self.assertIsNone(initial["observed_at_t_s"])
+        self.assertEqual(initial["status"], "unknown_no_complete_observation")
         self.assertEqual(set(initial["by_camera_arm"].values()), {None})
+        self.assertEqual([item.get("id") for item in vehicles], ["ai_west_1"])  # arrivals only, none invented
         self.assertIsNone(initial_vehicles_excluded(summary))
-        self.assertIn("count unknown", initial_exclusion_limitation(summary, "The {count} vehicles"))
-        self.assertNotIn("26", json.dumps(summary["assumptions"]))
+        self.assertIn("count unknown", initial_exclusion_limitation(summary, "The {count} vehicles at {at}"))
+        legacy = {"initial_observed_vehicles_not_inserted": {"total": None, "status": "unknown_at_t0"}}
+        self.assertEqual(  # summaries written before the warm-up rule keep their original, accurate text
+            initial_exclusion_limitation(legacy, "The {count} vehicles at {at}"),
+            "Approach vehicles present at video t=0 were not observed (count unknown) and are not inserted.",
+        )
 
 
 @unittest.skipUnless((DEMO2_INPUT / "events.jsonl").is_file(), "Demo 2 AI inputs are unavailable")
@@ -178,13 +211,15 @@ class Demo2InputTests(unittest.TestCase):
         self.assertEqual(summary["recording_end_s"], 156.0)
         self.assertEqual(summary["new_arrivals"], {"north": 49, "east": 21, "south": 44, "west": 18})
         self.assertEqual(summary["approach_left"], {"north": 0, "east": 0, "south": 0, "west": 3})
-        self.assertEqual(set(summary["initial_observed_vehicles"].values()), {None})
+        # Lines t=0..2 are the vision warm-up (unknown); the starting offset is the t=3 line.
+        self.assertIsNone(timeline.points[0].approaches["north"].observed_vehicles)
+        self.assertEqual(summary["initial_observation_t_s"], 3.0)
+        self.assertEqual(summary["initial_observed_vehicles"], {"north": 3, "east": 3, "south": 4, "west": 6})
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
-            with self.assertRaises(JsonlValidationError):
-                generate_demand(
-                    DEMO2_INPUT / "counts.jsonl", DEMO2_INPUT / "events.jsonl", directory / "strict.rou.xml"
-                )
+            default = generate_demand(
+                DEMO2_INPUT / "counts.jsonl", DEMO2_INPUT / "events.jsonl", directory / "default.rou.xml"
+            )
             demand = generate_demand(
                 DEMO2_INPUT / "counts.jsonl",
                 DEMO2_INPUT / "events.jsonl",
@@ -192,6 +227,10 @@ class Demo2InputTests(unittest.TestCase):
                 allow_unknown_initial_observations=True,
             )
             vehicles = ET.parse(directory / "demo2.rou.xml").getroot().findall("vehicle")
+            self.assertEqual((directory / "default.rou.xml").read_bytes(), (directory / "demo2.rou.xml").read_bytes())
+        self.assertEqual(default, demand)  # the opt-in changes nothing when a complete line exists
+        self.assertEqual(demand["initial_observed_vehicles_not_inserted"]["observed_at_t_s"], 3.0)
+        self.assertEqual(demand["initial_observed_vehicles_not_inserted"]["total"], 16)
         ids = [item.get("id") for item in vehicles]
         self.assertEqual(len(ids), 132)
         self.assertEqual(len(set(ids)), 132)
@@ -218,7 +257,12 @@ class Demo1RegressionTests(unittest.TestCase):
         self.assertEqual(summary["sources"], manifest["input_provenance"]["ai_sources"])
         self.assertEqual(summary["vehicle_count"], 325)
         self.assertEqual(initial_vehicles_excluded(summary), 26)
+        self.assertEqual(summary["initial_observed_vehicles_not_inserted"]["observed_at_t_s"], 0.0)
         self.assertNotIn("status", summary["initial_observed_vehicles_not_inserted"])
+        self.assertEqual(
+            initial_exclusion_limitation(summary, "The {count} vehicles already observed at video {at} are excluded."),
+            "The 26 vehicles already observed at video t=0 are excluded.",
+        )
         self.assertNotIn("approach_left_events_not_demand", summary)
         self.assertIn(
             "The 26 initially observed approach vehicles are metadata only and are not inserted.",
@@ -275,7 +319,7 @@ class Demo2SumoExperimentTests(unittest.TestCase):
             self.assertEqual(run["diagnostics"]["collisions"], 0)
             self.assertEqual(run["diagnostics"]["teleports"], 0)
             self.assertTrue(run["replay_waiting_time_reconciliation"]["matches"])
-            self.assertNotIn("26", run["limitations"][0])
+            self.assertTrue(run["limitations"][0].startswith("The 16 vehicles already observed at video t=3s"))
         self.assertEqual(
             gap["fixed_baseline_demand_comparison"],
             {**gap["fixed_baseline_demand_comparison"], "ids_match": True, "planned_departures_match": True, "route_file_sha256_match": True},
@@ -380,7 +424,9 @@ class AnnotatedOnlyBundleTests(unittest.TestCase):
             "vehicles": {"planned": 1, "inserted": 1, "arrived": 1},
             "diagnostics": {"collisions": 0, "teleports": 0},
             "demand": {
-                "initial_observed_vehicles_not_inserted": {"total": None, "status": "unknown_at_t0"},
+                "initial_observed_vehicles_not_inserted": {
+                    "observed_at_t_s": None, "total": None, "status": "unknown_no_complete_observation",
+                },
                 "approach_left_events_not_demand": {"count": 3},
             },
             "controller_provenance": {

@@ -140,8 +140,9 @@ def build_vision_analytics(
             "peak_vehicles_on_approach": max(observed) if observed else None,
         }
     turning = turning_matrix(events, arms)
-    initial = ", ".join(
-        f"{arm} {_arm_value(counts[0], arm, 'vehicles_on_approach')}" for arm in arms
+    first_known = next((row for row in counts if row.approaches), counts[0])
+    initial = f"t_s = {first_known.t_s:g}: " + ", ".join(
+        f"{arm} {_arm_value(first_known, arm, 'vehicles_on_approach')}" for arm in arms
     )
     return {
         "schema_version": SCHEMA_VERSION,
@@ -167,9 +168,9 @@ def build_vision_analytics(
         "totals": totals,
         "turning_matrix": turning,
         "limitations": [
-            "vehicles_on_approach includes vehicles already on each approach in the first 0.5 s "
-            f"(t_s = 0: {initial}); entered/discharged totals do not count them, so the series "
-            "and the totals are offset by that initial count.",
+            "vehicles_on_approach includes the vehicles already on each approach when counting "
+            f"starts ({initial}); entered/discharged totals do not count them, so the series "
+            "and the totals are offset by that initial count. Earlier seconds are unknown (null).",
             f"The clip is a top-down (drone) view processed with the team-trained VisDrone "
             f"detector ({model_id}); the street-camera COCO model does not apply.",
             "Counts are camera-derived estimates that can drift over the clip (missed detections, "

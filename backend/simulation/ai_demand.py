@@ -65,16 +65,30 @@ def initial_vehicles_excluded(demand_summary: dict[str, Any]) -> int | None:
 
 
 def initial_exclusion_limitation(demand_summary: dict[str, Any], template: str) -> str:
-    """Describe excluded t=0 vehicles from real data, e.g. template '{count} vehicles ...'.
+    """Describe the excluded starting vehicles from real data.
 
-    When the t=0 observation was unknown the count is not invented.
+    ``template`` uses ``{count}`` and ``{at}`` (e.g. ``"... at video {at} ..."``);
+    ``{at}`` is ``t=0`` or the later warm-up line where counts first became known.
+    An unknown count is never invented.
     """
     count = initial_vehicles_excluded(demand_summary)
     if count is not None:
-        return template.format(count=count)
+        initial = demand_summary.get("initial_observed_vehicles_not_inserted", {})
+        observed_at = initial.get("observed_at_t_s") if isinstance(initial, dict) else None
+        at = (
+            "t=0"
+            if not isinstance(observed_at, (int, float)) or observed_at == 0
+            else f"t={observed_at:g}s (first counts line with every arm known)"
+        )
+        return template.format(count=count, at=at)
+    if isinstance(initial := demand_summary.get("initial_observed_vehicles_not_inserted"), dict) and (
+        initial.get("status") == "unknown_at_t0"
+    ):
+        # Summaries written before the warm-up rule was merged recorded only the unknown t=0 line.
+        return "Approach vehicles present at video t=0 were not observed (count unknown) and are not inserted."
     return (
-        "Approach vehicles present at video t=0 were not observed (count unknown) "
-        "and are not inserted."
+        "Starting approach vehicles were not observed on any complete counts line "
+        "(count unknown) and are not inserted."
     )
 
 
@@ -144,9 +158,10 @@ def generate_demand(
 ) -> dict[str, Any]:
     """Validate inputs and write one SUMO vehicle per unique approach arrival.
 
-    ``allow_unknown_initial_observations`` is an explicit opt-in for recordings
-    whose t=0 count snapshot has no arm data. Those counts stay unknown (null);
-    they are never treated as zero and never create vehicles.
+    The starting offset comes from the first counts line with every arm known
+    (``timeline.initial_point``). ``allow_unknown_initial_observations`` is an
+    explicit opt-in for recordings where no such line exists: the offset is then
+    recorded as unknown (null), never as zero, and never creates vehicles.
     """
     if output_path.suffixes[-2:] != [".rou", ".xml"]:
         raise JsonlValidationError("output path must end with .rou.xml")
@@ -217,16 +232,21 @@ def generate_demand(
         })
     ET.indent(root, space="    ")
 
-    initial = {
-        arm: state.observed_vehicles
-        for arm, state in timeline.points[0].approaches.items()
-    }
-    initial_unknown = any(value is None for value in initial.values())
+    # Starting offset: the first counts line with every mapped arm known (t_s=0 in older files,
+    # the warm-up line since 2026-11-15). Those vehicles are metadata only and never inserted.
+    initial_point = timeline.initial_point
+    initial_unknown = initial_point is None
     if initial_unknown and not allow_unknown_initial_observations:
         raise JsonlValidationError(
-            "initial t_s=0 vehicle observations must be known for every arm "
-            "(pass --allow-unknown-initial-observations to record them as unknown)"
+            "no counts observation has the vehicle count known for every arm "
+            "(pass --allow-unknown-initial-observations to record the starting offset as unknown)"
         )
+    # Unknown stays unknown (null), never zero.
+    initial = (
+        {arm: state.observed_vehicles for arm, state in initial_point.approaches.items()}
+        if initial_point is not None
+        else {arm: None for arm in timeline.mapping}
+    )
     arrivals_by_arm = Counter(item.camera_arm for item in arrivals)
     initial_total = None if initial_unknown else sum(
         value for value in initial.values() if value is not None
@@ -234,7 +254,7 @@ def generate_demand(
     initial_assumption = (
         f"The {initial_total} initially observed approach vehicles are metadata only and are not inserted."
         if initial_total is not None
-        else "Approach vehicles present at t_s=0 were not observed (unknown, not zero) and are not inserted."
+        else "No counts line had every arm known, so starting approach vehicles are unknown (not zero) and are not inserted."
     )
     summary: dict[str, Any] = {
         "schema_version": "1.0",
@@ -248,9 +268,10 @@ def generate_demand(
             arm: arrivals_by_arm.get(arm, 0) for arm in ARM_ORDER
         },
         "initial_observed_vehicles_not_inserted": {
+            "observed_at_t_s": initial_point.t_s if initial_point is not None else None,
             "by_camera_arm": initial,
             "total": initial_total,
-            **({"status": "unknown_at_t0"} if initial_unknown else {}),
+            **({"status": "unknown_no_complete_observation"} if initial_unknown else {}),
         },
         "camera_orientation_status": "unverified_camera_to_sumo",
         "routes": {
@@ -309,7 +330,7 @@ def main() -> int:
     parser.add_argument(
         "--allow-unknown-initial-observations",
         action="store_true",
-        help="accept a t_s=0 count snapshot without arm data; those counts are recorded as unknown",
+        help="accept recordings where no counts line has every arm known; the starting offset is recorded as unknown",
     )
     args = parser.parse_args()
     try:

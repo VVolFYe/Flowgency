@@ -412,7 +412,7 @@ def run_fixed_experiment(
         "limitations": [
             initial_exclusion_limitation(
                 demand_summary,
-                "The {count} vehicles already observed at video t=0 are excluded; their positions are unknown.",
+                "The {count} vehicles already observed at video {at} are excluded; their positions are unknown.",
             ),
             "Camera-to-SUMO orientation is unverified.",
             "All generated movements are straight-only verified synthetic connections.",
@@ -443,7 +443,7 @@ def main() -> int:
     parser.add_argument(
         "--allow-unknown-initial-observations",
         action="store_true",
-        help="accept a t_s=0 count snapshot without arm data; those counts are recorded as unknown",
+        help="accept recordings where no counts line has every arm known; the starting offset is recorded as unknown",
     )
     args = parser.parse_args()
     try:
