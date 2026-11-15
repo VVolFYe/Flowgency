@@ -18,6 +18,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          lfs: true
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -29,7 +30,7 @@ jobs:
       - name: Backend checks (no camera models or cloud secrets)
         run: |
           python -m pip install -r backend/requirements-dev.txt
-          python -m unittest tests.test_cycle_planner tests.test_emergency_controller tests.test_simulation_configuration tests.test_api_auth tests.test_analytics_insights -v
+          python -m unittest tests.test_cycle_planner tests.test_emergency_controller tests.test_simulation_configuration tests.test_api_auth tests.test_analytics_insights tests.test_ai_replay tests.test_api_replay tests.test_deploy_package -v
           for script in deploy/*.sh; do bash -n "$script"; done
       - name: Frontend checks
         working-directory: frontend
@@ -38,6 +39,7 @@ jobs:
           npm run lint
           npm run typecheck
           npm run test:voice
+          npm run test:replay
           npm run build
 
   deploy:
@@ -53,6 +55,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          lfs: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Package checked source and verified Git LFS payloads
+        env:
+          DEPLOY_SHA: ${{ github.sha }}
+        run: python deploy/package_source.py --ref "$DEPLOY_SHA" --output "$RUNNER_TEMP/source.tar.gz"
       - name: Upload the checked commit and deploy
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
@@ -83,7 +93,6 @@ jobs:
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$ssh_dir/known_hosts"
           ssh_options=(-i "$ssh_dir/key" -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$ssh_dir/known_hosts")
           target="$DEPLOY_USER@$DEPLOY_HOST"
-          git archive --format=tar.gz -o "$RUNNER_TEMP/source.tar.gz" "$DEPLOY_SHA"
           ssh "${ssh_options[@]}" "$target" 'mkdir -p "$HOME/flowgency/incoming"'
           scp "${ssh_options[@]}" "$RUNNER_TEMP/source.tar.gz" "$target:flowgency/incoming/$DEPLOY_SHA.tar.gz"
           ssh "${ssh_options[@]}" "$target" bash -s -- "$DEPLOY_SHA" <<'REMOTE'

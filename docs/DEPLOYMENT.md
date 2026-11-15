@@ -11,11 +11,27 @@ Backend checks cover the planner, emergency controller, configuration, API
 authorization, and analytics insights. Frontend checks run lint, types, voice tests,
 and production build.
 These are focused checks, not a full London simulation benchmark or vision test.
+Checks also cover AI replay authorization/range requests, frontend replay logic,
+and deployment archive integrity.
 
 Only a successful main push (or manual run on main) deploys. GitHub-hosted runners
 upload the exact checked Git commit over SSH. No runner executes on the VM and no
 GitHub token or repository credential is stored there. Configure the `production`
 environment to allow only main. Concurrent deploys are serialized.
+
+Both checkout steps enable Git LFS. The packager starts from the exact commit's
+Git archive and replaces each LFS pointer with the downloaded worktree payload,
+checking its declared size and SHA-256 before writing the deploy archive. Ordinary
+source still comes from the commit; untracked secrets/build outputs are excluded.
+Missing, unhydrated, or corrupted LFS files stop packaging before SSH upload. Git
+LFS is needed on the GitHub runner, not the VM, because the VM receives real MP4s.
+GitHub LFS storage/bandwidth quotas still apply. Merely enabling LFS checkout and
+continuing to use plain `git archive` would send pointer files instead of videos.
+
+AI Traffic assets remain behind the existing `/api/operator/ai-traffic/*` Next.js
+proxy. Caddy forwards these requests to the frontend, which authenticates them and
+streams backend responses including HTTP Range headers. No direct public video
+directory is exposed. Recorded replays are bundled assets, not new SUMO runs.
 
 Each deploy creates a separate `~/flowgency/releases/<sha>.<suffix>` with its own
 Python environment and Next.js build. Secrets stay outside releases in `shared`.
