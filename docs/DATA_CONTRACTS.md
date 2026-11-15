@@ -465,3 +465,55 @@ Read-only routes, unauthenticated like the other GETs, with the same 503 behavio
 - `GET /api/analytics/runs/latest-pair?scenario_id=X` returns `{"scenario_id", "fixed", "adaptive"}`. `fixed` is the latest **finished** `fixed_timing` run of that `scenario_id` (including the `_emergency` suffix), and `adaptive` is the latest **finished** `adaptive_network` run. `adaptive_emergency_priority` runs, and stopped or failed runs, are never paired, matching the Live Simulation comparison. Either side is `null` if there is no such run. `/runs/latest` still returns the newest run of any mode and status. A missing `scenario_id` returns 422.
 
 The Statistics page shows the latest run as its first option ("Last simulation"). It adds a fixed-vs-adaptive section when `latest-pair` has both modes for that run's scenario. These are live service runs, not the matched tripinfo comparison of O.2.
+
+### O.6 Gemini AI review (`POST /api/analytics/insights`)
+
+Unlike the GETs above, this route spends Gemini quota, so it requires a Bearer token with `analytics:read` (the browser calls the same-origin Next.js proxy `/api/analytics/insights`, which adds the Auth0 access token). Request body:
+
+```json
+{"entry_id": null}
+```
+
+`null` reviews the latest recorded run (`/runs/latest`) together with the latest finished `fixed_timing` and `adaptive_network` runs of its `scenario_id` (the `/runs/latest-pair` rules); a non-empty string reviews that `analytics` row (O.2 or O.3). The client never sends statistics: the backend reads the database and builds a compact prompt in `backend/insights/summary.py`. Time series become `{samples, known, min, mean, max, last}` over known values (`null` stays `null`), histograms are dropped (percentiles kept), per-controller tables become a controller count plus the top 5 by mean queue, and a pair run that is the latest run is referenced rather than repeated.
+
+Response (`200`):
+
+```json
+{
+  "source": {"kind": "latest_run", "id": "<run_id>", "scenario_id": "london_normal", "paired": true},
+  "model": "gemini-3.5-flash",
+  "cached": false,
+  "summary": "…",
+  "key_findings": ["…"],
+  "suggestions": ["…"],
+  "caveats": ["…"]
+}
+```
+
+For an entry, `source` is `{"kind": "entry", "id": "<entry id>", "scenario_id": null, "paired": false}`. `summary` through `caveats` come from Gemini structured output (`response_schema`). `model` is `$GEMINI_MODEL` or the default in `backend/insights/gemini.py`. Results are cached in memory until the API restarts. The key is (sha256 of the trimmed summary as `json.dumps(..., sort_keys=True)`, model), computed after the data is read and summarized and before Gemini is called, so a new latest run, changed metrics for the same `run_id`, or a reloaded entry all miss the cache. `cached` reports a cache hit. Errors: 401/403 without a token or permission; 503 without `GEMINI_API_KEY`, without the `google-genai` package, or with the O.4 unavailable database (same detail); 404 when no run is recorded or the id is unknown; 422 for an unsupported stored `kind`; 502 when Gemini fails, times out (25 s, one attempt) or returns JSON that does not match the schema. The review is generated text, not a measurement.
+
+## P. AI Traffic replay export
+
+Replay export is explicit and optional. `--replay-output` on the isolated Fixed or Adaptive AI experiment writes one compact JSON object per authoritative SUMO step. Omitting the option preserves the existing execution and report behavior. Replay schema `1.0` records:
+
+- `frame_index` and strictly increasing `simulation_time_s`;
+- `coordinate_system` (`synthetic_cartesian_metres` for this scenario);
+- vehicles sorted by ID with `x_m`, `y_m`, `angle_deg`, `speed_mps`, `lane_id`, and `edge_id` read from TraCI;
+- traffic lights sorted by ID with the actual `phase_index`, `phase_id`, and red/yellow/green `state`.
+
+Newly generated streams may also include an optional `metrics` object on every frame:
+
+```json
+{
+  "cumulative_waiting_time_s": 142.0,
+  "active_vehicle_count": 17,
+  "arrived_vehicle_count": 39,
+  "measurement": "sum_waiting_vehicle_intervals_x_step_duration"
+}
+```
+
+The cumulative value is recorded after each authoritative SUMO step by counting each vehicle whose TraCI `getWaitingTime()` is positive once for that step duration. It therefore retains waiting from vehicles that later move or arrive and matches completed-trip `tripinfo waitingTime` at the end of a validated run. It must begin at zero, remain nonnegative and monotonic, and be present on every frame or none. Streams produced before this additive field remain valid; clients must display waiting history as unavailable rather than reconstructing it from speed or queue snapshots.
+
+The stream is simulation-time data, not video frames. It continues until SUMO demand completes and is never truncated or looped at the approximately 264-second video boundary. Video event time and planned SUMO departure time share an explicit zero-second offset; actual insertion delay remains part of the experiment output.
+
+The portable `assets/ai-traffic/versions/waiting-v1/replay_manifest.json` schema `1.0` binds the source-video identifier, H.264 Git LFS video assets, Fixed and runtime-verified `gap_v1` replay streams, single-intersection geometry API reference, independent simulation durations, comparison report, checksums, and known limitations. The asset API validates report schema, matching demand/network provenance, complete trips, zero collision/teleport diagnostics, and `gap_v1` activation at `demo_01` before returning metrics. Paths are never returned to clients. `FLOWGENCY_REPLAY_ASSET_DIR` may override this repository-relative default for custom deployments.

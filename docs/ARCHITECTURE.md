@@ -32,7 +32,7 @@ The Next.js App Router application will provide Dashboard, Simulation Lab, and A
 
 FastAPI owns HTTP commands, WebSocket lifecycle, serialization, and orchestration. Initially it may run alongside one simulation worker in one local deployment. It exposes shared schemas, not raw TraCI objects, and should coalesce snapshots if clients cannot keep up.
 
-Auth0 protects the mutation boundary without changing simulation contracts. Next.js keeps the Auth0 access token in its encrypted server session and forwards it through a same-origin command proxy. FastAPI validates the RS256 token against tenant JWKS, issuer, audience, expiration, and the `simulation:control` permission. Public GET endpoints and the read-only WebSocket remain available for the public visualization.
+Auth0 protects the mutation boundary without changing simulation contracts. Next.js keeps the Auth0 access token in its encrypted server session and forwards it through a same-origin command proxy. FastAPI validates the RS256 token against tenant JWKS, issuer, audience, expiration, and the `simulation:control` permission. Public GET endpoints and the read-only WebSocket remain available for the public visualization. The Gemini AI review (`POST /api/analytics/insights`, DATA_CONTRACTS.md O.6) goes through the same proxy pattern and requires `analytics:read`; the backend reads the statistics from the analytics database and calls Gemini server-side with `GEMINI_API_KEY`.
 
 ### Controller
 

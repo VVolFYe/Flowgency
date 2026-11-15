@@ -4,3 +4,4 @@ PyJWT[crypto]>=2.10,<3
 uvicorn>=0.38,<1
 websockets>=13,<17  # Required by Uvicorn for /ws/simulation.
 psycopg[binary]>=3.2,<4  # Only used when FLOWGENCY_ANALYTICS_DB is a hosted Postgres URL.
+google-genai>=3.3,<4  # Gemini AI review on the Statistics/Analytics page (POST /api/analytics/insights).

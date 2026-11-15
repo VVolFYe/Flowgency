@@ -8,11 +8,14 @@ from typing import AsyncIterator, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Response, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, StrictBool
 
 from backend.analytics.runs import save_run
 from backend.api.analytics import router as analytics_router
 from backend.api.auth import Auth0TokenVerifier, require_permission
+from backend.api.replay_assets import ReplayAssetError, ReplayAssetStore
+from backend.insights.gemini import GeminiInsights
 
 from backend.simulation.geometry import get_network_selection_geometry
 from backend.simulation.scenarios import (
@@ -47,9 +50,12 @@ class SpeedOptions(BaseModel):
 def create_app(
     service: SimulationService | None = None,
     auth0_verifier: Auth0TokenVerifier | None = None,
+    insights: GeminiInsights | None = None,
+    replay_asset_store: ReplayAssetStore | None = None,
 ) -> FastAPI:
     simulation = service or SimulationService(run_sink=save_run)
     speech = VoiceSynthesis()
+    replay_assets = replay_asset_store or ReplayAssetStore()
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -69,7 +75,13 @@ def create_app(
     )
     app.state.simulation_service = simulation
     app.state.auth0_verifier = auth0_verifier or Auth0TokenVerifier()
+    app.state.insights = insights or GeminiInsights()
     control_permission = Depends(require_permission("simulation:control"))
+    replay_permissions = [
+        Depends(require_permission("simulation:read")),
+        Depends(require_permission("analytics:read")),
+        Depends(require_permission("simulation:control")),
+    ]
     app.include_router(analytics_router)
 
     async def execute(operation: str, *args: object) -> dict[str, object]:
@@ -125,6 +137,27 @@ def create_app(
         except RuntimeError as exc:
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
         return Response(audio, media_type="audio/mpeg", headers={"Cache-Control": "no-store"})
+
+    @app.get("/api/ai-traffic/manifest", dependencies=replay_permissions)
+    async def ai_traffic_manifest() -> dict[str, object]:
+        try:
+            return await asyncio.to_thread(replay_assets.public_manifest)
+        except ReplayAssetError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+    @app.get("/api/ai-traffic/assets/{asset_id}", dependencies=replay_permissions)
+    async def ai_traffic_asset(asset_id: str) -> FileResponse:
+        try:
+            asset = await asyncio.to_thread(replay_assets.asset, asset_id)
+        except ReplayAssetError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+        return FileResponse(
+            asset.path,
+            media_type=asset.media_type,
+            filename=asset.path.name,
+            content_disposition_type="inline",
+            headers={"Cache-Control": "private, no-store", "Accept-Ranges": "bytes"},
+        )
 
     @app.get("/api/voice/audio")
     async def aggregate_voice_audio(

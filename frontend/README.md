@@ -54,6 +54,7 @@ The Operator area is protected by a server-validated, signed `HttpOnly` cookie:
 - `/operator/login` — Operator login
 - `/operator` — operational overview
 - `/operator/simulation` — full simulation controls and snapshot details
+- `/operator/ai-traffic` — protected synchronized AI-video, Fixed and gap_v1 replay
 - `/operator/analytics` — live charts for the current browser session
 
 Copy `.env.example` to `.env.local` and replace all demo Operator values:
@@ -67,6 +68,10 @@ OPERATOR_SESSION_SECRET=use-a-long-random-secret
 These variables are server-only. Never rename them with a `NEXT_PUBLIC_` prefix. The session lasts eight hours, is marked `Secure` in production, and can be ended with Logout. This demo authentication intentionally has no account registration or user administration.
 
 Analytics uses only live snapshot fields. If the backend provides no historical endpoint, snapshots are retained in browser `sessionStorage`, labeled `Current browser session`, and reset when `run_id` changes. Missing values remain `—`.
+
+AI Traffic reads its validated manifest and allowlisted media through protected same-origin routes under `/api/operator/ai-traffic`. The Next.js server forwards the current Auth0 access token to the backend; the browser never receives that token or an arbitrary filesystem path. The backend uses the repository's `assets/ai-traffic/versions/waiting-v1` Git LFS bundle by default; `FLOWGENCY_REPLAY_ASSET_DIR` remains an optional backend-only override. One monotonic browser clock synchronizes the selected original/annotated video with the recorded Fixed and gap_v1 SUMO streams. Play, pause, restart, seek, and 0.5×–4× playback are available; video freezes without looping at its own end while the longer SUMO replays continue.
+
+Replay streams generated with cumulative metrics show Fixed and gap_v1 waiting vehicle-seconds at the selected shared timestamp, plus active and completed vehicle counts. Older schema-1.0 streams remain playable but show an explicit unavailable state for time-dependent waiting metrics; the UI never derives a curve from final benchmark totals.
 
 ## Checks
 
