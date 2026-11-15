@@ -11,6 +11,7 @@ from typing import Any
 from xml.etree import ElementTree as ET
 
 from backend.simulation.ai_adaptive_run import ADAPTIVE_STRATEGIES, run_adaptive_experiment
+from backend.simulation.ai_demand import initial_exclusion_limitation
 from backend.simulation.ai_fixed_run import run_fixed_experiment
 
 
@@ -293,6 +294,7 @@ def read_validated_run(
         "report": report,
         "demand": demand,
         "demand_sources": demand_summary.get("sources"),
+        "demand_summary": demand_summary,
         "settings": read_simulation_settings(paths["config"]),
         "trips": trips,
         "metrics": metrics,
@@ -428,7 +430,10 @@ def compare_experiments(
             "absolute_improvement": "positive means Adaptive is lower/better",
         },
         "limitations": [
-            "The 26 vehicles already observed at video t=0 are excluded.",
+            initial_exclusion_limitation(
+                fixed["demand_summary"],
+                "The {count} vehicles already observed at video t=0 are excluded.",
+            ),
             "Camera-to-SUMO orientation is unverified.",
             "The synthetic network supports straight-through movements only.",
             "AI snapshot counts are not direct inputs to the adaptive controller; it uses SUMO queues.",
@@ -523,6 +528,11 @@ def main() -> int:
     )
     parser.add_argument("--per-vehicle-csv", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument(
+        "--allow-unknown-initial-observations",
+        action="store_true",
+        help="with --run-experiments: accept a t_s=0 count snapshot without arm data",
+    )
     args = parser.parse_args()
     try:
         if args.run_experiments:
@@ -538,6 +548,7 @@ def main() -> int:
                 max_simulation_time_s=args.max_simulation_time,
                 wall_timeout_s=args.wall_timeout,
                 overwrite=args.overwrite,
+                allow_unknown_initial_observations=args.allow_unknown_initial_observations,
             )
             if not fixed_report["validation"]["passed"]:
                 raise ComparisonError("new fixed experiment failed validation")
@@ -551,6 +562,7 @@ def main() -> int:
                 fixed_demand_route=args.fixed_directory / "ai_demand.rou.xml",
                 adaptive_strategy=args.adaptive_strategy,
                 overwrite=args.overwrite,
+                allow_unknown_initial_observations=args.allow_unknown_initial_observations,
             )
             if not adaptive_report["validation"]["passed"]:
                 raise ComparisonError("new adaptive experiment failed validation")

@@ -1,0 +1,185 @@
+{
+  "adaptive_controller": {
+    "active_strategies": [
+      "gap_v1"
+    ],
+    "active_strategy_verified_at_runtime": true,
+    "active_traffic_light_ids": [
+      "demo_01"
+    ],
+    "gap_release_decision_count": 3,
+    "manifest_path": "/mnt/e_drive/kali_data/projects/ProiectUnihack26/Flowgency/scenarios/single_intersection/gap_v1.experimental.json",
+    "manifest_sha256": "ba92afadde0e13b3f54007369c390588b7f10b4681493310cc6d922efdcb760f",
+    "profile_id": "single_intersection_gap_v1_experimental",
+    "selected_strategy": "gap_v1",
+    "validation_errors": []
+  },
+  "comparison": {
+    "average_insertion_delay_s": {
+      "absolute_improvement": 5.228,
+      "adaptive": 5.074,
+      "adaptive_minus_fixed": -5.228,
+      "fixed": 10.302,
+      "improvement_percent": 50.747,
+      "interpretation": "lower_is_better",
+      "outcome": "improvement",
+      "percent_change": -50.747
+    },
+    "average_planned_to_arrival_s": {
+      "absolute_improvement": 18.19,
+      "adaptive": 42.824,
+      "adaptive_minus_fixed": -18.19,
+      "fixed": 61.014,
+      "improvement_percent": 29.813,
+      "interpretation": "lower_is_better",
+      "outcome": "improvement",
+      "percent_change": -29.813
+    },
+    "average_time_loss_s": {
+      "absolute_improvement": 12.972,
+      "adaptive": 15.996,
+      "adaptive_minus_fixed": -12.972,
+      "fixed": 28.968,
+      "improvement_percent": 44.78,
+      "interpretation": "lower_is_better",
+      "outcome": "improvement",
+      "percent_change": -44.78
+    },
+    "average_waiting_time_s": {
+      "absolute_improvement": 12.644,
+      "adaptive": 12.098,
+      "adaptive_minus_fixed": -12.644,
+      "fixed": 24.742,
+      "improvement_percent": 51.103,
+      "interpretation": "lower_is_better",
+      "outcome": "improvement",
+      "percent_change": -51.103
+    },
+    "last_vehicle_arrival_s": {
+      "absolute_improvement": 35.0,
+      "adaptive": 202.0,
+      "adaptive_minus_fixed": -35.0,
+      "fixed": 237.0,
+      "improvement_percent": 14.768,
+      "interpretation": "lower_is_better",
+      "outcome": "improvement",
+      "percent_change": -14.768
+    },
+    "total_insertion_delay_s": {
+      "absolute_improvement": 690.0,
+      "adaptive": 669.814,
+      "adaptive_minus_fixed": -690.0,
+      "fixed": 1359.814,
+      "improvement_percent": 50.742,
+      "interpretation": "lower_is_better",
+      "outcome": "improvement",
+      "percent_change": -50.742
+    },
+    "total_planned_to_arrival_s": {
+      "absolute_improvement": 2401.0,
+      "adaptive": 5652.814,
+      "adaptive_minus_fixed": -2401.0,
+      "fixed": 8053.814,
+      "improvement_percent": 29.812,
+      "interpretation": "lower_is_better",
+      "outcome": "improvement",
+      "percent_change": -29.812
+    },
+    "total_time_loss_s": {
+      "absolute_improvement": 1712.22,
+      "adaptive": 2111.5,
+      "adaptive_minus_fixed": -1712.22,
+      "fixed": 3823.72,
+      "improvement_percent": 44.779,
+      "interpretation": "lower_is_better",
+      "outcome": "improvement",
+      "percent_change": -44.779
+    },
+    "total_waiting_time_s": {
+      "absolute_improvement": 1669.0,
+      "adaptive": 1597.0,
+      "adaptive_minus_fixed": -1669.0,
+      "fixed": 3266.0,
+      "improvement_percent": 51.102,
+      "interpretation": "lower_is_better",
+      "outcome": "improvement",
+      "percent_change": -51.102
+    }
+  },
+  "experiment": "ai_demand_single_intersection_fixed_vs_adaptive",
+  "inputs": {
+    "ai_sources": {
+      "counts_sha256": "b2b6af284fa32eb4d1736ad5fe86c00c56f5b3349c9dce729667a28cbb723dd4",
+      "events_sha256": "ab9818e63155f4f89dda8656f46d7a4e6042f44187d9281ca74cb7d4d92377f0"
+    },
+    "route_file_sha256": "407cf94138b600415b023f08bf81cdbba4c691f7fdda987677d404ba3ebb9da8",
+    "semantic_demand_sha256": "c6fb6817877f74361613b7bcec0c556e31b5a6d72effe7154619d6caa6ea7769",
+    "simulation_settings": {
+      "begin_s": "0",
+      "collision_action": "warn",
+      "collision_check_junctions": "true",
+      "end_s": "1800",
+      "network_sha256": "d66621d649b6350ec5194de68f003f266938c3406ce78c6ad78253c2057c55e9",
+      "seed": "42",
+      "step_length_s": "1",
+      "summary_period_s": "1",
+      "time_to_teleport_s": "300",
+      "tripinfo_write_unfinished": "true"
+    },
+    "vehicle_count": 132
+  },
+  "limitations": [
+    "Approach vehicles present at video t=0 were not observed (count unknown) and are not inserted.",
+    "Camera-to-SUMO orientation is unverified.",
+    "The synthetic network supports straight-through movements only.",
+    "AI snapshot counts are not direct inputs to the adaptive controller; it uses SUMO queues.",
+    "Large pre-insertion capacity delays are reported separately from SUMO waiting time.",
+    "This recorded-video synthetic experiment does not establish real-world traffic improvement."
+  ],
+  "runs": {
+    "adaptive": {
+      "average_insertion_delay_s": 5.074,
+      "average_planned_to_arrival_s": 42.824,
+      "average_time_loss_s": 15.996,
+      "average_waiting_time_s": 12.098,
+      "collisions": 0,
+      "last_vehicle_arrival_s": 202.0,
+      "teleports": 0,
+      "total_insertion_delay_s": 669.814,
+      "total_planned_to_arrival_s": 5652.814,
+      "total_time_loss_s": 2111.5,
+      "total_waiting_time_s": 1597.0,
+      "vehicle_count": 132
+    },
+    "fixed": {
+      "average_insertion_delay_s": 10.302,
+      "average_planned_to_arrival_s": 61.014,
+      "average_time_loss_s": 28.968,
+      "average_waiting_time_s": 24.742,
+      "collisions": 0,
+      "last_vehicle_arrival_s": 237.0,
+      "teleports": 0,
+      "total_insertion_delay_s": 1359.814,
+      "total_planned_to_arrival_s": 8053.814,
+      "total_time_loss_s": 3823.72,
+      "total_waiting_time_s": 3266.0,
+      "vehicle_count": 132
+    }
+  },
+  "schema_version": "1.0",
+  "sign_convention": {
+    "absolute_improvement": "positive means Adaptive is lower/better",
+    "adaptive_minus_fixed": "positive means Adaptive is higher/worse"
+  },
+  "validation": {
+    "ai_input_sha256_match": true,
+    "all_vehicles_completed": true,
+    "collisions": 0,
+    "network_and_simulation_settings_match": true,
+    "passed": true,
+    "planned_departures_and_routes_match": true,
+    "route_file_sha256_match": true,
+    "teleports": 0,
+    "vehicle_ids_match": true
+  }
+}

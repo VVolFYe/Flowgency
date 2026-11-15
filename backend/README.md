@@ -88,8 +88,29 @@ directory containing `replay_manifest.json`. These endpoints require
 - `GET /api/ai-traffic/manifest` validates and returns sanitized metadata and comparison metrics.
 - `GET /api/ai-traffic/assets/{original_video|annotated_video|fixed_replay|gap_v1_replay}` serves only manifest-declared allowlisted files. Video responses support byte ranges through Starlette `FileResponse`.
 
-A missing default or configured bundle returns `503`, missing manifest assets
-return `404`, and invalid manifests or comparison provenance return `422`.
+These two original endpoints always serve Demo 1. Dataset-scoped endpoints add
+a second allowlisted bundle (`demo2`, default directory
+`assets/ai-traffic/versions/demo2-v1`, optional override
+`FLOWGENCY_REPLAY_ASSET_DIR_DEMO2`), with the same permissions:
+
+- `GET /api/ai-traffic/datasets` lists `demo1` (default) and `demo2` with availability, an error detail when unavailable, and the available video sources. Paths are never returned.
+- `GET /api/ai-traffic/datasets/{demo1|demo2}/manifest` returns the validated manifest plus `selection_id`; asset URLs point at the scoped asset endpoint.
+- `GET /api/ai-traffic/datasets/{demo1|demo2}/assets/{asset_id}` serves allowlisted files with byte ranges.
+
+Dataset IDs are looked up in a fixed allowlist, so a request can never select a
+filesystem path. Unknown dataset IDs return `404`. Demo 2 returns `503` if its
+bundle is missing or if it is configured to Demo 1's directory or dataset.
+
+A missing default or configured bundle returns `503`, missing or undeclared
+manifest assets (such as `original_video` in the annotated-only Demo 2) return
+`404`, and invalid manifests or comparison provenance return `422`.
+
+AI demand tools (`ai_demand`, `ai_fixed_run`, `ai_adaptive_run`, and
+`ai_compare --run-experiments`) accept `--allow-unknown-initial-observations`
+for recordings whose t=0 count snapshot has no arm data; those counts stay
+`null` and never create vehicles. `ai_replay_bundle` accepts an optional
+`--original-video` (omit it for annotated-only datasets) and `--display-name`.
+See [AI Traffic datasets](../docs/AI_TRAFFIC_DATASETS.md).
 
 `POST /api/simulation/start` accepts independent `network`, `traffic_profile`, `controller_mode`, and `emergency_vehicles_enabled` fields. Controller modes are `fixed_timing`, `adaptive_network`, and `adaptive_emergency_priority`. The verified synthetic adaptive policy samples halting queues each simulated second, protects a 10-second minimum green, and normally limits green to 45 seconds. Emergency priority recognizes declared SUMO emergency types on verified/controlled incoming lanes. It preserves minimum green and the installed yellow/all-red sequence. London Normal, Rush Hour, and Unbalanced use the experimental network profile and maintain priority state per traffic-light controller. `GET /api/simulation/status` exposes `active_configuration`; Reset retains it and Stop clears it.
 

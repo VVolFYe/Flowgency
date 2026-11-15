@@ -1,8 +1,23 @@
 import assert from "node:assert/strict";
 import {
   advancePlayback,
+  assertManifestSelection,
+  availableVideoSources,
+  createRequestSequencer,
+  datasetManifestUrl,
+  DEFAULT_REPLAY_DATASET_ID,
+  defaultVideoSource,
   frameAtTime,
+  initialPlayback,
+  isAnnotatedOnly,
+  isReplayDatasetId,
+  parseDatasetList,
   parseReplayJsonl,
+  REPLAY_DATASET_IDS,
+  REPLAY_DATASET_LABELS,
+  replayTimelineDuration,
+  videoDurationFor,
+  type ReplayManifest,
   replaySignalColor,
   replayMetricsAtTime,
   sourceStatus,
@@ -130,6 +145,109 @@ test("old replay remains compatible and incomplete or decreasing series fails", 
   assert.throws(() => parseReplayJsonl(partial, { coordinateSystem: "synthetic_cartesian_metres", trafficLightId: "demo_01" }), /incomplete/);
   const decreasing = [frame(0, [], "GrGr", 0), frame(1, [], "GrGr", 2), frame(2, [], "GrGr", 1)].join("\n");
   assert.throws(() => parseReplayJsonl(decreasing, { coordinateSystem: "synthetic_cartesian_metres", trafficLightId: "demo_01" }), /decreasing/);
+});
+
+const manifestFor = (
+  selection: string,
+  video: ReplayManifest["video"],
+  originalAvailable: boolean,
+) => ({
+  schema_version: "1.0",
+  dataset_id: `${selection}-bundle`,
+  selection_id: selection,
+  display_name: selection,
+  video,
+  network_geometry: { scenario_id: "single_intersection", coordinate_system: "synthetic_cartesian_metres" },
+  assets: {
+    original_video: { available: originalAvailable, url: originalAvailable ? "/o" : null },
+    annotated_video: { available: true, url: "/a" },
+    fixed_replay: { available: true, url: "/f" },
+    gap_v1_replay: { available: true, url: "/g" },
+  },
+} as unknown as ReplayManifest);
+
+const demo1Manifest = manifestFor("demo1", { duration_s: 263.972042, annotated_duration_s: 263.972306, camera_orientation_verified: false }, true);
+const demo2Manifest = manifestFor("demo2", {
+  duration_s: null,
+  annotated_duration_s: 156.03,
+  camera_orientation_verified: false,
+  source_kind: "annotated_only",
+  original_video_available: false,
+}, false);
+
+test("both allowlisted datasets are recognised and demo1 stays the default", () => {
+  assert.equal(DEFAULT_REPLAY_DATASET_ID, "demo1");
+  assert.equal(isReplayDatasetId("demo1"), true);
+  assert.equal(isReplayDatasetId("demo2"), true);
+  for (const unknown of ["demo3", "../waiting-v1", "", "DEMO1", null]) assert.equal(isReplayDatasetId(unknown), false);
+  assert.equal(datasetManifestUrl("demo2"), "/api/operator/ai-traffic/datasets/demo2/manifest");
+});
+
+test("dataset list parsing keeps honest availability and rejects unknown IDs", () => {
+  const parsed = parseDatasetList({ datasets: [
+    { dataset_id: "demo1", label: "Demo 1", description: "d1", default: true, available: true, detail: null, video_sources: ["original_video", "annotated_video"] },
+    { dataset_id: "demo2", label: "Demo 2", description: "d2", default: false, available: false, detail: "replay asset directory is unavailable", video_sources: [] },
+  ] });
+  assert.equal(parsed[0].default, true);
+  assert.equal(parsed[1].available, false);
+  assert.equal(parsed[1].detail, "replay asset directory is unavailable");
+  assert.throws(() => parseDatasetList({ datasets: [{ dataset_id: "../etc", available: true, video_sources: [] }] }), /unknown or duplicate/);
+  assert.throws(() => parseDatasetList({ datasets: [
+    { dataset_id: "demo1", available: true, video_sources: [] },
+    { dataset_id: "demo1", available: true, video_sources: [] },
+  ] }), /unknown or duplicate/);
+});
+
+test("annotated-only dataset never offers or substitutes an original video", () => {
+  assert.equal(isAnnotatedOnly(demo2Manifest), true);
+  assert.deepEqual(availableVideoSources(demo2Manifest), ["annotated_video"]);
+  assert.equal(defaultVideoSource(demo2Manifest), "annotated_video");
+  assert.equal(videoDurationFor(demo2Manifest, "original_video"), undefined);
+  assert.equal(videoDurationFor(demo2Manifest, "annotated_video"), 156.03);
+  assert.throws(() => switchVideoSource({ source: "annotated_video" as const, timeS: 3, playing: false }, "original_video", demo2Manifest.assets.original_video.available), /unavailable/);
+});
+
+test("demo1 keeps original and annotated video switching", () => {
+  assert.equal(isAnnotatedOnly(demo1Manifest), false);
+  assert.deepEqual(availableVideoSources(demo1Manifest), ["original_video", "annotated_video"]);
+  assert.equal(defaultVideoSource(demo1Manifest), "annotated_video");
+  assert.equal(videoDurationFor(demo1Manifest, "original_video"), 263.972042);
+});
+
+test("a manifest served for another dataset is rejected", () => {
+  assert.doesNotThrow(() => assertManifestSelection(demo2Manifest, "demo2"));
+  assert.throws(() => assertManifestSelection(demo1Manifest, "demo2"), /belongs to demo1/);
+  assert.throws(() => assertManifestSelection({ ...demo1Manifest, selection_id: undefined }, "demo1"), /unknown dataset/);
+});
+
+test("rapid dataset switching ignores every stale response", () => {
+  const sequencer = createRequestSequencer();
+  const demo1Request = sequencer.next();
+  const demo2Request = sequencer.next();
+  const demo1Again = sequencer.next();
+  assert.equal(sequencer.isCurrent(demo1Request), false);
+  assert.equal(sequencer.isCurrent(demo2Request), false);
+  assert.equal(sequencer.isCurrent(demo1Again), true);
+});
+
+test("dataset switches restart paused at zero and durations come from each replay", () => {
+  assert.deepEqual(initialPlayback(), { timeS: 0, playing: false });
+  const short = parse();
+  const longer = parseReplayJsonl([frame(0, []), frame(1, []), frame(2, []), frame(3, [])].join("\n"), {
+    coordinateSystem: "synthetic_cartesian_metres",
+    trafficLightId: "demo_01",
+  });
+  assert.equal(replayTimelineDuration(short, longer), 3);
+  assert.equal(replayTimelineDuration(longer, short), 3);
+  assert.equal(advancePlayback(initialPlayback().timeS, 10_000, 4, replayTimelineDuration(short, longer)), 3);
+});
+
+test("intersection names are display labels only; dataset IDs stay demo1/demo2", () => {
+  assert.deepEqual([...REPLAY_DATASET_IDS], ["demo1", "demo2"]);
+  assert.equal(REPLAY_DATASET_LABELS.demo1, "Center Street & 500 West Intersection");
+  assert.equal(REPLAY_DATASET_LABELS.demo2, "Center Street & University Avenue Intersection");
+  assert.equal(datasetManifestUrl("demo1"), "/api/operator/ai-traffic/datasets/demo1/manifest");
+  for (const label of Object.values(REPLAY_DATASET_LABELS)) assert.doesNotMatch(label, /Original intersection|New intersection/);
 });
 
 let failures = 0;

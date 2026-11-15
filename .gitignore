@@ -45,6 +45,8 @@ Desktop.ini
 
 # Vision datasets, weights, and large downloaded media
 datasets/
+# Source code, not a dataset: AI Traffic dataset-selection API routes.
+!/frontend/app/api/operator/ai-traffic/datasets/
 data/raw/
 # default vision data folder (clips, weights, caches, full outputs) when UNIHACK_DIR is not set
 /data/
@@ -97,4 +99,17 @@ ultralytics_config/
 backend/vision/config/*.jpg
 backend/vision/config/*.png
 
-/assets/ai-traffic/
+# AI Traffic replay assets. Everything stays ignored (raw inputs such as
+# assets/ai-traffic/inputs/, legacy single-bundle outputs, run directories, tmp)
+# except the finished files of each validated bundle under versions/<bundle>/.
+# Bundle videos are Git LFS objects (see .gitattributes).
+/assets/ai-traffic/*
+!/assets/ai-traffic/versions/
+/assets/ai-traffic/versions/*/*
+!/assets/ai-traffic/versions/*/replay_manifest.json
+!/assets/ai-traffic/versions/*/replays/
+!/assets/ai-traffic/versions/*/reports/
+/assets/ai-traffic/versions/*/reports/*
+!/assets/ai-traffic/versions/*/reports/comparison_report.json
+!/assets/ai-traffic/versions/*/videos/
+!/assets/ai-traffic/versions/*/videos/*.mp4

@@ -74,9 +74,18 @@ The repository is reached through a Linux symlink but physically resides on an N
 
 ## Portable AI Traffic demo setup
 
-The prerecorded AI Traffic demo is versioned under
-`assets/ai-traffic/versions/waiting-v1`. Its MP4 files use Git LFS. After
-installing Git LFS for your operating system, populate the clone with:
+The AI Traffic page replays prerecorded SUMO trajectories (it never starts the
+live simulation) and offers two datasets in one shared player, selected near
+the top of the page:
+
+- **Center Street & 500 West Intersection** (`demo1`, default): `assets/ai-traffic/versions/waiting-v1`, with original and AI-annotated video.
+- **Center Street & University Avenue Intersection** (`demo2`): `assets/ai-traffic/versions/demo2-v1`, with the AI-annotated video only. No unannotated original exists, so the Original option is disabled. Until its bundle is generated and committed, the page reports Demo 2 as not available.
+
+Both bundles are found relative to the repository. Their MP4 files use Git
+LFS; replays and validated reports are ordinary Git files. See
+[AI Traffic datasets](docs/AI_TRAFFIC_DATASETS.md) for Demo 2 generation,
+replay validation and committing. After installing Git LFS for your operating
+system, populate the clone with:
 
 ```bash
 git lfs install
@@ -124,10 +133,12 @@ npm run dev
 ```
 
 Sign in as an authorized operator and open
-<http://localhost:3000/operator/ai-traffic>. No replay-directory setting is
-needed for the committed bundle. Custom deployments can set
-`FLOWGENCY_REPLAY_ASSET_DIR` in the backend process to override it with another
-validated bundle.
+<http://localhost:3000/operator/ai-traffic>, then pick an intersection.
+Switching pauses playback, rewinds to 0 and loads that dataset's own video,
+replays and validated report. No replay-directory setting is needed for the
+committed bundles. Custom deployments can optionally set
+`FLOWGENCY_REPLAY_ASSET_DIR` (Demo 1) or `FLOWGENCY_REPLAY_ASSET_DIR_DEMO2`
+(Demo 2) in the backend process to use another validated bundle.
 
 ## Collaboration
 

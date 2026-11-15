@@ -74,10 +74,24 @@ class GateCounts(BaseModel):
         return self.model_dump(mode="json")
 
 
+# Event names a consumer accepts. ``approach_left`` (a tracked vehicle left the
+# monitored approach region, e.g. it stopped being tracked there or turned away)
+# comes from newer vision exports. It never creates demand; the strict producer
+# ``GateEvent`` above is intentionally unchanged.
+ConsumerEventName = Literal[
+    "approach_entered",
+    "approach_left",
+    "intersection_entered",
+    "intersection_exited",
+]
+
+
 class GateEventInput(GateEvent):
     """Consumer event model accepting unknown optional future metadata."""
 
     model_config = ConfigDict(extra="allow")
+
+    event: ConsumerEventName
 
 
 class ApproachGateCountsInput(ApproachGateCounts):

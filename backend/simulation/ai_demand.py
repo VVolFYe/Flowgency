@@ -57,6 +57,27 @@ def _format_seconds(value: float) -> str:
     return format(value, ".15g")
 
 
+def initial_vehicles_excluded(demand_summary: dict[str, Any]) -> int | None:
+    """Return the known count of vehicles visible at t=0 (never inserted), else None."""
+    initial = demand_summary.get("initial_observed_vehicles_not_inserted")
+    total = initial.get("total") if isinstance(initial, dict) else None
+    return total if type(total) is int else None
+
+
+def initial_exclusion_limitation(demand_summary: dict[str, Any], template: str) -> str:
+    """Describe excluded t=0 vehicles from real data, e.g. template '{count} vehicles ...'.
+
+    When the t=0 observation was unknown the count is not invented.
+    """
+    count = initial_vehicles_excluded(demand_summary)
+    if count is not None:
+        return template.format(count=count)
+    return (
+        "Approach vehicles present at video t=0 were not observed (count unknown) "
+        "and are not inserted."
+    )
+
+
 def derive_straight_routes(
     network_path: Path,
     arm_mapping: dict[str, Any],
@@ -119,8 +140,14 @@ def generate_demand(
     scenario_mapping_path: Path = DEFAULT_SCENARIO_MAPPING_PATH,
     network_path: Path = DEFAULT_NETWORK_PATH,
     overwrite: bool = False,
+    allow_unknown_initial_observations: bool = False,
 ) -> dict[str, Any]:
-    """Validate inputs and write one SUMO vehicle per unique approach arrival."""
+    """Validate inputs and write one SUMO vehicle per unique approach arrival.
+
+    ``allow_unknown_initial_observations`` is an explicit opt-in for recordings
+    whose t=0 count snapshot has no arm data. Those counts stay unknown (null);
+    they are never treated as zero and never create vehicles.
+    """
     if output_path.suffixes[-2:] != [".rou", ".xml"]:
         raise JsonlValidationError("output path must end with .rou.xml")
     summary_path = summary_path or output_path.with_suffix(".summary.json")
@@ -194,9 +221,21 @@ def generate_demand(
         arm: state.observed_vehicles
         for arm, state in timeline.points[0].approaches.items()
     }
-    if any(value is None for value in initial.values()):
-        raise JsonlValidationError("initial t_s=0 vehicle observations must be known for every arm")
+    initial_unknown = any(value is None for value in initial.values())
+    if initial_unknown and not allow_unknown_initial_observations:
+        raise JsonlValidationError(
+            "initial t_s=0 vehicle observations must be known for every arm "
+            "(pass --allow-unknown-initial-observations to record them as unknown)"
+        )
     arrivals_by_arm = Counter(item.camera_arm for item in arrivals)
+    initial_total = None if initial_unknown else sum(
+        value for value in initial.values() if value is not None
+    )
+    initial_assumption = (
+        f"The {initial_total} initially observed approach vehicles are metadata only and are not inserted."
+        if initial_total is not None
+        else "Approach vehicles present at t_s=0 were not observed (unknown, not zero) and are not inserted."
+    )
     summary: dict[str, Any] = {
         "schema_version": "1.0",
         "generator": "backend.simulation.ai_demand",
@@ -210,7 +249,8 @@ def generate_demand(
         },
         "initial_observed_vehicles_not_inserted": {
             "by_camera_arm": initial,
-            "total": sum(value for value in initial.values() if value is not None),
+            "total": initial_total,
+            **({"status": "unknown_at_t0"} if initial_unknown else {}),
         },
         "camera_orientation_status": "unverified_camera_to_sumo",
         "routes": {
@@ -226,7 +266,7 @@ def generate_demand(
         "assumptions": [
             "Only approach_entered events create SUMO vehicles.",
             "Each vehicle uses the verified straight-only movement for its mapped incoming edge.",
-            "The 26 initially observed approach vehicles are metadata only and are not inserted.",
+            initial_assumption,
             "Camera-arm orientation relative to the synthetic network is unverified.",
             "Optional future event fields, including emergency metadata, do not alter demand.",
         ],
@@ -235,6 +275,20 @@ def generate_demand(
             "events_sha256": _sha256(events_path),
         },
     }
+    if timeline.approach_left:
+        # Reported for transparency only; approach_left never adds or removes vehicles.
+        summary["approach_left_events_not_demand"] = {
+            "count": len(timeline.approach_left),
+            "by_camera_arm": {
+                arm: sum(item.camera_arm == arm for item in timeline.approach_left)
+                for arm in ARM_ORDER
+            },
+            "track_ids": [item.track_id for item in timeline.approach_left],
+            "effect": "none; each track still has exactly one vehicle from its approach_entered event",
+        }
+        summary["assumptions"].append(
+            "approach_left events are validated against their approach_entered event and do not change demand."
+        )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     summary_path.parent.mkdir(parents=True, exist_ok=True)
@@ -252,6 +306,11 @@ def main() -> int:
     parser.add_argument("--mapping", type=Path, default=DEFAULT_MAPPING_PATH)
     parser.add_argument("--network", type=Path, default=DEFAULT_NETWORK_PATH)
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument(
+        "--allow-unknown-initial-observations",
+        action="store_true",
+        help="accept a t_s=0 count snapshot without arm data; those counts are recorded as unknown",
+    )
     args = parser.parse_args()
     try:
         summary = generate_demand(
@@ -262,6 +321,7 @@ def main() -> int:
             mapping_path=args.mapping,
             network_path=args.network,
             overwrite=args.overwrite,
+            allow_unknown_initial_observations=args.allow_unknown_initial_observations,
         )
     except (FileExistsError, FileNotFoundError, JsonlValidationError) as exc:
         parser.exit(2, f"error: {exc}\n")

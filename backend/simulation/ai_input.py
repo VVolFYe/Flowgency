@@ -58,10 +58,21 @@ class TimelinePoint:
 
 
 @dataclass(frozen=True)
+class ApproachLeft:
+    """A tracked vehicle left its monitored approach region; never new demand."""
+
+    track_id: int
+    camera_arm: str
+    t_s: float
+    entered_t_s: float
+
+
+@dataclass(frozen=True)
 class ObservationTimeline:
     points: tuple[TimelinePoint, ...]
     mapping: dict[str, ArmMapping]
     model_ids: tuple[str, ...]
+    approach_left: tuple[ApproachLeft, ...] = ()
 
     @property
     def recording_end_s(self) -> float:
@@ -101,6 +112,10 @@ class ObservationTimeline:
             },
             "initial_in_intersection": first.in_intersection,
             "final_in_intersection": last.in_intersection,
+            "approach_left": {
+                arm: sum(item.camera_arm == arm for item in self.approach_left)
+                for arm in self.mapping
+            },
         }
 
 
@@ -196,15 +211,43 @@ def build_timeline(
     arrivals: list[dict[str, list[int]]] = [
         {arm: [] for arm in mapping} for _ in counts
     ]
-    seen_arrivals: set[int] = set()
+    seen_arrivals: dict[int, GateEventInput] = {}
+    departures: dict[int, ApproachLeft] = {}
     for event in events:
+        if event.event == "approach_left":
+            # Validate the exit against its entry; it never creates or removes demand.
+            entry = seen_arrivals.get(event.track_id)
+            if entry is None:
+                raise JsonlValidationError(
+                    f"approach_left for track_id {event.track_id} has no earlier approach_entered"
+                )
+            if entry.arm != event.arm:
+                raise JsonlValidationError(
+                    f"approach_left for track_id {event.track_id} is on arm {event.arm}, "
+                    f"but the track entered on arm {entry.arm}"
+                )
+            if event.track_id in departures:
+                raise JsonlValidationError(
+                    f"duplicate approach_left event for track_id {event.track_id}"
+                )
+            if event.t_s >= recording_end:
+                raise JsonlValidationError(
+                    f"approach_left at {event.t_s:g}s is outside the recording timeline"
+                )
+            departures[event.track_id] = ApproachLeft(
+                track_id=event.track_id,
+                camera_arm=event.arm,
+                t_s=event.t_s,
+                entered_t_s=entry.t_s,
+            )
+            continue
         if event.event != "approach_entered":
             continue
         if event.track_id in seen_arrivals:
             raise JsonlValidationError(
                 f"duplicate approach_entered event for track_id {event.track_id}"
             )
-        seen_arrivals.add(event.track_id)
+        seen_arrivals[event.track_id] = event
         index = bisect.bisect_right(times, event.t_s) - 1
         if index < 0 or event.t_s >= recording_end:
             raise JsonlValidationError(
@@ -245,7 +288,12 @@ def build_timeline(
             in_intersection=observation.in_intersection,
         ))
     model_ids = tuple(sorted({item.model_id for item in (*counts, *events)}))
-    return ObservationTimeline(tuple(points), mapping, model_ids)
+    return ObservationTimeline(
+        tuple(points),
+        mapping,
+        model_ids,
+        tuple(sorted(departures.values(), key=lambda item: (item.t_s, item.track_id))),
+    )
 
 
 def main() -> int:

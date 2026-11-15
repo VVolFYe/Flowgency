@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field, StrictBool
 from backend.analytics.runs import save_run
 from backend.api.analytics import router as analytics_router
 from backend.api.auth import Auth0TokenVerifier, require_permission
-from backend.api.replay_assets import ReplayAssetError, ReplayAssetStore
+from backend.api.replay_assets import ReplayAssetError, ReplayAssetStore, ReplayDatasetRegistry
 from backend.insights.gemini import GeminiInsights
 
 from backend.simulation.geometry import get_network_selection_geometry
@@ -52,10 +52,13 @@ def create_app(
     auth0_verifier: Auth0TokenVerifier | None = None,
     insights: GeminiInsights | None = None,
     replay_asset_store: ReplayAssetStore | None = None,
+    replay_datasets: ReplayDatasetRegistry | None = None,
 ) -> FastAPI:
     simulation = service or SimulationService(run_sink=save_run)
     speech = VoiceSynthesis()
     replay_assets = replay_asset_store or ReplayAssetStore()
+    # demo1 always serves the same bundle as the original single-dataset endpoints.
+    replay_registry = replay_datasets or ReplayDatasetRegistry.from_store(replay_assets)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -149,6 +152,34 @@ def create_app(
     async def ai_traffic_asset(asset_id: str) -> FileResponse:
         try:
             asset = await asyncio.to_thread(replay_assets.asset, asset_id)
+        except ReplayAssetError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+        return FileResponse(
+            asset.path,
+            media_type=asset.media_type,
+            filename=asset.path.name,
+            content_disposition_type="inline",
+            headers={"Cache-Control": "private, no-store", "Accept-Ranges": "bytes"},
+        )
+
+    @app.get("/api/ai-traffic/datasets", dependencies=replay_permissions)
+    async def ai_traffic_datasets() -> dict[str, object]:
+        return await asyncio.to_thread(replay_registry.list_datasets)
+
+    @app.get("/api/ai-traffic/datasets/{dataset_id}/manifest", dependencies=replay_permissions)
+    async def ai_traffic_dataset_manifest(dataset_id: str) -> dict[str, object]:
+        try:
+            return await asyncio.to_thread(replay_registry.public_manifest, dataset_id)
+        except ReplayAssetError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+    @app.get(
+        "/api/ai-traffic/datasets/{dataset_id}/assets/{asset_id}",
+        dependencies=replay_permissions,
+    )
+    async def ai_traffic_dataset_asset(dataset_id: str, asset_id: str) -> FileResponse:
+        try:
+            asset = await asyncio.to_thread(replay_registry.asset, dataset_id, asset_id)
         except ReplayAssetError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
         return FileResponse(
