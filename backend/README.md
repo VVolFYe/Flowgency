@@ -77,12 +77,18 @@ Development CORS is restricted to `http://localhost:3000` and `http://127.0.0.1:
 
 ### Protected AI replay assets
 
-Set `FLOWGENCY_REPLAY_ASSET_DIR` in the backend process environment to an external directory containing `replay_manifest.json`. Do not place videos or replay streams in the repository. These endpoints require `simulation:read`, `analytics:read`, and `simulation:control`:
+By default, the backend loads the portable Git LFS bundle at
+`assets/ai-traffic/versions/waiting-v1`, resolved from the source tree rather
+than the shell's working directory. Set `FLOWGENCY_REPLAY_ASSET_DIR` in the
+backend process environment only when a deployment should use another
+directory containing `replay_manifest.json`. These endpoints require
+`simulation:read`, `analytics:read`, and `simulation:control`:
 
 - `GET /api/ai-traffic/manifest` validates and returns sanitized metadata and comparison metrics.
 - `GET /api/ai-traffic/assets/{original_video|annotated_video|fixed_replay|gap_v1_replay}` serves only manifest-declared allowlisted files. Video responses support byte ranges through Starlette `FileResponse`.
 
-Missing configuration returns `503`, missing files return `404`, and invalid manifests or comparison provenance return `422`.
+A missing default or configured bundle returns `503`, missing manifest assets
+return `404`, and invalid manifests or comparison provenance return `422`.
 
 `POST /api/simulation/start` accepts `"control_mode": "fixed"`, `"adaptive"`, or `"adaptive_with_emergency_priority"`. Omitting it selects the scenario default (`fixed`, except for `single_intersection_emergency`). The verified synthetic adaptive policy samples halting queues each simulated second, protects a 10-second minimum green, and normally limits green to 45 seconds. Emergency priority recognizes declared SUMO types `ambulance`, `fire_brigade`, and `police` on verified incoming edges. An opposing green keeps its 10-second minimum, then the installed 3-second yellow and 2-second all-red run before the emergency approach gets green. A compatible green can remain active past 45 seconds until the emergency vehicle leaves the junction. London Normal, Rush Hour, and Unbalanced use the separate experimental 22-controller network profile; emergency priority is not enabled for London. `GET /api/simulation/status` includes `control_mode`, and adaptive snapshots include controller decision metadata. Reset retains the selected mode; stop returns to fixed.
 

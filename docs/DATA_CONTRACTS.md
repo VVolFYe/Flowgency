@@ -349,6 +349,19 @@ Replay export is explicit and optional. `--replay-output` on the isolated Fixed 
 - vehicles sorted by ID with `x_m`, `y_m`, `angle_deg`, `speed_mps`, `lane_id`, and `edge_id` read from TraCI;
 - traffic lights sorted by ID with the actual `phase_index`, `phase_id`, and red/yellow/green `state`.
 
+Newly generated streams may also include an optional `metrics` object on every frame:
+
+```json
+{
+  "cumulative_waiting_time_s": 142.0,
+  "active_vehicle_count": 17,
+  "arrived_vehicle_count": 39,
+  "measurement": "sum_waiting_vehicle_intervals_x_step_duration"
+}
+```
+
+The cumulative value is recorded after each authoritative SUMO step by counting each vehicle whose TraCI `getWaitingTime()` is positive once for that step duration. It therefore retains waiting from vehicles that later move or arrive and matches completed-trip `tripinfo waitingTime` at the end of a validated run. It must begin at zero, remain nonnegative and monotonic, and be present on every frame or none. Streams produced before this additive field remain valid; clients must display waiting history as unavailable rather than reconstructing it from speed or queue snapshots.
+
 The stream is simulation-time data, not video frames. It continues until SUMO demand completes and is never truncated or looped at the approximately 264-second video boundary. Video event time and planned SUMO departure time share an explicit zero-second offset; actual insertion delay remains part of the experiment output.
 
 An external `replay_manifest.json` schema `1.0` binds the source-video identifier, H.264 video assets, Fixed and runtime-verified `gap_v1` replay streams, single-intersection geometry API reference, independent simulation durations, comparison report, checksums, and known limitations. The asset API validates report schema, matching demand/network provenance, complete trips, zero collision/teleport diagnostics, and `gap_v1` activation at `demo_01` before returning metrics. Paths are never returned to clients.

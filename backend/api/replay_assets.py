@@ -10,6 +10,10 @@ from typing import Any
 
 
 MANIFEST_SCHEMA_VERSION = "1.0"
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_REPLAY_ASSET_DIR = (
+    REPOSITORY_ROOT / "assets" / "ai-traffic" / "versions" / "waiting-v1"
+)
 ASSET_MEDIA_TYPES = {
     "original_video": "video/mp4",
     "annotated_video": "video/mp4",
@@ -112,19 +116,21 @@ class ReplayAsset:
 
 
 class ReplayAssetStore:
-    """Load one external manifest and expose only declared, known asset IDs."""
+    """Load one replay manifest and expose only declared, known asset IDs."""
 
     def __init__(self, root: Path | None = None) -> None:
-        configured = root or (
-            Path(value) if (value := os.getenv("FLOWGENCY_REPLAY_ASSET_DIR")) else None
-        )
-        self.root = configured.resolve() if configured is not None else None
+        configured = root
+        if configured is None:
+            configured = (
+                Path(value)
+                if (value := os.getenv("FLOWGENCY_REPLAY_ASSET_DIR"))
+                else DEFAULT_REPLAY_ASSET_DIR
+            )
+        self.root = configured.expanduser().resolve()
 
     def _root(self) -> Path:
-        if self.root is None:
-            raise ReplayAssetError(503, "FLOWGENCY_REPLAY_ASSET_DIR is not configured")
         if not self.root.is_dir():
-            raise ReplayAssetError(503, "configured replay asset directory is unavailable")
+            raise ReplayAssetError(503, "replay asset directory is unavailable")
         return self.root
 
     def _load(self) -> tuple[Path, dict[str, Any]]:
@@ -168,7 +174,13 @@ class ReplayAssetStore:
                 available = path.is_file()
                 metadata = {
                     key: entry.get(key)
-                    for key in ("sha256", "size_bytes", "duration_s", "frame_count")
+                    for key in (
+                        "sha256",
+                        "size_bytes",
+                        "duration_s",
+                        "frame_count",
+                        "waiting_series_available",
+                    )
                     if key in entry
                 }
             statuses[asset_id] = {

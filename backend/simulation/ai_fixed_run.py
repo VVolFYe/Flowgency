@@ -324,12 +324,33 @@ def run_fixed_experiment(
         "\n".join(accounting_lines) + ("\n" if accounting_lines else ""),
         encoding="utf-8",
     )
+    trip_waiting_total = round(
+        sum(float(item["waiting_time_s"]) for item in records), 3
+    )
+    replay_waiting_total = (
+        replay_writer.final_cumulative_waiting_time_s
+        if replay_writer is not None else None
+    )
+    waiting_reconciled = (
+        replay_waiting_total is None
+        or abs(replay_waiting_total - trip_waiting_total) <= 1e-6
+    )
+    if not waiting_reconciled:
+        validation_errors.append(
+            "replay cumulative waiting time differs from SUMO tripinfo"
+        )
     report: dict[str, Any] = {
         "schema_version": "1.0",
         "experiment": "ai_demand_single_intersection_fixed",
         "control_mode": "fixed",
         "traffic_light_program": "existing demo_01 fixed program; timings unchanged",
         "replay_export": replay_writer.summary() if replay_writer is not None else None,
+        "replay_waiting_time_reconciliation": {
+            "available": replay_waiting_total is not None,
+            "replay_final_s": replay_waiting_total,
+            "tripinfo_final_s": trip_waiting_total,
+            "matches": waiting_reconciled,
+        },
         "fixed_program": fixed_program,
         "validation": {
             "passed": not validation_errors,
@@ -365,7 +386,7 @@ def run_fixed_experiment(
         },
         "trip_metrics": {
             "scope": "all completed vehicles" if len(arrived_ids) == len(planned) else "available tripinfo records",
-            "total_waiting_time_s": round(sum(float(item["waiting_time_s"]) for item in records), 3),
+            "total_waiting_time_s": trip_waiting_total,
             "total_time_loss_s": round(sum(float(item["time_loss_s"]) for item in records), 3),
             "average_waiting_time_s": (
                 round(sum(float(item["waiting_time_s"]) for item in records) / len(records), 3)

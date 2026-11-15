@@ -93,6 +93,7 @@ def create_bundle(
     adaptive_run_report: Path,
     comparison_report: Path,
     dataset_id: str,
+    require_waiting_series: bool = False,
 ) -> Path:
     root = output_directory.resolve()
     if not root.is_dir():
@@ -129,6 +130,18 @@ def create_bundle(
     comparison = _json(comparison_report)
     validated_comparison = validate_comparison_report(comparison, dataset_id)
     expected_count = validated_comparison["inputs"]["vehicle_count"]
+    for label, replay_info, run_key in (
+        ("Fixed", fixed_info, "fixed"),
+        ("gap_v1", gap_info, "adaptive"),
+    ):
+        expected_waiting = float(
+            validated_comparison["runs"][run_key]["total_waiting_time_s"]
+        )
+        replay_waiting = replay_info["final_cumulative_waiting_time_s"]
+        if require_waiting_series and not replay_info["waiting_series_available"]:
+            raise ValueError(f"{label} replay has no cumulative waiting-time series")
+        if replay_waiting is not None and abs(float(replay_waiting) - expected_waiting) > 1e-6:
+            raise ValueError(f"{label} replay waiting time differs from the comparison")
     for label, run in (("Fixed", fixed_report), ("gap_v1", adaptive_report)):
         if run.get("validation", {}).get("passed") is not True:
             raise ValueError(f"{label} run report is not validated")
@@ -194,8 +207,16 @@ def create_bundle(
         "assets": {
             "original_video": asset(original_target, duration_s=original_metadata["duration_s"]),
             "annotated_video": asset(annotated_target, duration_s=annotated_metadata["duration_s"]),
-            "fixed_replay": asset(fixed_replay, frame_count=fixed_info["frame_count"]),
-            "gap_v1_replay": asset(gap_replay, frame_count=gap_info["frame_count"]),
+            "fixed_replay": asset(
+                fixed_replay,
+                frame_count=fixed_info["frame_count"],
+                waiting_series_available=fixed_info["waiting_series_available"],
+            ),
+            "gap_v1_replay": asset(
+                gap_replay,
+                frame_count=gap_info["frame_count"],
+                waiting_series_available=gap_info["waiting_series_available"],
+            ),
             "comparison_report": asset(comparison_target),
         },
         "replays": {
@@ -203,12 +224,20 @@ def create_bundle(
                 "asset_id": "fixed_replay",
                 "strategy": "fixed",
                 "simulation_duration_s": fixed_info["last_simulation_time_s"],
+                "waiting_time_series": {
+                    "available": fixed_info["waiting_series_available"],
+                    "final_cumulative_waiting_time_s": fixed_info["final_cumulative_waiting_time_s"],
+                },
             },
             "gap_v1": {
                 "asset_id": "gap_v1_replay",
                 "strategy": "gap_v1",
                 "simulation_duration_s": gap_info["last_simulation_time_s"],
                 "controller_provenance": validated_comparison["adaptive_controller"],
+                "waiting_time_series": {
+                    "available": gap_info["waiting_series_available"],
+                    "final_cumulative_waiting_time_s": gap_info["final_cumulative_waiting_time_s"],
+                },
             },
         },
         "comparison": {"asset_id": "comparison_report", "validated": True},
@@ -234,6 +263,11 @@ def main() -> int:
     parser.add_argument("--adaptive-run-report", type=Path, required=True)
     parser.add_argument("--comparison-report", type=Path, required=True)
     parser.add_argument("--dataset-id", default="youtube_intersection_264s_v1")
+    parser.add_argument(
+        "--require-waiting-series",
+        action="store_true",
+        help="reject replay streams without a complete reconciled waiting-time series",
+    )
     args = parser.parse_args()
     try:
         manifest = create_bundle(
@@ -246,6 +280,7 @@ def main() -> int:
             adaptive_run_report=args.adaptive_run_report,
             comparison_report=args.comparison_report,
             dataset_id=args.dataset_id,
+            require_waiting_series=args.require_waiting_series,
         )
     except (FileNotFoundError, FileExistsError, OSError, ValueError, subprocess.SubprocessError) as exc:
         parser.exit(2, f"error: {exc}\n")

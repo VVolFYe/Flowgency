@@ -42,7 +42,7 @@ def snapshot_to_replay_frame(snapshot: dict[str, Any], frame_index: int) -> dict
         }
         for traffic_light_id, controller in sorted(controllers.items())
     ]
-    return {
+    frame = {
         "schema_version": REPLAY_SCHEMA_VERSION,
         "record_type": "frame",
         "frame_index": frame_index,
@@ -51,6 +51,25 @@ def snapshot_to_replay_frame(snapshot: dict[str, Any], frame_index: int) -> dict
         "vehicles": vehicles,
         "traffic_lights": traffic_lights,
     }
+    metrics = snapshot.get("metrics")
+    if isinstance(metrics, dict):
+        total_waiting = _finite_number(
+            metrics.get("total_waiting_time_s"), "metrics.total_waiting_time_s"
+        )
+        if total_waiting < 0:
+            raise ValueError("replay cumulative waiting time must be nonnegative")
+        counts = {}
+        for field in ("active_vehicle_count", "arrived_vehicle_count"):
+            value = metrics.get(field)
+            if type(value) is not int or value < 0:
+                raise ValueError(f"replay metrics.{field} must be a nonnegative integer")
+            counts[field] = value
+        frame["metrics"] = {
+            "cumulative_waiting_time_s": total_waiting,
+            **counts,
+            "measurement": "sum_waiting_vehicle_intervals_x_step_duration",
+        }
+    return frame
 
 
 class ReplayWriter:
@@ -66,6 +85,7 @@ class ReplayWriter:
         self.first_simulation_time_s: float | None = None
         self.last_simulation_time_s: float | None = None
         self.vehicle_ids: set[str] = set()
+        self.final_cumulative_waiting_time_s: float | None = None
         self.closed = False
 
     def write_snapshot(self, snapshot: dict[str, Any]) -> None:
@@ -81,6 +101,15 @@ class ReplayWriter:
         )
         self.last_simulation_time_s = timestamp
         self.vehicle_ids.update(vehicle["vehicle_id"] for vehicle in frame["vehicles"])
+        metrics = frame.get("metrics")
+        if metrics is not None:
+            waiting = float(metrics["cumulative_waiting_time_s"])
+            if (
+                self.final_cumulative_waiting_time_s is not None
+                and waiting < self.final_cumulative_waiting_time_s
+            ):
+                raise ValueError("replay cumulative waiting time must not decrease")
+            self.final_cumulative_waiting_time_s = waiting
         self.frame_count += 1
 
     def close(self) -> None:
@@ -105,6 +134,8 @@ class ReplayWriter:
             "first_simulation_time_s": self.first_simulation_time_s,
             "last_simulation_time_s": self.last_simulation_time_s,
             "observed_vehicle_count": len(self.vehicle_ids),
+            "waiting_series_available": self.final_cumulative_waiting_time_s is not None,
+            "final_cumulative_waiting_time_s": self.final_cumulative_waiting_time_s,
         }
 
     def __enter__(self) -> "ReplayWriter":
@@ -122,6 +153,8 @@ def inspect_replay(path: Path) -> dict[str, Any]:
     vehicle_ids: set[str] = set()
     traffic_light_ids: set[str] = set()
     coordinate_system: str | None = None
+    waiting_samples = 0
+    previous_waiting: float | None = None
     with path.open(encoding="utf-8") as source:
         for line_number, line in enumerate(source, 1):
             try:
@@ -151,10 +184,32 @@ def inspect_replay(path: Path) -> dict[str, Any]:
                 traffic_light_ids.add(str(light["traffic_light_id"]))
                 if not isinstance(light.get("state"), str) or type(light.get("phase_index")) is not int:
                     raise ValueError("replay traffic-light state is invalid")
+            metrics = frame.get("metrics")
+            if metrics is not None:
+                if not isinstance(metrics, dict):
+                    raise ValueError("replay metrics must be an object")
+                waiting = _finite_number(
+                    metrics.get("cumulative_waiting_time_s"),
+                    "metrics.cumulative_waiting_time_s",
+                )
+                if waiting < 0 or (previous_waiting is not None and waiting < previous_waiting):
+                    raise ValueError("replay cumulative waiting time is invalid")
+                for field in ("active_vehicle_count", "arrived_vehicle_count"):
+                    value = metrics.get(field)
+                    if type(value) is not int or value < 0:
+                        raise ValueError(f"replay metrics.{field} is invalid")
+                if metrics.get("measurement") != "sum_waiting_vehicle_intervals_x_step_duration":
+                    raise ValueError("replay waiting-time measurement is unsupported")
+                if waiting_samples == 0 and waiting != 0:
+                    raise ValueError("replay cumulative waiting time must begin at zero")
+                previous_waiting = waiting
+                waiting_samples += 1
             last_time = timestamp
             frame_count += 1
     if not frame_count:
         raise ValueError("replay contains no frames")
+    if waiting_samples not in (0, frame_count):
+        raise ValueError("replay waiting-time series is incomplete")
     return {
         "schema_version": REPLAY_SCHEMA_VERSION,
         "frame_count": frame_count,
@@ -163,4 +218,6 @@ def inspect_replay(path: Path) -> dict[str, Any]:
         "coordinate_system": coordinate_system,
         "vehicle_ids": sorted(vehicle_ids),
         "traffic_light_ids": sorted(traffic_light_ids),
+        "waiting_series_available": waiting_samples == frame_count,
+        "final_cumulative_waiting_time_s": previous_waiting,
     }

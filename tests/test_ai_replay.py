@@ -16,8 +16,13 @@ ROOT = Path(__file__).resolve().parents[1]
 SAMPLE = ROOT / "backend" / "vision" / "samples" / "youtube_30s"
 
 
-def snapshot(time_s: float, vehicle_id: str = "ai_north_1") -> dict:
-    return {
+def snapshot(
+    time_s: float,
+    vehicle_id: str = "ai_north_1",
+    *,
+    include_metrics: bool = True,
+) -> dict:
+    value = {
         "simulation_time_s": time_s,
         "coordinate_system": "synthetic_cartesian_metres",
         "vehicles": [{
@@ -37,6 +42,13 @@ def snapshot(time_s: float, vehicle_id: str = "ai_north_1") -> dict:
             }
         },
     }
+    if include_metrics:
+        value["metrics"] = {
+            "total_waiting_time_s": time_s,
+            "active_vehicle_count": 1,
+            "arrived_vehicle_count": 0,
+        }
+    return value
 
 
 class ReplayExportTests(unittest.TestCase):
@@ -49,6 +61,7 @@ class ReplayExportTests(unittest.TestCase):
         self.assertEqual(frame["vehicles"][0]["edge_id"], "south_in")
         self.assertEqual(frame["traffic_lights"][0]["traffic_light_id"], "demo_01")
         self.assertEqual(frame["traffic_lights"][0]["state"], "GrGr")
+        self.assertEqual(frame["metrics"]["cumulative_waiting_time_s"], 12.0)
 
     def test_jsonl_is_streamed_ordered_and_deterministic(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -66,6 +79,39 @@ class ReplayExportTests(unittest.TestCase):
         self.assertEqual(info["last_simulation_time_s"], 1.0)
         self.assertEqual(info["vehicle_ids"], ["ai_north_1"])
         self.assertEqual(info["traffic_light_ids"], ["demo_01"])
+        self.assertTrue(info["waiting_series_available"])
+        self.assertEqual(info["final_cumulative_waiting_time_s"], 1.0)
+
+    def test_old_stream_without_metrics_remains_valid_and_partial_series_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            old_path = Path(temporary) / "old.jsonl"
+            writer = ReplayWriter(old_path)
+            writer.write_snapshot(snapshot(0.0, include_metrics=False))
+            writer.write_snapshot(snapshot(1.0, include_metrics=False))
+            writer.close()
+            self.assertFalse(inspect_replay(old_path)["waiting_series_available"])
+
+            partial_path = Path(temporary) / "partial.jsonl"
+            writer = ReplayWriter(partial_path)
+            writer.write_snapshot(snapshot(0.0))
+            writer.write_snapshot(snapshot(1.0, include_metrics=False))
+            writer.close()
+            with self.assertRaisesRegex(ValueError, "incomplete"):
+                inspect_replay(partial_path)
+
+    def test_waiting_series_must_not_decrease(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "replay.jsonl"
+            writer = ReplayWriter(path)
+            writer.write_snapshot(snapshot(0.0))
+            high = snapshot(1.0)
+            high["metrics"]["total_waiting_time_s"] = 3.0
+            writer.write_snapshot(high)
+            low = snapshot(2.0)
+            low["metrics"]["total_waiting_time_s"] = 2.0
+            with self.assertRaisesRegex(ValueError, "must not decrease"):
+                writer.write_snapshot(low)
+            writer.close()
 
     def test_duplicate_timestamp_and_existing_output_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -145,6 +191,18 @@ class RealReplaySumoTests(unittest.TestCase):
         self.assertEqual(fixed["diagnostics"]["teleports"], 0)
         self.assertEqual(gap["diagnostics"]["collisions"], 0)
         self.assertEqual(gap["diagnostics"]["teleports"], 0)
+        self.assertTrue(fixed_info["waiting_series_available"])
+        self.assertTrue(gap_info["waiting_series_available"])
+        self.assertEqual(
+            fixed_info["final_cumulative_waiting_time_s"],
+            fixed["trip_metrics"]["total_waiting_time_s"],
+        )
+        self.assertEqual(
+            gap_info["final_cumulative_waiting_time_s"],
+            gap["trip_metrics"]["total_waiting_time_s"],
+        )
+        self.assertTrue(fixed["replay_waiting_time_reconciliation"]["matches"])
+        self.assertTrue(gap["replay_waiting_time_reconciliation"]["matches"])
 
 
 if __name__ == "__main__":

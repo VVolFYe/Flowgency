@@ -4,6 +4,7 @@ import {
   frameAtTime,
   parseReplayJsonl,
   replaySignalColor,
+  replayMetricsAtTime,
   sourceStatus,
   switchVideoSource,
   videoTimeAtReplayTime,
@@ -19,7 +20,12 @@ const vehicle = (id: string, x: number) => ({
   edge_id: "south_in",
 });
 
-const frame = (index: number, vehicles: ReturnType<typeof vehicle>[], state = "GrGr") => JSON.stringify({
+const frame = (
+  index: number,
+  vehicles: ReturnType<typeof vehicle>[],
+  state = "GrGr",
+  waiting?: number,
+) => JSON.stringify({
   schema_version: "1.0",
   record_type: "frame",
   frame_index: index,
@@ -27,6 +33,12 @@ const frame = (index: number, vehicles: ReturnType<typeof vehicle>[], state = "G
   coordinate_system: "synthetic_cartesian_metres",
   vehicles,
   traffic_lights: [{ traffic_light_id: "demo_01", phase_index: index % 2, phase_id: "phase", state }],
+  ...(waiting === undefined ? {} : { metrics: {
+    cumulative_waiting_time_s: waiting,
+    active_vehicle_count: vehicles.length,
+    arrived_vehicle_count: index,
+    measurement: "sum_waiting_vehicle_intervals_x_step_duration",
+  } }),
 });
 
 const text = [
@@ -89,6 +101,35 @@ test("malformed, unordered and incompatible replay records fail loudly", () => {
   const unordered = [frame(0, []), JSON.stringify({ ...JSON.parse(frame(1, [])), simulation_time_s: 0 })].join("\n");
   assert.throws(() => parseReplayJsonl(unordered, { coordinateSystem: "synthetic_cartesian_metres", trafficLightId: "demo_01" }), /timestamps/);
   assert.throws(() => parseReplayJsonl(frame(0, []), { coordinateSystem: "wrong", trafficLightId: "demo_01" }), /coordinate system/);
+});
+
+test("recorded waiting totals follow seek, pause, restart and completion", () => {
+  const stream = parseReplayJsonl([
+    frame(0, [vehicle("a", 0)], "GrGr", 0),
+    frame(1, [vehicle("a", 10)], "GrGr", 2),
+    frame(2, [], "rrrr", 5),
+  ].join("\n"), {
+    frameCount: 3,
+    durationS: 2,
+    coordinateSystem: "synthetic_cartesian_metres",
+    trafficLightId: "demo_01",
+  });
+  assert.equal(stream.waitingSeriesAvailable, true);
+  assert.equal(replayMetricsAtTime(stream, 0)?.cumulative_waiting_time_s, 0);
+  assert.equal(replayMetricsAtTime(stream, 1.8)?.cumulative_waiting_time_s, 2);
+  assert.equal(replayMetricsAtTime(stream, 0.5)?.cumulative_waiting_time_s, 0);
+  assert.equal(replayMetricsAtTime(stream, 2)?.cumulative_waiting_time_s, 5);
+  assert.equal(replayMetricsAtTime(stream, 2)?.cumulative_waiting_time_s, replayMetricsAtTime(stream, 2)?.cumulative_waiting_time_s);
+});
+
+test("old replay remains compatible and incomplete or decreasing series fails", () => {
+  const legacy = parse();
+  assert.equal(legacy.waitingSeriesAvailable, false);
+  assert.equal(replayMetricsAtTime(legacy, 1), null);
+  const partial = [frame(0, [], "GrGr", 0), frame(1, [])].join("\n");
+  assert.throws(() => parseReplayJsonl(partial, { coordinateSystem: "synthetic_cartesian_metres", trafficLightId: "demo_01" }), /incomplete/);
+  const decreasing = [frame(0, [], "GrGr", 0), frame(1, [], "GrGr", 2), frame(2, [], "GrGr", 1)].join("\n");
+  assert.throws(() => parseReplayJsonl(decreasing, { coordinateSystem: "synthetic_cartesian_metres", trafficLightId: "demo_01" }), /decreasing/);
 });
 
 let failures = 0;

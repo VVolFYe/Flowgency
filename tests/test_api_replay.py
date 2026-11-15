@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from backend.api.app import create_app
 from backend.api.auth import Auth0TokenVerifier
-from backend.api.replay_assets import ReplayAssetError, ReplayAssetStore, validate_comparison_report
+from backend.api.replay_assets import (
+    DEFAULT_REPLAY_ASSET_DIR,
+    ReplayAssetError,
+    ReplayAssetStore,
+    validate_comparison_report,
+)
 from tests.test_api_auth import AUDIENCE, DOMAIN, StaticJwksClient, StubSimulationService, make_token, request
 
 
@@ -105,6 +112,43 @@ def replay_app(store: ReplayAssetStore):
 
 
 class ReplayAssetTests(unittest.TestCase):
+    def test_default_bundle_is_discovered_independently_of_working_directory(self) -> None:
+        with patch.dict(os.environ, {}, clear=True), tempfile.TemporaryDirectory() as working:
+            previous = Path.cwd()
+            try:
+                os.chdir(working)
+                store = ReplayAssetStore()
+                manifest = store.public_manifest()
+            finally:
+                os.chdir(previous)
+        self.assertEqual(store.root, DEFAULT_REPLAY_ASSET_DIR.resolve())
+        self.assertEqual(manifest["dataset_id"], "youtube_intersection_264s_v1")
+        self.assertTrue(all(asset["available"] for asset in manifest["assets"].values()))
+
+    def test_environment_override_takes_precedence_over_default_bundle(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            override = Path(temporary)
+            write_store(override)
+            with patch.dict(
+                os.environ,
+                {"FLOWGENCY_REPLAY_ASSET_DIR": str(override)},
+                clear=True,
+            ):
+                store = ReplayAssetStore()
+                self.assertEqual(store.root, override.resolve())
+                self.assertEqual(store.public_manifest()["dataset_id"], "dataset-v1")
+
+    def test_missing_default_bundle_returns_service_unavailable(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            missing = Path(temporary) / "missing"
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch("backend.api.replay_assets.DEFAULT_REPLAY_ASSET_DIR", missing),
+            ):
+                with self.assertRaisesRegex(ReplayAssetError, "unavailable") as raised:
+                    ReplayAssetStore().public_manifest()
+        self.assertEqual(raised.exception.status_code, 503)
+
     def test_comparison_requires_verified_gap_controller(self) -> None:
         report = comparison_report()
         validated = validate_comparison_report(report, "dataset-v1")

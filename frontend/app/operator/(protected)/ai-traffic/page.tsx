@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ReplayCanvas } from "@/components/ai-traffic/replay-canvas";
 import {
-  advancePlayback, clampTime, parseReplayJsonl, switchVideoSource, validateReplayGeometry,
+  advancePlayback, clampTime, parseReplayJsonl, replayMetricsAtTime,
+  switchVideoSource, validateReplayGeometry,
   videoTimeAtReplayTime, type AssetStatus, type MetricComparison,
   type ReplayManifest, type ReplayStream, type VideoSource,
 } from "@/lib/ai-replay";
@@ -72,6 +73,10 @@ export default function AiTrafficPage() {
         validateReplayGeometry(manifest, geometry);
         const fixed = parseReplayJsonl(fixedText, { frameCount: manifest.assets.fixed_replay.frame_count, durationS: manifest.replays.fixed.simulation_duration_s, coordinateSystem: manifest.network_geometry.coordinate_system, trafficLightId: "demo_01" });
         const gap = parseReplayJsonl(gapText, { frameCount: manifest.assets.gap_v1_replay.frame_count, durationS: manifest.replays.gap_v1.simulation_duration_s, coordinateSystem: manifest.network_geometry.coordinate_system, trafficLightId: "demo_01" });
+        if (
+          (manifest.assets.fixed_replay.waiting_series_available === true && !fixed.waitingSeriesAvailable) ||
+          (manifest.assets.gap_v1_replay.waiting_series_available === true && !gap.waitingSeriesAvailable)
+        ) throw new Error("Replay manifest declares missing waiting-time data");
         if (fixed.vehicleIds.size !== manifest.comparison.inputs.vehicle_count || gap.vehicleIds.size !== manifest.comparison.inputs.vehicle_count) throw new Error("Replay vehicle totals do not match the validated comparison");
         if (fixed.vehicleIds.size !== gap.vehicleIds.size || [...fixed.vehicleIds].some((id) => !gap.vehicleIds.has(id))) throw new Error("Fixed and gap_v1 replay vehicle identities differ");
         setState({ kind: "ready", data: { manifest, geometry, fixed, gap } });
@@ -87,6 +92,11 @@ export default function AiTrafficPage() {
   const manifest = data?.manifest;
   const totalDurationS = data ? Math.max(data.fixed.durationS, data.gap.durationS) : 0;
   const comparison = manifest?.comparison;
+  const fixedCurrentMetrics = data ? replayMetricsAtTime(data.fixed, timeS) : null;
+  const gapCurrentMetrics = data ? replayMetricsAtTime(data.gap, timeS) : null;
+  const currentWaiting = fixedCurrentMetrics && gapCurrentMetrics
+    ? { fixed: fixedCurrentMetrics, gap: gapCurrentMetrics }
+    : null;
   const completedMetric: MetricComparison | undefined = comparison ? { fixed: comparison.runs.fixed.vehicle_count, adaptive: comparison.runs.adaptive.vehicle_count, adaptive_minus_fixed: 0, improvement_percent: 0, outcome: "no_change" } : undefined;
 
   useEffect(() => { timeRef.current = timeS; }, [timeS]);
@@ -171,6 +181,15 @@ export default function AiTrafficPage() {
       <ReplayPanel title="Adaptive gap_v1 SUMO simulation" description="Recorded trajectories using verified gap_v1 control at demo_01." footer={<><span>{data ? timeS >= data.gap.durationS ? "Simulation finished" : playing ? "Playing" : "Paused" : "Replay unavailable"}</span><span className="font-mono text-[#f0d6c3]">{manifest?.assets.gap_v1_replay.frame_count ?? "—"} frames</span></>}>
         {data ? <ReplayCanvas geometry={data.geometry} replay={data.gap} timeS={timeS} playing={playing} accent="#7de7ff" /> : <PanelState state={state} label="gap_v1 replay" />}
       </ReplayPanel>
+    </section>
+
+    <section className="mt-4 rounded-[20px] border border-white/[.09] bg-[#17110e] p-5 shadow-lg shadow-black/15" aria-labelledby="live-waiting-heading">
+      <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="eyebrow">Recorded at replay time</p><h2 id="live-waiting-heading" className="mt-2 text-lg font-semibold text-[#fff4eb]">Cumulative waiting so far</h2></div><span className="font-mono text-xs text-[#d6c3b6]">t = {formatDuration(timeS)}</span></div>
+      {currentWaiting ? <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <article className="rounded-2xl border border-white/[.09] bg-[#211712] p-5"><p className="text-xs font-medium uppercase tracking-[.12em] text-[#b8a69a]">Fixed</p><p className="mt-3 font-mono text-3xl font-semibold text-[#fff4eb]">{currentWaiting.fixed.cumulative_waiting_time_s.toLocaleString()} <span className="text-base font-normal text-[#c9b8ad]">seconds</span></p><p className="mt-3 text-xs text-[#c8b6aa]">{currentWaiting.fixed.active_vehicle_count} active · {currentWaiting.fixed.arrived_vehicle_count} completed · final validated total {comparison?.runs.fixed.total_waiting_time_s.toLocaleString() ?? "—"}s</p></article>
+        <article className="rounded-2xl border border-[#7de7ff]/20 bg-[#172126] p-5"><p className="text-xs font-medium uppercase tracking-[.12em] text-[#9fcbd5]">Adaptive gap_v1</p><p className="mt-3 font-mono text-3xl font-semibold text-[#dff9ff]">{currentWaiting.gap.cumulative_waiting_time_s.toLocaleString()} <span className="text-base font-normal text-[#b7d4da]">seconds</span></p><p className="mt-3 text-xs text-[#b8cbd0]">{currentWaiting.gap.active_vehicle_count} active · {currentWaiting.gap.arrived_vehicle_count} completed · final validated total {comparison?.runs.adaptive.total_waiting_time_s.toLocaleString() ?? "—"}s</p></article>
+        <p className="md:col-span-2 rounded-xl border border-white/[.08] bg-[#211712] px-4 py-3 text-xs text-[#d6c3b6]">Current Fixed − gap_v1 difference: <strong className="font-mono text-[#fff4eb]">{(currentWaiting.fixed.cumulative_waiting_time_s - currentWaiting.gap.cumulative_waiting_time_s).toLocaleString()}s</strong>. Values are recorded SUMO vehicle-seconds at the selected timestamp, not interpolated from final totals.</p>
+      </div> : <div className="mt-4 rounded-xl border border-[#f1bd59]/25 bg-[#2a2113] px-4 py-4 text-sm text-[#f1d18a]">Cumulative waiting-time series is unavailable in this replay version. Regenerate the replay with metrics recording; no intermediate values have been fabricated.</div>}
     </section>
 
     <section className="mt-4 rounded-[20px] border border-white/[.09] bg-[#211712] p-5 shadow-lg shadow-black/15" aria-labelledby="playback-heading"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 id="playback-heading" className="text-base font-medium text-[#fff4eb]">Shared playback</h2><p className="mt-1 text-xs text-[#c8b6aa]">One monotonic clock drives video, Fixed and gap_v1. Video freezes at its final frame while simulations continue.</p></div><span className="font-mono text-xs text-[#ead1c0]">{formatDuration(timeS)} / {formatDuration(totalDurationS)}</span></div><div className="mt-5 grid gap-4 lg:grid-cols-[auto_minmax(180px,1fr)_160px] lg:items-end"><div className="flex gap-2"><button type="button" disabled={!ready} onClick={togglePlayback} className="rounded-xl border border-white/[.12] bg-[#17110e] px-4 py-2.5 text-sm text-[#f5e9e0] transition hover:bg-[#2b1d16] disabled:cursor-not-allowed disabled:opacity-45">{playing ? "Pause" : timeS >= totalDurationS && ready ? "Replay" : "Play"}</button><button type="button" disabled={!ready} onClick={() => { pause(); seek(0); }} className="rounded-xl border border-white/[.12] bg-[#17110e] px-4 py-2.5 text-sm text-[#f5e9e0] transition hover:bg-[#2b1d16] disabled:cursor-not-allowed disabled:opacity-45">Restart</button></div><label><span className="mb-2 block text-xs text-[#d0bdb0]">Timeline</span><input type="range" min="0" max={totalDurationS || 1} step="0.1" value={timeS} disabled={!ready} onChange={(event) => seek(Number(event.target.value))} aria-label="Shared replay timeline" className="w-full accent-[#ffac79] disabled:cursor-not-allowed disabled:opacity-45" /></label><label><span className="mb-2 block text-xs text-[#d0bdb0]">Playback speed</span><select value={speed} disabled={!ready} onChange={(event) => setSpeed(Number(event.target.value) as (typeof SPEEDS)[number])} className="w-full rounded-xl border border-white/[.1] bg-[#17110e] px-3 py-2.5 text-sm text-[#f0dfd4] disabled:cursor-not-allowed disabled:opacity-45">{SPEEDS.map((option) => <option key={option} value={option}>{option}×</option>)}</select></label></div></section>

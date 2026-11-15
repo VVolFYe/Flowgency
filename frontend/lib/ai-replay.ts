@@ -21,6 +21,13 @@ export interface ReplayTrafficLight {
   state: string;
 }
 
+export interface ReplayMetrics {
+  cumulative_waiting_time_s: number;
+  active_vehicle_count: number;
+  arrived_vehicle_count: number;
+  measurement: "sum_waiting_vehicle_intervals_x_step_duration";
+}
+
 export interface ReplayFrame {
   schema_version: "1.0";
   record_type: "frame";
@@ -29,6 +36,7 @@ export interface ReplayFrame {
   coordinate_system: string;
   vehicles: ReplayVehicle[];
   traffic_lights: ReplayTrafficLight[];
+  metrics?: ReplayMetrics;
 }
 
 export interface ReplayStream {
@@ -36,6 +44,7 @@ export interface ReplayStream {
   vehicleIds: Set<string>;
   durationS: number;
   coordinateSystem: string;
+  waitingSeriesAvailable: boolean;
 }
 
 export interface AssetStatus {
@@ -43,6 +52,7 @@ export interface AssetStatus {
   url: string | null;
   duration_s?: number;
   frame_count?: number;
+  waiting_series_available?: boolean;
 }
 
 export interface MetricComparison {
@@ -71,7 +81,11 @@ export interface ReplayManifest {
     AssetStatus
   >;
   replays: {
-    fixed: { simulation_duration_s: number; strategy: "fixed" };
+    fixed: {
+      simulation_duration_s: number;
+      strategy: "fixed";
+      waiting_time_series?: { available: boolean; final_cumulative_waiting_time_s: number | null };
+    };
     gap_v1: {
       simulation_duration_s: number;
       strategy: "gap_v1";
@@ -81,6 +95,7 @@ export interface ReplayManifest {
         active_traffic_light_ids: string[];
         validation_errors: string[];
       };
+      waiting_time_series?: { available: boolean; final_cumulative_waiting_time_s: number | null };
     };
   };
   comparison: {
@@ -164,6 +179,8 @@ export function parseReplayJsonl(
   const frames: ReplayFrame[] = [];
   const vehicleIds = new Set<string>();
   let previousTime = -Infinity;
+  let previousWaiting: number | null = null;
+  let waitingSamples = 0;
   lines.forEach((line, index) => {
     let raw: unknown;
     try {
@@ -200,6 +217,34 @@ export function parseReplayJsonl(
     if (!trafficLights.some((light) => light.traffic_light_id === expected.trafficLightId)) {
       throw new Error(`Replay is missing ${expected.trafficLightId} on line ${index + 1}`);
     }
+    let metrics: ReplayMetrics | undefined;
+    if (frame.metrics !== undefined) {
+      const source = objectValue(frame.metrics, `metrics on line ${index + 1}`);
+      const waiting = finiteNumber(source.cumulative_waiting_time_s, "metrics.cumulative_waiting_time_s");
+      if (waiting < 0 || (previousWaiting !== null && waiting < previousWaiting)) {
+        throw new Error("Replay cumulative waiting time is negative or decreasing");
+      }
+      if (index === 0 && waiting !== 0) {
+        throw new Error("Replay cumulative waiting time must begin at zero");
+      }
+      if (
+        !Number.isInteger(source.active_vehicle_count) ||
+        (source.active_vehicle_count as number) < 0 ||
+        !Number.isInteger(source.arrived_vehicle_count) ||
+        (source.arrived_vehicle_count as number) < 0 ||
+        source.measurement !== "sum_waiting_vehicle_intervals_x_step_duration"
+      ) {
+        throw new Error(`Replay metrics are invalid on line ${index + 1}`);
+      }
+      metrics = {
+        cumulative_waiting_time_s: waiting,
+        active_vehicle_count: source.active_vehicle_count as number,
+        arrived_vehicle_count: source.arrived_vehicle_count as number,
+        measurement: "sum_waiting_vehicle_intervals_x_step_duration",
+      };
+      previousWaiting = waiting;
+      waitingSamples += 1;
+    }
     frames.push({
       schema_version: REPLAY_SCHEMA_VERSION,
       record_type: "frame",
@@ -208,6 +253,7 @@ export function parseReplayJsonl(
       coordinate_system: expected.coordinateSystem,
       vehicles,
       traffic_lights: trafficLights,
+      ...(metrics ? { metrics } : {}),
     });
     previousTime = time;
   });
@@ -217,7 +263,16 @@ export function parseReplayJsonl(
   if (expected.durationS !== undefined && Math.abs(previousTime - expected.durationS) > 1e-6) {
     throw new Error(`Replay duration ${previousTime} does not match manifest ${expected.durationS}`);
   }
-  return { frames, vehicleIds, durationS: previousTime, coordinateSystem: expected.coordinateSystem };
+  if (waitingSamples !== 0 && waitingSamples !== frames.length) {
+    throw new Error("Replay waiting-time series is incomplete");
+  }
+  return {
+    frames,
+    vehicleIds,
+    durationS: previousTime,
+    coordinateSystem: expected.coordinateSystem,
+    waitingSeriesAvailable: waitingSamples === frames.length,
+  };
 }
 
 const interpolateAngle = (from: number, to: number, progress: number) => {
@@ -267,6 +322,10 @@ export function advancePlayback(timeS: number, elapsedMs: number, speed: number,
 
 export function videoTimeAtReplayTime(replayTimeS: number, videoDurationS: number) {
   return clampTime(replayTimeS, videoDurationS);
+}
+
+export function replayMetricsAtTime(stream: ReplayStream, requestedTimeS: number) {
+  return frameAtTime(stream, requestedTimeS).metrics ?? null;
 }
 
 export function sourceStatus(timeS: number, durationS: number, label: "video" | "simulation") {

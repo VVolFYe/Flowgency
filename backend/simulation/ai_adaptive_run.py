@@ -419,6 +419,21 @@ def run_adaptive_experiment(
         "".join(json.dumps(record, sort_keys=True) + "\n" for record in records),
         encoding="utf-8",
     )
+    trip_waiting_total = round(
+        sum(float(item["waiting_time_s"]) for item in records), 3
+    )
+    replay_waiting_total = (
+        replay_writer.final_cumulative_waiting_time_s
+        if replay_writer is not None else None
+    )
+    waiting_reconciled = (
+        replay_waiting_total is None
+        or abs(replay_waiting_total - trip_waiting_total) <= 1e-6
+    )
+    if not waiting_reconciled:
+        validation_errors.append(
+            "replay cumulative waiting time differs from SUMO tripinfo"
+        )
 
     report: dict[str, Any] = {
         "schema_version": "1.0",
@@ -431,6 +446,12 @@ def run_adaptive_experiment(
         ),
         "controller_provenance": controller_provenance,
         "replay_export": replay_writer.summary() if replay_writer is not None else None,
+        "replay_waiting_time_reconciliation": {
+            "available": replay_waiting_total is not None,
+            "replay_final_s": replay_waiting_total,
+            "tripinfo_final_s": trip_waiting_total,
+            "matches": waiting_reconciled,
+        },
         "fixed_program": fixed_program,
         "validation": {
             "passed": not validation_errors,
@@ -470,7 +491,7 @@ def run_adaptive_experiment(
         },
         "trip_metrics": {
             "scope": "all completed vehicles" if arrived_ids == set(planned) else "available tripinfo records",
-            "total_waiting_time_s": round(sum(float(item["waiting_time_s"]) for item in records), 3),
+            "total_waiting_time_s": trip_waiting_total,
             "average_waiting_time_s": (
                 round(sum(float(item["waiting_time_s"]) for item in records) / len(records), 3)
                 if records else None
