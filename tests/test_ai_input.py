@@ -128,6 +128,44 @@ class AiInputUnitTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             GateEventInput.model_validate(unexpected_origin)
 
+    def warm_up_counts(self, known_from: int | None, seconds: int = 5) -> list[dict[str, object]]:
+        """Causal-engine counts: lines before the warm-up carry no arms and in_intersection null."""
+        lines = []
+        for t in range(seconds):
+            line = count_record(float(t))
+            if known_from is None or t < known_from:
+                line["approaches"], line["in_intersection"] = {}, None
+            lines.append(line)
+        return lines
+
+    def test_initial_values_come_from_the_warm_up_line(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            counts, events = self.write_inputs(Path(temporary), self.warm_up_counts(3), [event_record(9, 3.5)])
+            timeline = build_timeline(counts, events, MAPPING, SCENARIO_MAPPING)
+        self.assertIsNone(timeline.points[0].approaches["north"].observed_vehicles)  # t_s 0 stays unknown
+        self.assertEqual(timeline.initial_point.t_s, 3.0)
+        summary = timeline.summary()
+        self.assertEqual(summary["initial_observation_t_s"], 3.0)
+        self.assertEqual(summary["initial_observed_vehicles"], {"north": 5, "east": 3, "south": 4, "west": 14})
+        self.assertEqual(summary["initial_in_intersection"], 5)
+
+    def test_initial_values_null_when_no_line_is_known(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            counts, events = self.write_inputs(Path(temporary), self.warm_up_counts(None), [event_record(9, 1.5)])
+            timeline = build_timeline(counts, events, MAPPING, SCENARIO_MAPPING)
+        summary = timeline.summary()
+        self.assertIsNone(timeline.initial_point)
+        self.assertIsNone(summary["initial_observation_t_s"])
+        self.assertEqual(summary["initial_observed_vehicles"], {"north": None, "east": None, "south": None, "west": None})
+        self.assertIsNone(summary["initial_in_intersection"])
+
+    def test_older_files_keep_t_s_0_as_the_initial_line(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            counts, events = self.write_inputs(Path(temporary), self.warm_up_counts(0), [event_record(9, 1.5)])
+            summary = build_timeline(counts, events, MAPPING, SCENARIO_MAPPING).summary()
+        self.assertEqual(summary["initial_observation_t_s"], 0.0)
+        self.assertEqual(summary["initial_observed_vehicles"]["west"], 14)
+
     def test_missing_arm_remains_unknown_but_arrival_is_retained(self) -> None:
         first = count_record(0.0)
         del first["approaches"]["north"]  # type: ignore[index]
