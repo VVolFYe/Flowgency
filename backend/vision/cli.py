@@ -126,20 +126,8 @@ def cmd_process(args: argparse.Namespace) -> int:
     _log(f"initial on approach: {summary['initial']['vehicles_on_approach']}, in junction: "
          f"{summary['initial']['in_intersection']}; clamps: {len(summary['clamps'])}; origin_arm null: "
          f"{summary['origin_arm_null']}/{summary['intersection_exited']} {summary['origin_arm_null_reasons']}")
-    if diagnostics["parked_max_travel_px"] is None:
-        _log(f"parked rule off (scene has no parked_max_travel_px); {len(diagnostics['static_tracks'])} tracks never "
-             f"move > {diagnostics['static_travel_px']:.0f} px (diagnostics only)")
-    else:
-        on_regions = [p["track_id"] for p in diagnostics["parked"] if p["region"] is not None]
-        in_gates = [p["track_id"] for p in diagnostics["parked"] if p["gates"]]
-        _log(f"parked tracks (never move > {diagnostics['parked_max_travel_px']:g} px over the clip; excluded from "
-             f"initial state, events and counts): {diagnostics['parked_tracks']} of {diagnostics['track_ids']}")
-        if on_regions or in_gates:
-            _log(f"WARNING: parked tracks inside an approach region / the junction: {on_regions}; inside a gate: "
-                 f"{in_gates} (a gate over a parking lane, or a stopped car whose track never moved)")
-    if diagnostics["static_initial_tracks"]:
-        _log(f"WARNING: initial-state tracks that never move >= {diagnostics['static_travel_px']:.0f} px: "
-             f"{diagnostics['static_initial_tracks']}")
+    _log(f"warm-up offset at {summary['rules']['warmup_s']:g} s; events by type: {summary['events_by_type']}; "
+         f"tracks: {diagnostics['track_ids']}")
     if args.sample_seconds:
         sample_dir = out_dir / f"sample_{args.sample_seconds:g}s"
         n_events, n_counts = write_sample(sample_dir, run, args.sample_seconds)
@@ -150,12 +138,12 @@ def cmd_process(args: argparse.Namespace) -> int:
 def cmd_render_gate_demo(args: argparse.Namespace) -> int:
     from .gate_render import render_gate_demo
 
-    paths, scene, video, _profile, meta, tracked, run, diagnostics = _process(args)
+    paths, scene, video, _profile, meta, tracked, run, _diagnostics = _process(args)
     out = args.out or paths.scene_output_dir(scene.scene_id) / "demo" / f"{scene.scene_id}_gates_demo.mp4"
     start = round(args.start_s * meta["fps"])
     end = None if args.end_s is None else round(args.end_s * meta["fps"])
     render_gate_demo(video, scene, tracked, run, out, fps=meta["fps"], scale=args.scale, start_frame=start,
-                     end_frame=end, parked=set(diagnostics["parked_track_ids"]), log=_log)
+                     end_frame=end, log=_log)
     _log(f"wrote {out}")
     return 0
 

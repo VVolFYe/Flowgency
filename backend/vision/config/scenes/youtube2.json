@@ -13,7 +13,6 @@
   "reference_frame_index": 0,
   "gate_min_inside": 2,
   "gate_window_frames": 3,
-  "parked_max_travel_px": 25.0,
   "notes": "Proposed by Claude from frames 0/1440/3740 (travel lanes only); to be reviewed by the user in draw-gates. Parking (keep gates off): W and E arms have angled parking strips; W: y~285-365 (north edge), y~490-585 (median), y~695-775 (south edge); E: y~445-530 (median), y~660-745 (south edge), lot x>1730 y<350 (NE corner). N and S arms: no on-street parking.",
   "gates": {
     "north_in.far": [[785.0, 5.0], [950.0, 5.0], [950.0, 65.0], [785.0, 65.0]],

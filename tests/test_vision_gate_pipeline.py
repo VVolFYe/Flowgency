@@ -45,26 +45,13 @@ def north_to_east(step: int) -> tuple[float, float] | None:
 
 @unittest.skipUnless(HAS_ULTRALYTICS, "ultralytics not installed")
 class GatePipelineTests(unittest.TestCase):
-    def test_track_travel_is_max_displacement_from_the_first_point(self) -> None:
-        from backend.vision.counting import TrackedBox
-        from backend.vision.gate_pipeline import TrackedFrame, track_travel
-
-        frames = [TrackedFrame(f, (TrackedBox(1, "vehicle", 0.9, (f * 3, 0, f * 3 + 10, 10)),
-                                   TrackedBox(2, "vehicle", 0.9, (50, 50 + f % 2, 60, 60 + f % 2))))
-                  for f in range(5)]
-        travel = track_travel(frames, "center")
-        self.assertAlmostEqual(travel[1], 12.0)
-        self.assertAlmostEqual(travel[2], 1.0)
-        # jitter around the first point: max displacement 10, not the 20 px extent nor the 80 px path length
-        jitter = [TrackedFrame(f, (TrackedBox(3, "vehicle", 0.9, (95 + dx, 95, 105 + dx, 105)),))
-                  for f, dx in enumerate([0, -10, 10, -10, 10, 0, -10, 10, 0])]
-        self.assertAlmostEqual(track_travel(jitter, "center")[3], 10.0)
+    N = 110  # warm-up ends at frame 20 (2 s); the moving car appears at frame 30
 
     def frames(self, flip_labels: bool) -> list[tuple[int, np.ndarray]]:
         out = []
-        for f in range(80):
+        for f in range(self.N):
             rows = []
-            p = north_to_east(f - 10)
+            p = north_to_east(f - 30)
             if p is not None:
                 cls = 5 if (flip_labels and f % 2) else 3  # truck/car flips
                 rows.append(car(*p, cls=cls))
@@ -80,7 +67,7 @@ class GatePipelineTests(unittest.TestCase):
 
         tracked = track_all(self.frames(flip_labels), (400, 400), VISDRONE_VEHICLES, conf=0.25)
         s = scene()
-        return run_gates(s, [(t.frame, t.points(s.counting_point)) for t in tracked], fps=FPS, frame_count=80,
+        return run_gates(s, [(t.frame, t.points(s.counting_point)) for t in tracked], fps=FPS, frame_count=self.N,
                          model_id="yolo11s_visdrone"), tracked
 
     def test_events_and_initial_queue(self) -> None:
@@ -91,7 +78,10 @@ class GatePipelineTests(unittest.TestCase):
                          [("approach_entered", "north"), ("intersection_entered", "north"), ("intersection_exited", "east")])
         self.assertEqual(run.events[-1]["origin_arm"], "north")
         north = run.counts[-1]["approaches"]["north"]
-        self.assertEqual(north, {"vehicles_on_approach": 1, "entered_total": 1, "discharged_total": 1})
+        self.assertEqual(north, {"vehicles_on_approach": 1, "entered_total": 1, "discharged_total": 1, "left_total": 0})
+        self.assertEqual(run.events[0]["via"], "far_gate")
+        # ByteTrack outputs a new track from its 2nd frame (31); applied at its 10th observation (frame 40)
+        self.assertEqual(run.events[0]["frame"], 40)
 
     def test_label_flips_and_nested_boxes_do_not_double_trigger(self) -> None:
         run, _ = self.run_chain(flip_labels=True)
@@ -110,41 +100,34 @@ class GatePipelineTests(unittest.TestCase):
                 GateEvent.model_validate(e)
             for c in counts:
                 GateCounts.model_validate(c)
-            self.assertEqual(len(counts), 8)
+            self.assertEqual(len(counts), 11)
+            self.assertEqual(counts[0]["approaches"], {})  # before the warm-up: unknown
             self.assertEqual(summary["initial"]["vehicles_on_approach"]["north"], 1)
             self.assertEqual(summary["origin_arm_null_share"], 0.0)
             self.assertTrue((Path(tmp) / "gate_run.json").exists())
 
-    def test_process_scene_flags_the_never_moving_initial_track(self) -> None:
+    def test_process_scene_counts_the_queued_car_in_the_offset(self) -> None:
         from backend.vision.gate_pipeline import process_scene
 
         tracked, run, diag = process_scene(scene(), self.frames(False), class_ids=VISDRONE_VEHICLES, conf=0.25,
                                            fps=FPS, model_id="yolo11s_visdrone")
-        self.assertEqual(len(tracked), 80)
+        self.assertEqual(len(tracked), self.N)
         self.assertEqual([(e["event"], e["arm"]) for e in run.events],
                          [("approach_entered", "north"), ("intersection_entered", "north"), ("intersection_exited", "east")])
-        queued = run.initial.approach_tracks["north"]
-        self.assertEqual(diag["static_initial_tracks"], list(queued))  # the car at (172, 90) never moves
-        self.assertEqual(diag["static_tracks"], list(queued))
+        self.assertEqual(run.initial.approach_counts()["north"], 1)  # the car at (172, 90): on the lane = traffic
         self.assertEqual(diag["track_ids"], 2)
-        self.assertIsNone(diag["parked_max_travel_px"])  # rule off: flagged only, still counted
-        self.assertEqual(diag["parked_tracks"], 0)
 
-    def test_process_scene_excludes_the_parked_track_when_the_rule_is_on(self) -> None:
+    def test_tracker_and_engine_are_causal(self) -> None:
         from backend.vision.gate_pipeline import process_scene
 
-        tracked, run, diag = process_scene(scene(parked_max_travel_px=30), self.frames(False),
-                                           class_ids=VISDRONE_VEHICLES, conf=0.25, fps=FPS, model_id="yolo11s_visdrone")
-        self.assertEqual(diag["parked_tracks"], 1)
-        parked = diag["parked_track_ids"][0]
-        self.assertTrue(any(b.track_id == parked for t in tracked for b in t.boxes))  # kept for the demo render
-        self.assertEqual(run.initial.approach_counts()["north"], 0)
-        self.assertEqual(diag["static_initial_tracks"], [])
-        self.assertEqual([(e["event"], e["arm"]) for e in run.events],
-                         [("approach_entered", "north"), ("intersection_entered", "north"), ("intersection_exited", "east")])
-        self.assertEqual(diag["parked"][0]["region"], "north")
-        self.assertEqual(run.counts[-1]["approaches"]["north"],
-                         {"vehicles_on_approach": 0, "entered_total": 1, "discharged_total": 1})
+        frames = self.frames(True)
+        _, full, _ = process_scene(scene(), frames, class_ids=VISDRONE_VEHICLES, conf=0.25, fps=FPS,
+                                   model_id="yolo11s_visdrone")
+        for k in (25, 45, 60, 80):
+            _, cut, _ = process_scene(scene(), frames[:k], class_ids=VISDRONE_VEHICLES, conf=0.25, fps=FPS,
+                                      model_id="yolo11s_visdrone")
+            self.assertEqual(cut.events, [e for e in full.events if e["frame"] <= k - 1], k)
+            self.assertEqual(cut.counts, [c for c in full.counts if c["t_s"] <= (k - 1) / FPS], k)
 
     def test_sample_keeps_the_first_seconds_consistently(self) -> None:
         from backend.vision.gate_pipeline import write_sample

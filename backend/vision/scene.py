@@ -82,10 +82,14 @@ class SceneConfig(BaseModel):
     # Gate rule: trigger once inside in >= gate_min_inside of the last gate_window_frames video frames.
     gate_min_inside: Annotated[int, Field(ge=1)] = 2
     gate_window_frames: Annotated[int, Field(ge=1, le=25)] = 3
-    # Parked rule: a track whose counting point never moves more than this many px from its first position over its
-    # whole life in the clip (max displacement, not path length; boxes clipped by the frame border are ignored) is
-    # parked and excluded from the initial state, triggers, events and counts. None = off (diagnostics only).
-    parked_max_travel_px: Annotated[float, Field(gt=0)] | None = None
+    # Causal counting rules (backend/vision/gates.py). Every decision at frame f uses frames <= f only.
+    warmup_s: Annotated[float, Field(ge=0)] = 2.0  # starting offset taken at this time; counts unknown before
+    min_track_frames: Annotated[int, Field(ge=1)] = 10  # observations before a track counts on an approach
+    region_leave_frames: Annotated[int, Field(ge=1)] = 3  # consecutive observations outside -> approach_left
+    region_leave_margin_px: Annotated[float, Field(ge=0)] = 15.0  # "outside" = at least this far from the region
+    lost_s: Annotated[float, Field(gt=0)] = 1.5  # unseen this long -> approach_left (via lost)
+    obstruction_s: Annotated[float, Field(gt=0)] = 150.0  # stationary in its region this long -> approach_left
+    obstruction_radius_px: Annotated[float, Field(gt=0)] = 25.0  # "stationary" = within this radius of one point
     gates: dict[str, Quad] = {}
     notes: str = ""
 
