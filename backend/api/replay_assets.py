@@ -14,6 +14,12 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_REPLAY_ASSET_DIR = (
     REPOSITORY_ROOT / "assets" / "ai-traffic" / "versions" / "waiting-v1"
 )
+DEFAULT_DEMO2_REPLAY_ASSET_DIR = (
+    REPOSITORY_ROOT / "assets" / "ai-traffic" / "versions" / "demo2-v1"
+)
+# Browser-facing (Next.js proxy) URL prefix of the original single-bundle endpoints.
+LEGACY_ASSET_URL_PREFIX = "/api/operator/ai-traffic/assets"
+DEFAULT_DATASET_ID = "demo1"
 ASSET_MEDIA_TYPES = {
     "original_video": "video/mp4",
     "annotated_video": "video/mp4",
@@ -118,7 +124,12 @@ class ReplayAsset:
 class ReplayAssetStore:
     """Load one replay manifest and expose only declared, known asset IDs."""
 
-    def __init__(self, root: Path | None = None) -> None:
+    def __init__(
+        self,
+        root: Path | None = None,
+        *,
+        asset_url_prefix: str = LEGACY_ASSET_URL_PREFIX,
+    ) -> None:
         configured = root
         if configured is None:
             configured = (
@@ -127,6 +138,11 @@ class ReplayAssetStore:
                 else DEFAULT_REPLAY_ASSET_DIR
             )
         self.root = configured.expanduser().resolve()
+        self.asset_url_prefix = asset_url_prefix.rstrip("/")
+
+    def scoped(self, asset_url_prefix: str) -> "ReplayAssetStore":
+        """Same bundle root, with asset URLs under a different browser prefix."""
+        return ReplayAssetStore(self.root, asset_url_prefix=asset_url_prefix)
 
     def _root(self) -> Path:
         if not self.root.is_dir():
@@ -154,6 +170,9 @@ class ReplayAssetStore:
             raise ReplayAssetError(404, "unknown replay asset")
         root, manifest = self._load()
         assets = _object(manifest.get("assets"), "manifest assets")
+        if asset_id not in assets:
+            # e.g. original_video in an annotated-only dataset: absent, never substituted.
+            raise ReplayAssetError(404, f"replay asset {asset_id} is not provided by this dataset")
         entry = _object(assets.get(asset_id), f"asset {asset_id}")
         path = _safe_path(root, entry.get("path"))
         if not path.is_file():
@@ -185,7 +204,7 @@ class ReplayAssetStore:
                 }
             statuses[asset_id] = {
                 "available": available,
-                "url": f"/api/operator/ai-traffic/assets/{asset_id}" if available else None,
+                "url": f"{self.asset_url_prefix}/{asset_id}" if available else None,
                 **metadata,
             }
         comparison_entry = _object(assets.get("comparison_report"), "comparison report asset")
@@ -216,4 +235,133 @@ class ReplayAssetStore:
             "assets": statuses,
             "comparison": comparison,
             "limitations": manifest.get("limitations", []),
+        }
+
+
+@dataclass(frozen=True)
+class ReplayDataset:
+    dataset_id: str
+    label: str
+    description: str
+    store: ReplayAssetStore
+
+
+# Explicit allowlist: selection IDs map to fixed bundle directories, never to request paths.
+DATASET_LABELS: dict[str, tuple[str, str]] = {
+    "demo1": (
+        "Center Street & 500 West Intersection",
+        "Original and AI-annotated video.",
+    ),
+    "demo2": (
+        "Center Street & University Avenue Intersection",
+        "AI-annotated video only; no original footage was provided.",
+    ),
+}
+
+
+def dataset_asset_url_prefix(dataset_id: str) -> str:
+    return f"/api/operator/ai-traffic/datasets/{dataset_id}/assets"
+
+
+class ReplayDatasetRegistry:
+    """Serve the allowlisted AI Traffic datasets; demo1 remains the default."""
+
+    def __init__(self, roots: dict[str, Path | None] | None = None) -> None:
+        roots = dict(roots or {})
+        unknown = set(roots) - set(DATASET_LABELS)
+        if unknown:
+            raise ValueError(f"unknown replay dataset IDs: {sorted(unknown)}")
+        demo1_root = roots.get("demo1")
+        demo2_root = roots.get("demo2")
+        if demo2_root is None:
+            override = os.getenv("FLOWGENCY_REPLAY_ASSET_DIR_DEMO2")
+            demo2_root = Path(override) if override else DEFAULT_DEMO2_REPLAY_ASSET_DIR
+        self._datasets: dict[str, ReplayDataset] = {}
+        for dataset_id, root in (("demo1", demo1_root), ("demo2", demo2_root)):
+            label, description = DATASET_LABELS[dataset_id]
+            self._datasets[dataset_id] = ReplayDataset(
+                dataset_id,
+                label,
+                description,
+                ReplayAssetStore(root, asset_url_prefix=dataset_asset_url_prefix(dataset_id)),
+            )
+
+    @classmethod
+    def from_store(cls, demo1: ReplayAssetStore) -> "ReplayDatasetRegistry":
+        """Reuse an injected Demo 1 store (tests, custom deployments) as dataset demo1."""
+        return cls({"demo1": demo1.root})
+
+    @property
+    def dataset_ids(self) -> tuple[str, ...]:
+        return tuple(self._datasets)
+
+    def dataset(self, dataset_id: str) -> ReplayDataset:
+        dataset = self._datasets.get(dataset_id)
+        if dataset is None:
+            raise ReplayAssetError(404, "unknown replay dataset")
+        return dataset
+
+    def _distinct_from_demo1(self, dataset: ReplayDataset) -> None:
+        """Never serve the Demo 1 bundle under another dataset ID."""
+        if dataset.dataset_id == DEFAULT_DATASET_ID:
+            return
+        if dataset.store.root == self._datasets[DEFAULT_DATASET_ID].store.root:
+            raise ReplayAssetError(
+                503, f"{dataset.dataset_id} is configured to the Demo 1 bundle directory"
+            )
+
+    def public_manifest(self, dataset_id: str) -> dict[str, Any]:
+        dataset = self.dataset(dataset_id)
+        self._distinct_from_demo1(dataset)
+        manifest = dataset.store.public_manifest()
+        if dataset.dataset_id != DEFAULT_DATASET_ID:
+            try:
+                demo1_id = self._datasets[DEFAULT_DATASET_ID].store.public_manifest()["dataset_id"]
+            except ReplayAssetError:
+                demo1_id = None
+            if demo1_id is not None and demo1_id == manifest["dataset_id"]:
+                raise ReplayAssetError(
+                    503, f"{dataset.dataset_id} manifest duplicates the Demo 1 dataset"
+                )
+        return {**manifest, "selection_id": dataset.dataset_id}
+
+    def asset(self, dataset_id: str, asset_id: str) -> ReplayAsset:
+        dataset = self.dataset(dataset_id)
+        self._distinct_from_demo1(dataset)
+        return dataset.store.asset(asset_id)
+
+    def list_datasets(self) -> dict[str, Any]:
+        """Availability of every allowlisted dataset, without exposing filesystem paths."""
+        items: list[dict[str, Any]] = []
+        for dataset in self._datasets.values():
+            try:
+                manifest = self.public_manifest(dataset.dataset_id)
+                status: dict[str, Any] = {
+                    "available": True,
+                    "detail": None,
+                    "manifest_dataset_id": manifest["dataset_id"],
+                    "video_sources": [
+                        source
+                        for source in ("original_video", "annotated_video")
+                        if manifest["assets"][source]["available"]
+                    ],
+                }
+            except ReplayAssetError as exc:
+                status = {
+                    "available": False,
+                    "detail": exc.detail,
+                    "manifest_dataset_id": None,
+                    "video_sources": [],
+                }
+            items.append({
+                "dataset_id": dataset.dataset_id,
+                "label": dataset.label,
+                "description": dataset.description,
+                "default": dataset.dataset_id == DEFAULT_DATASET_ID,
+                **status,
+            })
+        return {
+            "schema_version": MANIFEST_SCHEMA_VERSION,
+            "default_dataset_id": DEFAULT_DATASET_ID,
+            "datasets": items,
         }

@@ -12,7 +12,13 @@ from pathlib import Path
 from typing import Any
 
 from backend.api.replay_assets import validate_comparison_report
+from backend.simulation.ai_demand import initial_exclusion_limitation
 from backend.simulation.replay import inspect_replay
+
+
+DEFAULT_DISPLAY_NAME = "Prerecorded AI-derived traffic experiment"
+# A browser copy may differ from its source by container rounding, never by content.
+MAX_VIDEO_DURATION_DRIFT_S = 0.1
 
 
 def _sha256(path: Path) -> str:
@@ -40,6 +46,7 @@ def _probe_video(path: Path) -> dict[str, Any]:
         text=True,
         capture_output=True,
         check=True,
+        stdin=subprocess.DEVNULL,
     )
     value = json.loads(completed.stdout)
     stream = value["streams"][0]
@@ -62,17 +69,20 @@ def _prepare_video(source: Path, target: Path) -> dict[str, Any]:
     else:
         subprocess.run(
             [
-                "ffmpeg", "-v", "warning", "-i", str(source),
+                "ffmpeg", "-nostdin", "-v", "warning", "-i", str(source),
                 "-map", "0:v:0", "-an", "-c:v", "libx264", "-preset", "medium",
                 "-crf", "20", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
                 str(target),
             ],
             check=True,
+            stdin=subprocess.DEVNULL,
         )
         conversion = f"transcoded_from_{source_metadata['codec']}_to_h264"
     output_metadata = _probe_video(target)
     if output_metadata["codec"] != "h264" or output_metadata["pixel_format"] != "yuv420p":
         raise ValueError(f"browser video output is incompatible: {target}")
+    if abs(output_metadata["duration_s"] - source_metadata["duration_s"]) > MAX_VIDEO_DURATION_DRIFT_S:
+        raise ValueError(f"browser video duration differs from its source: {target}")
     return {
         **output_metadata,
         "conversion": conversion,
@@ -85,7 +95,7 @@ def _prepare_video(source: Path, target: Path) -> dict[str, Any]:
 def create_bundle(
     output_directory: Path,
     *,
-    original_video: Path,
+    original_video: Path | None,
     annotated_video: Path,
     fixed_replay: Path,
     gap_replay: Path,
@@ -94,7 +104,13 @@ def create_bundle(
     comparison_report: Path,
     dataset_id: str,
     require_waiting_series: bool = False,
+    display_name: str = DEFAULT_DISPLAY_NAME,
 ) -> Path:
+    """Validate replays/reports, prepare browser videos, and write the manifest.
+
+    ``original_video`` may be None for annotated-only datasets. The original
+    asset is then omitted from the manifest (never substituted).
+    """
     root = output_directory.resolve()
     if not root.is_dir():
         raise ValueError("external replay output directory must already exist")
@@ -163,7 +179,13 @@ def create_bundle(
 
     original_target = videos / "original.mp4"
     annotated_target = videos / "annotated.mp4"
-    original_metadata = _prepare_video(original_video.resolve(), original_target)
+    if original_video is not None and original_video.resolve() == annotated_video.resolve():
+        raise ValueError("the annotated video must not be labelled as the original video")
+    original_metadata = (
+        _prepare_video(original_video.resolve(), original_target)
+        if original_video is not None
+        else None
+    )
     annotated_metadata = _prepare_video(annotated_video.resolve(), annotated_target)
     comparison_target = reports / "comparison_report.json"
     if comparison_target.exists():
@@ -178,16 +200,64 @@ def create_bundle(
             **metadata,
         }
 
-    manifest = {
-        "schema_version": "1.0",
-        "dataset_id": dataset_id,
-        "display_name": "Prerecorded AI-derived traffic experiment",
-        "video": {
+    if original_metadata is not None:
+        video = {
             "duration_s": original_metadata["duration_s"],
             "annotated_duration_s": annotated_metadata["duration_s"],
             "source_identifier": original_metadata["source_sha256"],
             "camera_orientation_verified": False,
-        },
+        }
+    else:
+        # Annotated-only: no original footage exists, so its duration is unknown (null).
+        video = {
+            "duration_s": None,
+            "annotated_duration_s": annotated_metadata["duration_s"],
+            "source_identifier": annotated_metadata["source_sha256"],
+            "source_kind": "annotated_only",
+            "original_video_available": False,
+            "camera_orientation_verified": False,
+        }
+    demand_summary = fixed_report.get("demand", {})
+    limitations = [
+        initial_exclusion_limitation(
+            demand_summary,
+            "The {count} vehicles initially visible at video {at} are excluded.",
+        ),
+        "Camera-to-SUMO orientation is unverified.",
+        "The synthetic network supports straight-through movements only.",
+        "Replay metrics describe a recorded-video-derived synthetic experiment, not real-world savings.",
+    ]
+    if original_metadata is None:
+        limitations.append(
+            "Only the AI-annotated video was provided; no unannotated original footage is available."
+        )
+    left = demand_summary.get("approach_left_events_not_demand")
+    if isinstance(left, dict) and left.get("count"):
+        limitations.append(
+            f"{left['count']} approach_left events were validated and did not change the planned demand."
+        )
+    assets: dict[str, Any] = {
+        "annotated_video": asset(annotated_target, duration_s=annotated_metadata["duration_s"]),
+        "fixed_replay": asset(
+            fixed_replay,
+            frame_count=fixed_info["frame_count"],
+            waiting_series_available=fixed_info["waiting_series_available"],
+        ),
+        "gap_v1_replay": asset(
+            gap_replay,
+            frame_count=gap_info["frame_count"],
+            waiting_series_available=gap_info["waiting_series_available"],
+        ),
+        "comparison_report": asset(comparison_target),
+    }
+    if original_metadata is not None:
+        assets["original_video"] = asset(original_target, duration_s=original_metadata["duration_s"])
+
+    manifest = {
+        "schema_version": "1.0",
+        "dataset_id": dataset_id,
+        "display_name": display_name,
+        "video": video,
         "alignment": {
             "video_time_to_sumo_planned_departure_offset_s": 0.0,
             "video_ends_without_looping": True,
@@ -204,21 +274,7 @@ def create_bundle(
             "route_file_sha256": validated_comparison["inputs"].get("route_file_sha256"),
             "network_sha256": validated_comparison["inputs"].get("simulation_settings", {}).get("network_sha256"),
         },
-        "assets": {
-            "original_video": asset(original_target, duration_s=original_metadata["duration_s"]),
-            "annotated_video": asset(annotated_target, duration_s=annotated_metadata["duration_s"]),
-            "fixed_replay": asset(
-                fixed_replay,
-                frame_count=fixed_info["frame_count"],
-                waiting_series_available=fixed_info["waiting_series_available"],
-            ),
-            "gap_v1_replay": asset(
-                gap_replay,
-                frame_count=gap_info["frame_count"],
-                waiting_series_available=gap_info["waiting_series_available"],
-            ),
-            "comparison_report": asset(comparison_target),
-        },
+        "assets": assets,
         "replays": {
             "fixed": {
                 "asset_id": "fixed_replay",
@@ -241,12 +297,7 @@ def create_bundle(
             },
         },
         "comparison": {"asset_id": "comparison_report", "validated": True},
-        "limitations": [
-            "The 26 vehicles initially visible at video t=0 are excluded.",
-            "Camera-to-SUMO orientation is unverified.",
-            "The synthetic network supports straight-through movements only.",
-            "Replay metrics describe a recorded-video-derived synthetic experiment, not real-world savings.",
-        ],
+        "limitations": limitations,
     }
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return manifest_path
@@ -255,7 +306,11 @@ def create_bundle(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-directory", type=Path, required=True)
-    parser.add_argument("--original-video", type=Path, required=True)
+    parser.add_argument(
+        "--original-video",
+        type=Path,
+        help="unannotated source footage; omit for annotated-only datasets (never substitute)",
+    )
     parser.add_argument("--annotated-video", type=Path, required=True)
     parser.add_argument("--fixed-replay", type=Path, required=True)
     parser.add_argument("--gap-replay", type=Path, required=True)
@@ -263,6 +318,7 @@ def main() -> int:
     parser.add_argument("--adaptive-run-report", type=Path, required=True)
     parser.add_argument("--comparison-report", type=Path, required=True)
     parser.add_argument("--dataset-id", default="youtube_intersection_264s_v1")
+    parser.add_argument("--display-name", default=DEFAULT_DISPLAY_NAME)
     parser.add_argument(
         "--require-waiting-series",
         action="store_true",
@@ -281,6 +337,7 @@ def main() -> int:
             comparison_report=args.comparison_report,
             dataset_id=args.dataset_id,
             require_waiting_series=args.require_waiting_series,
+            display_name=args.display_name,
         )
     except (FileNotFoundError, FileExistsError, OSError, ValueError, subprocess.SubprocessError) as exc:
         parser.exit(2, f"error: {exc}\n")

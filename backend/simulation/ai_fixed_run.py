@@ -11,7 +11,11 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
 
-from backend.simulation.ai_demand import DEFAULT_NETWORK_PATH, generate_demand
+from backend.simulation.ai_demand import (
+    DEFAULT_NETWORK_PATH,
+    generate_demand,
+    initial_exclusion_limitation,
+)
 from backend.simulation.ai_input import JsonlValidationError
 from backend.simulation.replay import ReplayWriter
 from backend.simulation.runner import DEFAULT_MAPPING_PATH, SumoRunner
@@ -156,6 +160,7 @@ def run_fixed_experiment(
     mapping_path: Path = DEFAULT_MAPPING_PATH,
     replay_output_path: Path | None = None,
     overwrite: bool = False,
+    allow_unknown_initial_observations: bool = False,
 ) -> dict[str, Any]:
     """Generate demand, execute SUMO once, and report strict insertion/trip accounting."""
     if max_simulation_time_s <= 264:
@@ -189,6 +194,7 @@ def run_fixed_experiment(
         summary_path=paths["demand_summary"],
         network_path=network_path,
         overwrite=overwrite,
+        allow_unknown_initial_observations=allow_unknown_initial_observations,
     )
     write_runtime_config(
         paths["config"],
@@ -404,7 +410,10 @@ def run_fixed_experiment(
             "teleport_threshold_s": DEFAULT_TELEPORT_THRESHOLD_S,
         },
         "limitations": [
-            "The 26 vehicles already observed at video t=0 are excluded; their positions are unknown.",
+            initial_exclusion_limitation(
+                demand_summary,
+                "The {count} vehicles already observed at video {at} are excluded; their positions are unknown.",
+            ),
             "Camera-to-SUMO orientation is unverified.",
             "All generated movements are straight-only verified synthetic connections.",
             "AI intersection entry/exit times do not command or remove SUMO vehicles.",
@@ -431,6 +440,11 @@ def main() -> int:
         help="optional JSONL trajectory export; existing files are never overwritten",
     )
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument(
+        "--allow-unknown-initial-observations",
+        action="store_true",
+        help="accept recordings where no counts line has every arm known; the starting offset is recorded as unknown",
+    )
     args = parser.parse_args()
     try:
         report = run_fixed_experiment(
@@ -444,6 +458,7 @@ def main() -> int:
             mapping_path=args.mappings,
             replay_output_path=args.replay_output,
             overwrite=args.overwrite,
+            allow_unknown_initial_observations=args.allow_unknown_initial_observations,
         )
     except (FileExistsError, FileNotFoundError, JsonlValidationError, ValueError) as exc:
         parser.exit(2, f"error: {exc}\n")

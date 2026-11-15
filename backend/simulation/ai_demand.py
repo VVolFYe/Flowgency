@@ -57,6 +57,41 @@ def _format_seconds(value: float) -> str:
     return format(value, ".15g")
 
 
+def initial_vehicles_excluded(demand_summary: dict[str, Any]) -> int | None:
+    """Return the known count of vehicles visible at t=0 (never inserted), else None."""
+    initial = demand_summary.get("initial_observed_vehicles_not_inserted")
+    total = initial.get("total") if isinstance(initial, dict) else None
+    return total if type(total) is int else None
+
+
+def initial_exclusion_limitation(demand_summary: dict[str, Any], template: str) -> str:
+    """Describe the excluded starting vehicles from real data.
+
+    ``template`` uses ``{count}`` and ``{at}`` (e.g. ``"... at video {at} ..."``);
+    ``{at}`` is ``t=0`` or the later warm-up line where counts first became known.
+    An unknown count is never invented.
+    """
+    count = initial_vehicles_excluded(demand_summary)
+    if count is not None:
+        initial = demand_summary.get("initial_observed_vehicles_not_inserted", {})
+        observed_at = initial.get("observed_at_t_s") if isinstance(initial, dict) else None
+        at = (
+            "t=0"
+            if not isinstance(observed_at, (int, float)) or observed_at == 0
+            else f"t={observed_at:g}s (first counts line with every arm known)"
+        )
+        return template.format(count=count, at=at)
+    if isinstance(initial := demand_summary.get("initial_observed_vehicles_not_inserted"), dict) and (
+        initial.get("status") == "unknown_at_t0"
+    ):
+        # Summaries written before the warm-up rule was merged recorded only the unknown t=0 line.
+        return "Approach vehicles present at video t=0 were not observed (count unknown) and are not inserted."
+    return (
+        "Starting approach vehicles were not observed on any complete counts line "
+        "(count unknown) and are not inserted."
+    )
+
+
 def derive_straight_routes(
     network_path: Path,
     arm_mapping: dict[str, Any],
@@ -119,8 +154,15 @@ def generate_demand(
     scenario_mapping_path: Path = DEFAULT_SCENARIO_MAPPING_PATH,
     network_path: Path = DEFAULT_NETWORK_PATH,
     overwrite: bool = False,
+    allow_unknown_initial_observations: bool = False,
 ) -> dict[str, Any]:
-    """Validate inputs and write one SUMO vehicle per unique approach arrival."""
+    """Validate inputs and write one SUMO vehicle per unique approach arrival.
+
+    The starting offset comes from the first counts line with every arm known
+    (``timeline.initial_point``). ``allow_unknown_initial_observations`` is an
+    explicit opt-in for recordings where no such line exists: the offset is then
+    recorded as unknown (null), never as zero, and never creates vehicles.
+    """
     if output_path.suffixes[-2:] != [".rou", ".xml"]:
         raise JsonlValidationError("output path must end with .rou.xml")
     summary_path = summary_path or output_path.with_suffix(".summary.json")
@@ -190,11 +232,30 @@ def generate_demand(
         })
     ET.indent(root, space="    ")
 
-    initial_point = timeline.initial_point  # t_s=0 in older files, the warm-up line since 2026-11-15
-    if initial_point is None:
-        raise JsonlValidationError("no counts observation has the vehicle count known for every arm")
-    initial = {arm: state.observed_vehicles for arm, state in initial_point.approaches.items()}
+    # Starting offset: the first counts line with every mapped arm known (t_s=0 in older files,
+    # the warm-up line since 2026-11-15). Those vehicles are metadata only and never inserted.
+    initial_point = timeline.initial_point
+    initial_unknown = initial_point is None
+    if initial_unknown and not allow_unknown_initial_observations:
+        raise JsonlValidationError(
+            "no counts observation has the vehicle count known for every arm "
+            "(pass --allow-unknown-initial-observations to record the starting offset as unknown)"
+        )
+    # Unknown stays unknown (null), never zero.
+    initial = (
+        {arm: state.observed_vehicles for arm, state in initial_point.approaches.items()}
+        if initial_point is not None
+        else {arm: None for arm in timeline.mapping}
+    )
     arrivals_by_arm = Counter(item.camera_arm for item in arrivals)
+    initial_total = None if initial_unknown else sum(
+        value for value in initial.values() if value is not None
+    )
+    initial_assumption = (
+        f"The {initial_total} initially observed approach vehicles are metadata only and are not inserted."
+        if initial_total is not None
+        else "No counts line had every arm known, so starting approach vehicles are unknown (not zero) and are not inserted."
+    )
     summary: dict[str, Any] = {
         "schema_version": "1.0",
         "generator": "backend.simulation.ai_demand",
@@ -207,9 +268,10 @@ def generate_demand(
             arm: arrivals_by_arm.get(arm, 0) for arm in ARM_ORDER
         },
         "initial_observed_vehicles_not_inserted": {
-            "observed_at_t_s": initial_point.t_s,
+            "observed_at_t_s": initial_point.t_s if initial_point is not None else None,
             "by_camera_arm": initial,
-            "total": sum(value for value in initial.values() if value is not None),
+            "total": initial_total,
+            **({"status": "unknown_no_complete_observation"} if initial_unknown else {}),
         },
         "camera_orientation_status": "unverified_camera_to_sumo",
         "routes": {
@@ -225,7 +287,7 @@ def generate_demand(
         "assumptions": [
             "Only approach_entered events create SUMO vehicles.",
             "Each vehicle uses the verified straight-only movement for its mapped incoming edge.",
-            "The 26 initially observed approach vehicles are metadata only and are not inserted.",
+            initial_assumption,
             "Camera-arm orientation relative to the synthetic network is unverified.",
             "Optional future event fields, including emergency metadata, do not alter demand.",
         ],
@@ -234,6 +296,20 @@ def generate_demand(
             "events_sha256": _sha256(events_path),
         },
     }
+    if timeline.approach_left:
+        # Reported for transparency only; approach_left never adds or removes vehicles.
+        summary["approach_left_events_not_demand"] = {
+            "count": len(timeline.approach_left),
+            "by_camera_arm": {
+                arm: sum(item.camera_arm == arm for item in timeline.approach_left)
+                for arm in ARM_ORDER
+            },
+            "track_ids": [item.track_id for item in timeline.approach_left],
+            "effect": "none; each track still has exactly one vehicle from its approach_entered event",
+        }
+        summary["assumptions"].append(
+            "approach_left events are validated against their approach_entered event and do not change demand."
+        )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     summary_path.parent.mkdir(parents=True, exist_ok=True)
@@ -251,6 +327,11 @@ def main() -> int:
     parser.add_argument("--mapping", type=Path, default=DEFAULT_MAPPING_PATH)
     parser.add_argument("--network", type=Path, default=DEFAULT_NETWORK_PATH)
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument(
+        "--allow-unknown-initial-observations",
+        action="store_true",
+        help="accept recordings where no counts line has every arm known; the starting offset is recorded as unknown",
+    )
     args = parser.parse_args()
     try:
         summary = generate_demand(
@@ -261,6 +342,7 @@ def main() -> int:
             mapping_path=args.mapping,
             network_path=args.network,
             overwrite=args.overwrite,
+            allow_unknown_initial_observations=args.allow_unknown_initial_observations,
         )
     except (FileExistsError, FileNotFoundError, JsonlValidationError) as exc:
         parser.exit(2, f"error: {exc}\n")

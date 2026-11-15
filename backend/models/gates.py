@@ -95,7 +95,11 @@ class GateCounts(BaseModel):
 
 
 class GateEventInput(GateEvent):
-    """Consumer event model accepting unknown optional future metadata."""
+    """Consumer event model accepting unknown optional future metadata.
+
+    It accepts the producer's event names, including ``approach_left``, which never
+    creates demand (``backend.simulation.ai_input`` validates it against its entry).
+    """
 
     model_config = ConfigDict(extra="allow")
 

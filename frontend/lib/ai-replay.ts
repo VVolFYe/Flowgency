@@ -4,6 +4,30 @@ export const REPLAY_SCHEMA_VERSION = "1.0";
 export const VIDEO_SOURCES = ["original_video", "annotated_video"] as const;
 export type VideoSource = (typeof VIDEO_SOURCES)[number];
 
+/** Allowlisted AI Traffic datasets; the backend maps each to a fixed bundle directory. */
+export const REPLAY_DATASET_IDS = ["demo1", "demo2"] as const;
+export type ReplayDatasetId = (typeof REPLAY_DATASET_IDS)[number];
+export const DEFAULT_REPLAY_DATASET_ID: ReplayDatasetId = "demo1";
+/** User-facing intersection names. Display only: IDs, routes and bundles keep demo1/demo2. */
+export const REPLAY_DATASET_LABELS: Record<ReplayDatasetId, string> = {
+  demo1: "Center Street & 500 West Intersection",
+  demo2: "Center Street & University Avenue Intersection",
+};
+export const REPLAY_DATASET_SHORT_LABELS: Record<ReplayDatasetId, string> = {
+  demo1: "Intersection 1",
+  demo2: "Intersection 2",
+};
+
+export interface ReplayDatasetStatus {
+  dataset_id: ReplayDatasetId;
+  label: string;
+  description: string;
+  default: boolean;
+  available: boolean;
+  detail: string | null;
+  video_sources: VideoSource[];
+}
+
 export interface ReplayVehicle {
   vehicle_id: string;
   x_m: number;
@@ -67,10 +91,15 @@ export interface ReplayManifest {
   schema_version: "1.0";
   dataset_id: string;
   display_name: string;
+  /** Allowlisted selection the manifest was served for (dataset-scoped endpoints only). */
+  selection_id?: string;
   video: {
-    duration_s: number;
+    /** Original footage duration; null when no original video exists (annotated-only). */
+    duration_s: number | null;
     annotated_duration_s: number;
     camera_orientation_verified: boolean;
+    source_kind?: "annotated_only";
+    original_video_available?: boolean;
   };
   network_geometry: {
     scenario_id: "single_intersection";
@@ -373,4 +402,92 @@ export function validateReplayGeometry(manifest: ReplayManifest, geometry: Netwo
   ) {
     throw new Error("Replay manifest does not prove gap_v1 activation at demo_01");
   }
+}
+
+export function isReplayDatasetId(value: unknown): value is ReplayDatasetId {
+  return typeof value === "string" && (REPLAY_DATASET_IDS as readonly string[]).includes(value);
+}
+
+export function datasetManifestUrl(datasetId: ReplayDatasetId) {
+  return `/api/operator/ai-traffic/datasets/${datasetId}/manifest`;
+}
+
+/** Strictly parse GET /api/ai-traffic/datasets; unknown dataset IDs are rejected. */
+export function parseDatasetList(value: unknown): ReplayDatasetStatus[] {
+  const body = objectValue(value, "dataset list");
+  if (!Array.isArray(body.datasets)) throw new Error("Replay dataset list is invalid");
+  const seen = new Set<string>();
+  return body.datasets.map((raw) => {
+    const item = objectValue(raw, "dataset entry");
+    if (!isReplayDatasetId(item.dataset_id) || seen.has(item.dataset_id)) {
+      throw new Error("Replay dataset list contains an unknown or duplicate dataset");
+    }
+    seen.add(item.dataset_id);
+    if (typeof item.available !== "boolean" || !Array.isArray(item.video_sources)) {
+      throw new Error("Replay dataset entry is invalid");
+    }
+    return {
+      dataset_id: item.dataset_id,
+      label: typeof item.label === "string" && item.label ? item.label : REPLAY_DATASET_LABELS[item.dataset_id],
+      description: typeof item.description === "string" ? item.description : "",
+      default: item.default === true,
+      available: item.available,
+      detail: typeof item.detail === "string" ? item.detail : null,
+      video_sources: item.video_sources.filter((source): source is VideoSource =>
+        (VIDEO_SOURCES as readonly unknown[]).includes(source)),
+    };
+  });
+}
+
+/** The manifest must belong to the dataset the page requested. */
+export function assertManifestSelection(manifest: ReplayManifest, datasetId: ReplayDatasetId) {
+  if (manifest.selection_id !== datasetId) {
+    throw new Error(`Replay manifest belongs to ${manifest.selection_id ?? "an unknown dataset"}, not ${datasetId}`);
+  }
+}
+
+export function availableVideoSources(manifest: ReplayManifest): VideoSource[] {
+  return VIDEO_SOURCES.filter((source) => manifest.assets[source]?.available === true);
+}
+
+/** Prefer the AI-annotated video; never substitute one source for the other. */
+export function defaultVideoSource(manifest: ReplayManifest): VideoSource | null {
+  const available = availableVideoSources(manifest);
+  if (available.includes("annotated_video")) return "annotated_video";
+  return available[0] ?? null;
+}
+
+export function videoDurationFor(manifest: ReplayManifest, source: VideoSource): number | undefined {
+  const value = source === "original_video" ? manifest.video.duration_s : manifest.video.annotated_duration_s;
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+/** True only when the manifest declares that no original footage exists. */
+export function isAnnotatedOnly(manifest: ReplayManifest) {
+  return manifest.video.source_kind === "annotated_only" || manifest.video.original_video_available === false;
+}
+
+/** The shared timeline spans the longer of the two recorded replays. */
+export function replayTimelineDuration(fixed: ReplayStream, gap: ReplayStream) {
+  return Math.max(fixed.durationS, gap.durationS);
+}
+
+/** Playback state every dataset switch starts from: paused at t = 0. */
+export function initialPlayback() {
+  return { timeS: 0, playing: false } as const;
+}
+
+/**
+ * Monotonic request tokens. A response may update the page only while its token
+ * is still the latest, so rapid dataset switching never shows stale data.
+ */
+export function createRequestSequencer() {
+  let latest = 0;
+  return {
+    next: () => {
+      latest += 1;
+      return latest;
+    },
+    isCurrent: (token: number) => token === latest,
+  };
 }
