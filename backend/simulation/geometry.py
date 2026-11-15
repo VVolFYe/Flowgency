@@ -13,7 +13,15 @@ from typing import Any
 from xml.etree import ElementTree as ET
 
 from .runner import DEFAULT_MAPPING_PATH, DEFAULT_SCENARIO_DIRECTORY
-from .scenarios import DEFAULT_SCENARIO_ID, get_scenario
+from .scenarios import (
+    DEFAULT_CONTROLLER_MODE,
+    DEFAULT_NETWORK,
+    DEFAULT_SCENARIO_ID,
+    DEFAULT_TRAFFIC_PROFILE,
+    SimulationConfiguration,
+    get_scenario,
+    resolve_configuration,
+)
 
 DEFAULT_NETWORK_PATH = DEFAULT_SCENARIO_DIRECTORY / "demo.net.xml"
 
@@ -219,6 +227,26 @@ def get_scenario_geometry(scenario_id: str) -> dict[str, Any]:
         str(scenario.network_path.resolve()),
         str(scenario.mapping_path.resolve()) if scenario.mapping_path is not None else "",
         scenario.scenario_id,
+        scenario.legacy_scenario_id,
+        scenario.coordinate_system,
+    )
+    return copy.deepcopy(geometry)
+
+
+def get_network_selection_geometry(network: str = DEFAULT_NETWORK) -> dict[str, Any]:
+    """Return geometry for a network selector, independent of demand/controller."""
+    scenario = resolve_configuration(
+        SimulationConfiguration(
+            network=network,  # type: ignore[arg-type]
+            traffic_profile=DEFAULT_TRAFFIC_PROFILE,
+            controller_mode=DEFAULT_CONTROLLER_MODE,
+            emergency_vehicles_enabled=False,
+        )
+    )
+    geometry = _load_cached(
+        str(scenario.network_path.resolve()),
+        str(scenario.mapping_path.resolve()) if scenario.mapping_path is not None else "",
+        network,
         scenario.legacy_scenario_id,
         scenario.coordinate_system,
     )

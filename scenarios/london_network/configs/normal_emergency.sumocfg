@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <input><net-file value="../london.net.xml"/><route-files value="../demand/normal.rou.xml,../demand/emergency_vehicles.rou.xml"/></input>
+    <time><begin value="0"/><end value="2400"/><step-length value="1"/></time>
+    <random_number><seed value="20261113"/></random_number>
+    <output><tripinfo-output value="../output/normal_emergency/tripinfo.xml"/><tripinfo-output.write-unfinished value="true"/><summary-output value="../output/normal_emergency/summary.xml"/><summary-output.period value="10"/></output>
+    <processing><collision.action value="warn"/><collision.check-junctions value="true"/></processing>
+    <report><verbose value="false"/><no-step-log value="true"/></report>
+</configuration>

@@ -171,8 +171,16 @@ The service status is transport metadata, not SUMO intersection state:
 {
   "state": "running",
   "simulation_speed": 4.0,
-  "control_mode": "fixed",
-  "scenario_id": "single_intersection",
+  "active_configuration": {
+    "network": "single_intersection",
+    "traffic_profile": "normal",
+    "controller_mode": "fixed_timing",
+    "emergency_vehicles_enabled": false
+  },
+  "network": "single_intersection",
+  "traffic_profile": "normal",
+  "controller_mode": "fixed_timing",
+  "emergency_vehicles_enabled": false,
   "simulation_time_s": 42.0,
   "has_snapshot": true,
   "error": null
@@ -181,9 +189,7 @@ The service status is transport metadata, not SUMO intersection state:
 
 `state` is one of `idle`, `running`, `paused`, `finished`, or `error`. Simulation speed is simulated seconds per wall-clock second. Time is `null` before the first run; `error` is populated only when the worker fails.
 
-Status also carries `control_mode`: `fixed`, `adaptive`, or `adaptive_with_emergency_priority`. It defaults to `fixed` before a run and after stop. Emergency priority is available only on the verified synthetic mapping. It preserves the normal 10-second minimum on a conflicting green and the installed yellow/all-red sequence. A compatible green can extend beyond the normal 45-second maximum while the emergency vehicle remains on the incoming edge or inside the junction. This is simulation behavior, not a validated road-signal policy.
-
-Status `scenario_id` is the active public selection ID. While idle, and after Stop, it is `single_intersection`. Reset retains the active selection.
+`active_configuration` is `null` while idle and after Stop. Reset retains the complete active configuration but creates a new `run_id`. Controller IDs are `fixed_timing`, `adaptive_network`, and `adaptive_emergency_priority`. The emergency boolean controls only whether SUMO loads the repository-owned emergency route file; it never changes controller mode implicitly.
 
 WebSocket messages use a small envelope so status notifications and unchanged version 1.0 state snapshots can share one stream:
 
@@ -269,13 +275,25 @@ All positions and shapes preserve SUMO Cartesian coordinates in metres. Internal
 
 Geometry also includes `projection` (`proj_parameter`, `net_offset`, and `original_boundary`) read from the actual `net.xml`, plus `rendering.invert_y_axis_for_screen=true`. London preserves its UTM zone 30 definition. Geometry and vehicle positions both remain in post-offset SUMO Cartesian metres.
 
-## H. Scenario registry and selection
+## H. Simulation configuration and selection
 
-`GET /api/simulation/scenarios` lists stable public IDs and display metadata without loading SUMO. London entries expose J1–J5 candidate mappings and retain the multiple candidates for ambiguous J2 and J5.
+`GET /api/simulation/configuration-options` lists the two networks, three traffic profiles, three controller modes, and two emergency states. `GET /api/simulation/network?network=single_intersection|london` selects static geometry only; demand and controller choices never change network geometry.
 
-`POST /api/simulation/start` accepts optional `scenario_id`: `single_intersection`, `single_intersection_emergency`, `london_normal`, `london_rush_hour`, or `london_unbalanced`. Omission preserves the synthetic default. Omitted `control_mode` selects the scenario default: `fixed` normally, `adaptive_with_emergency_priority` for `single_intersection_emergency`. Static geometry may be selected explicitly with `GET /api/simulation/network?scenario_id=london_normal`; without a query it follows the active scenario and remains synthetic while idle.
+`POST /api/simulation/start` accepts one validated configuration:
 
-The same request accepts `control_mode` as `fixed`, `adaptive`, or `adaptive_with_emergency_priority`. Adaptive is supported for the synthetic scenario and, experimentally, by the validated 22-controller network profile in `london_normal`, `london_rush_hour`, and `london_unbalanced`. The active controller count, controller IDs, and fixed fallbacks are reported in `adaptive_control`. Emergency priority is a separate mode supported only by the verified synthetic emergency scenario and is not enabled for London. Unsupported combinations are rejected rather than silently reverting to fixed timing. The historical J3-only manifest and benchmark remain separate for comparison.
+```json
+{
+  "network": "single_intersection",
+  "traffic_profile": "normal",
+  "controller_mode": "fixed_timing",
+  "emergency_vehicles_enabled": false,
+  "simulation_speed": 4.0
+}
+```
+
+All 36 combinations resolve explicitly to a checked-in SUMO configuration, traffic route file, optional emergency route file, and controller adapter. Unknown IDs and non-boolean emergency values receive a validation error. Fixed and ordinary adaptive modes load emergency vehicles when enabled but do not grant preemption. `adaptive_emergency_priority` composes emergency handling with adaptive control and behaves as ordinary adaptive control when no emergency vehicle is active.
+
+Snapshots carry `active_configuration` and `emergency_events`. Each emergency event has stable `event_id`, `emergency_vehicle_id`, `intersection_id`, approach/lane, simulation timestamps, state, and whether priority is supported. Repeated WebSocket snapshots retain the same event ID.
 
 ## I. Gate events (vision gate mode, `events.jsonl`)
 
@@ -340,7 +358,115 @@ The reports distinguish planned AI video timestamps from actual SUMO insertion t
 
 Insertion delay (`actual SUMO depart - AI planned depart`) remains separate from SUMO waiting time. Planned-to-arrival duration (`SUMO arrival - AI planned depart`) includes insertion delay. For lower-is-better metrics, `adaptive_minus_fixed > 0` is a regression, while `absolute_improvement = fixed - adaptive > 0` is a saving. Invalid pairs do not produce comparison metrics.
 
-## O. AI Traffic replay export
+## O. Analytics files, database and recorded runs
+
+Committed JSON files, which are the source of truth for the Statistics page. The page does not fetch them directly: `python -m backend.analytics.load` copies them into a local SQLite database, and the page reads them through the read-only API in O.4. Regeneration commands are in `frontend/public/analytics/README.md`. All three formats use `schema_version: "1.0"`. `null` means unknown or not produced (for example a run that failed before writing samples), never zero. Frontend types and runtime guards are in `frontend/lib/contracts.ts`.
+
+### O.1 Index (`index.json`)
+
+```json
+[{"id": "youtube", "label": "YouTube top-down intersection", "kind": "vision", "file": "youtube.json"}]
+```
+
+`kind` is `simulation` or `vision`. `file` is a bare file name in the same directory (`[A-Za-z0-9_.-]+.json`). `id` is the file stem. Exporters upsert their own entry (`backend/models/analytics_index.py`) after writing the file, so every entry points at an existing file.
+
+### O.2 Simulation fixed vs adaptive (`<scenario>.json`)
+
+Written by `python -m backend.simulation.compare_cycles ... --analytics-out PATH`. It reuses `compare()`, `validate_run()` and `config_metadata()`, so trip metrics keep exactly the definitions of the comparison report. Top-level keys:
+
+- `kind: "simulation"`, `scenario_id`, `scenario_name`.
+- `provenance` and `experiment`: the same fields as the benchmark snapshots in `frontend/public/benchmarks/`. Paths are relative to the repository. `experiment.adaptive_scope` and `adaptive_controller_count` come from the adaptive run's reported controllers.
+- `runs.<mode>`: `steps`, `cycle_decisions`.
+- `summary.<metric>`: `{fixed, adaptive, absolute_improvement, percentage_improvement, better}`. A positive improvement favours adaptive. `better` is `lower`, except for throughput, which is `higher` (improvement = adaptive − fixed). `percentage_improvement` is relative to fixed and is `null` when fixed is 0. The metrics:
+  - `total_waiting_time_s`, `average_waiting_time_s`, `total_time_loss_s`, `average_time_loss_s`, `average_trip_duration_s`: copied from `compare()` (tripinfo, matched completed vehicles). Averages use `compare()`'s per-vehicle saving. All are `null` when the completed vehicle sets differ.
+  - `throughput_vehicles_per_hour`: completed trips × 3600 / (last arrival − config `begin`, default 0).
+  - `mean_network_queue_vehicles`, `max_network_queue_vehicles`: over every simulation step.
+- `timeseries`: `interval_s` (10 s, doubled until each mode has ≤ 600 samples), `queue_measurement`, and per mode a list of `{t_s, network_queue_vehicles, active_vehicles, arrived_cumulative}`. Each sample is the first step at or after an interval boundary, and the final step is always included.
+- `distributions.<waiting_time_s | time_loss_s | trip_duration_s>`: `bin_edges` shared by both modes, plus per mode `{count, p50, p90, p95, max, histogram}` over completed trips. Percentiles use linear interpolation (NumPy's default method). Bins are `[edge_i, edge_i+1)`; the last bin is closed. Edges start at 0, and the width is a 1/2/2.5/5 × 10^k step aiming at 20 bins.
+- `intersections`: `queue_measurement`, plus per mode a map of traffic-light ID to `{mean_queue, max_queue, mean_green_s, completed_green_phases, decision_count}`. `mean_green_s` averages completed phases whose state contains `G`/`g` and no `y`/`Y`; the phase still running at the end is excluded. `decision_count` counts the run's `cycle_decision_events` for that controller (0 in fixed mode).
+- `emergency`: `null` unless a completed trip has SUMO vType `ambulance`, `fire_brigade` or `police`. Otherwise it holds `vehicle_types` plus per mode `{emergency_trip_count, normal_trip_count, emergency_average_time_loss_s, normal_average_time_loss_s}`.
+- `validation`: `passed`, `matched_vehicle_count`, `errors` (prefixed with the mode), plus per mode the benchmark run shape (`passed`, `departed`, `arrived`, `completed`, `unfinished`, `duplicate_tripinfo_ids` as a count, `collisions`, `teleports`, `process_exit_code`, `terminated_by_step_limit`) and its `errors`. A failed validation is exported with `passed: false`, never dropped.
+- `limitations`: strings. The exporter adds definitions plus any failed-validation, teleport and missing-sample notes; `--analytics-limitation` appends more.
+
+Queues use `sumo_halting_number_unique_controlled_lanes`, the same measurement as `network_queue` in section B. They are SUMO state, not camera observations. The per-step samples come from `cycle_run --analytics-samples`. That opt-in file lives in the ignored run output directory; without the flag, `cycle_run` output is unchanged.
+
+### O.3 Vision gate counts (`youtube.json`)
+
+Written by `python -m backend.vision.export_analytics` from section I/J files (validated with `backend/models/gates.py`):
+
+- `kind: "vision"`.
+- `source`: `{label, duration_s, duration_definition, fps, model_id, sample_readme, counts_path, events_path, video_in_repository}`. `duration_s` is the last `t_s` in `counts.jsonl`. `fps` is derived from the latest event as `frame / t_s`, or `null` without events.
+- `arms`: arms present in the counts, as image sides (section I).
+- `timeseries`: columnar `t_s`, `vehicles_on_approach.<arm>`, and `in_intersection` (one entry per counts line; `null` where the arm or junction is unknown).
+- `flow_per_minute`: windows `(60 m, 60 (m+1)]` with `start_s`, `end_s`, `partial`, and per arm `entered` / `discharged`. Values are differences of the cumulative `entered_total` / `discharged_total`; the first window starts from zero.
+- `totals.<arm>`: `{entered, discharged, peak_vehicles_on_approach}` from the last counts line and the series maximum.
+- `turning_matrix`: `origins` (the arms plus `unknown`), `exits`, `counts[origin][exit]` from `intersection_exited` events (a `null` `origin_arm` is counted as `unknown`), `total_exits`, `unknown_origin_exits`.
+- `limitations`: includes the first-frame offset (`vehicles_on_approach` includes initial vehicles that the totals do not count) and the top-down VisDrone model.
+
+### O.4 Local database and read-only API
+
+`backend/analytics/db.py` keeps two independent SQLite tables in one file. `init_db` creates both. `analytics` is written only by the loader (`python -m backend.analytics.load [--db PATH] [--index PATH]`). `runs` is written only by the simulation service (O.5), and the loader never reads or changes it:
+
+```sql
+CREATE TABLE analytics (
+    id TEXT PRIMARY KEY,              -- index.json id
+    label TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('simulation', 'vision')),
+    schema_version TEXT,              -- payload schema_version, NULL if absent
+    payload TEXT NOT NULL,            -- the JSON file content, verbatim
+    source_file TEXT,                 -- repository-relative path of the file
+    loaded_at TEXT NOT NULL           -- ISO 8601 UTC, e.g. 2026-11-14T19:38:08Z
+)
+```
+
+The target is `$FLOWGENCY_ANALYTICS_DB` (or the loader's `--db`), default `data/analytics.sqlite3`. A relative path resolves against the repository root. A `postgresql://` or `postgres://` value selects the team's hosted Postgres instead: the same tables and constraints, plus a `seq BIGINT GENERATED ALWAYS AS IDENTITY` column that replaces SQLite's `rowid` for ordering, and `DOUBLE PRECISION` for `sim_duration_s`. The URL contains a password and is never logged or printed. For Postgres, a failed connection or a missing table returns the same 503. The file is gitignored. The `analytics` rows can be rebuilt at any time, but **deleting the file also deletes every recorded run (O.5)**, which exists nowhere else. The loader validates every index entry and file before writing anything. It upserts one row per entry, so rerunning it is idempotent. It skips listed files that are missing (with a warning) and fails on invalid JSON, an unknown kind, an unsafe file name, or a payload `kind` that differs from the index. It does not delete rows whose entry was later removed from `index.json`; delete the database file and reload to drop them.
+
+Both routes are unauthenticated GETs, like the other read routes:
+
+- `GET /api/analytics` returns `[{"id", "label", "kind", "schema_version", "loaded_at"}]` in first-loaded order (`index.json` order).
+- `GET /api/analytics/{id}` returns the stored payload unchanged (a O.2 or O.3 document, `application/json`). An unknown id returns 404.
+- If the database file is missing or has no table, both return 503 with `detail` `"Analytics database is not available; check FLOWGENCY_ANALYTICS_DB (unset = local SQLite) and run python -m backend.analytics.load"`. Reads never create the file. The first recorded run creates the file with both tables, so the list can then be empty (`[]`) instead of 503 until the loader runs.
+
+### O.5 Recorded Live Simulation runs (`runs` table)
+
+Every run started from the UI (`POST /api/simulation/start`) is recorded by `SimulationService` through `backend/analytics/runs.py`. The service only records when it is given a `run_sink`. `create_app()` passes `save_run` for its default service, and test services pass nothing, so tests never write the real database.
+
+```sql
+CREATE TABLE runs (
+    run_id TEXT PRIMARY KEY,          -- the runner's run_id (section F snapshot run_id)
+    scenario_id TEXT NOT NULL,        -- resolved scenario id (+ "_emergency"), see below
+    control_mode TEXT NOT NULL,       -- controller_mode (section H): fixed_timing | adaptive_network | adaptive_emergency_priority
+    status TEXT NOT NULL CHECK (status IN ('finished', 'stopped', 'error')),
+    started_at TEXT NOT NULL,         -- ISO 8601 UTC with milliseconds, e.g. 2026-11-14T19:38:08.123Z
+    ended_at TEXT NOT NULL,
+    sim_duration_s REAL,              -- simulated seconds; NULL if unknown
+    payload TEXT NOT NULL             -- the JSON document below
+)
+```
+
+Recording rules:
+
+- On start, the service remembers `run_id`, the section H configuration and `started_at`. The run's `scenario_id` is the resolved `ScenarioDefinition.scenario_id` (`single_intersection_<profile>` or `london_<profile>`), with `_emergency` appended when `emergency_vehicles_enabled` (for example `single_intersection_rush_hour_emergency`). `control_mode` is the configuration's `controller_mode`.
+- Every extracted snapshot is passed to an in-memory recorder. A sample is taken at the first snapshot at or after each 5 s boundary of simulation time, counted from the start. If one step crosses several boundaries, only one sample is taken.
+- Exactly one row is written when the run ends: `finished` (no pending vehicles), `stopped` (`stop`, `reset` or API shutdown), or `error` (worker or runner failure, with the message in `run.error`). A `reset` saves the previous run as `stopped` and records the restarted SUMO run as a new run. Stopping an already finished or failed run writes nothing more.
+- Nothing is written inside the step loop. The write is wrapped in `try/except`, so a database failure (locked file, unwritable path, duplicate `run_id`) is logged and never changes the simulation state, status or snapshots. A run shorter than one sample is still saved, with an empty `timeseries.samples`.
+
+Payload (`schema_version: "1.0"`, `kind: "simulation_run"`):
+
+- `run`: `{run_id, scenario_id, legacy_scenario_id, control_mode, network, traffic_profile, controller_mode, emergency_vehicles_enabled, status, started_at, ended_at, sim_start_s, sim_end_s, sim_duration_s, sample_count, error}`. `control_mode` equals `controller_mode`; the other three are the section H configuration fields. `legacy_scenario_id` is the snapshot `scenario_id`. `sim_duration_s` = `sim_end_s − sim_start_s` from the first and last snapshot.
+- `summary`: the last snapshot's `metrics` (section E, `RunMetrics.snapshot()`) copied unchanged, so its null semantics are kept: `total_time_loss_s` and `average_time_loss_s` stay `null`, and `average_waiting_time_s` is `null` with no departures. The whole `summary` is `null` if the snapshot had no `metrics`.
+- `timeseries`: `interval_s` (5), `queue_measurement` (`sumo_halting_number`), and `samples`, each `{t_s, network_queue_vehicles, active_vehicle_count, departed_cumulative, arrived_cumulative, queue_by_traffic_light, queue_by_approach, phase_by_traffic_light}`. `network_queue_vehicles` is `network_queue.vehicles` (section B). The counts come from `metrics`. `queue_by_traffic_light` maps each controller to its `total_queue_vehicles`. `queue_by_approach` is the legacy `queue_lengths_by_approach` (empty for network scenarios). `phase_by_traffic_light` maps each controller to `{phase_index, phase_id}`. Missing values are `null`, never 0.
+- `intersections`: one entry per traffic light, `{traffic_light_id, mean_queue_vehicles, max_queue_vehicles, sample_count}`, over the samples with a known queue. Mean and max are `null` when `sample_count` is 0.
+- `phases`: one entry per traffic light, `{traffic_light_id, phase_change_count, completed_green_phases, mean_green_duration_s}`. These are observed at every simulation step, not from the 5 s samples, because 5 s sampling would miss short yellow and all-red phases. The values are held in memory, and nothing is written per step. Green uses the O.2 definition: the state contains `G`/`g` and no `y`/`Y`. The phase still running at the end is excluded. `mean_green_duration_s` is `null` with no completed green phase, or if a completed phase had an unknown state.
+
+Read-only routes, unauthenticated like the other GETs, with the same 503 behaviour as above:
+
+- `GET /api/analytics/runs/latest` returns the payload of the run with the latest `ended_at`, or 404 if none is recorded.
+- `GET /api/analytics/runs/latest-pair?scenario_id=X` returns `{"scenario_id", "fixed", "adaptive"}`. `fixed` is the latest **finished** `fixed_timing` run of that `scenario_id` (including the `_emergency` suffix), and `adaptive` is the latest **finished** `adaptive_network` run. `adaptive_emergency_priority` runs, and stopped or failed runs, are never paired, matching the Live Simulation comparison. Either side is `null` if there is no such run. `/runs/latest` still returns the newest run of any mode and status. A missing `scenario_id` returns 422.
+
+The Statistics page shows the latest run as its first option ("Last simulation"). It adds a fixed-vs-adaptive section when `latest-pair` has both modes for that run's scenario. These are live service runs, not the matched tripinfo comparison of O.2.
+
+## P. AI Traffic replay export
 
 Replay export is explicit and optional. `--replay-output` on the isolated Fixed or Adaptive AI experiment writes one compact JSON object per authoritative SUMO step. Omitting the option preserves the existing execution and report behavior. Replay schema `1.0` records:
 
@@ -364,4 +490,4 @@ The cumulative value is recorded after each authoritative SUMO step by counting 
 
 The stream is simulation-time data, not video frames. It continues until SUMO demand completes and is never truncated or looped at the approximately 264-second video boundary. Video event time and planned SUMO departure time share an explicit zero-second offset; actual insertion delay remains part of the experiment output.
 
-An external `replay_manifest.json` schema `1.0` binds the source-video identifier, H.264 video assets, Fixed and runtime-verified `gap_v1` replay streams, single-intersection geometry API reference, independent simulation durations, comparison report, checksums, and known limitations. The asset API validates report schema, matching demand/network provenance, complete trips, zero collision/teleport diagnostics, and `gap_v1` activation at `demo_01` before returning metrics. Paths are never returned to clients.
+The portable `assets/ai-traffic/versions/waiting-v1/replay_manifest.json` schema `1.0` binds the source-video identifier, H.264 Git LFS video assets, Fixed and runtime-verified `gap_v1` replay streams, single-intersection geometry API reference, independent simulation durations, comparison report, checksums, and known limitations. The asset API validates report schema, matching demand/network provenance, complete trips, zero collision/teleport diagnostics, and `gap_v1` activation at `demo_01` before returning metrics. Paths are never returned to clients. `FLOWGENCY_REPLAY_ASSET_DIR` may override this repository-relative default for custom deployments.

@@ -5,11 +5,10 @@ import { SimulationCanvas } from "@/components/simulation-canvas";
 import { VoiceAlerts } from "@/components/voice-alerts";
 import { RunComparison } from "./run-comparison";
 import { BACKEND_URL } from "@/lib/api";
-import type { ServiceState } from "@/lib/contracts";
+import type { ControllerMode, NetworkId, ServiceState, TrafficProfile } from "@/lib/contracts";
 import {
   useSimulation,
   type ConnectionState,
-  type ControlMode,
   type SimulationCommand,
 } from "./simulation-provider";
 
@@ -67,7 +66,7 @@ function ControlButton({ label, action, enabled, busy, primary, onClick }: {
 function LiveTelemetry({ operator }: { operator: boolean }) {
   const { geometry, selectedScenarioId, status, snapshot } = useSimulation();
   const vehicleCount = snapshot?.vehicles ? snapshot.vehicles.length : null;
-  const singleIntersection = selectedScenarioId.startsWith("single_intersection");
+  const singleIntersection = (status.active_configuration?.network ?? selectedScenarioId) === "single_intersection";
   return (
     <div className="surface rounded-[20px] p-4">
       <p className="font-mono text-[10px] uppercase tracking-[.2em] text-[#ae9785]">Live telemetry</p>
@@ -120,7 +119,7 @@ function RunMetrics() {
   const metrics = snapshot?.metrics;
   return (
     <div className="surface rounded-[20px] p-4">
-      <div className="flex items-center justify-between"><div><p className="font-mono text-[10px] uppercase tracking-[.2em] text-[#ae9785]">Run metrics</p><h2 className="mt-1 text-sm font-medium">Cumulative waiting</h2></div><span className="rounded-full border border-white/10 px-2 py-1 font-mono text-[9px] uppercase text-[#9cacb5]">{status.control_mode ?? selectedControlMode}</span></div>
+      <div className="flex items-center justify-between"><div><p className="font-mono text-[10px] uppercase tracking-[.2em] text-[#ae9785]">Run metrics</p><h2 className="mt-1 text-sm font-medium">Cumulative waiting</h2></div><span className="rounded-full border border-white/10 px-2 py-1 font-mono text-[9px] uppercase text-[#9cacb5]">{status.controller_mode ?? selectedControlMode}</span></div>
       <div className="mt-4 grid grid-cols-2 gap-2">
         <div className="rounded-xl bg-white/[.025] p-3"><p className="text-[10px] text-[#b69b87]">Total vehicle-seconds</p><p className="mt-1 font-mono text-lg text-[#e1eaee]">{metrics ? `${metrics.total_waiting_time_s.toFixed(0)}s` : "—"}</p><p className="mt-1 text-[10px] text-[#b69b87]">{formatAccumulatedTime(metrics?.total_waiting_time_s)}</p></div>
         <div className="rounded-xl bg-white/[.025] p-3"><p className="text-[10px] text-[#b69b87]">Average / departed</p><p className="mt-1 font-mono text-lg text-[#e1eaee]">{metrics?.average_waiting_time_s == null ? "—" : `${metrics.average_waiting_time_s.toFixed(1)}s`}</p><p className="mt-1 text-[10px] text-[#b69b87]">{metrics?.departed_vehicle_count ?? "—"} inserted</p></div>
@@ -153,31 +152,22 @@ function SnapshotDetails() {
 
 function OperatorControls() {
   const {
-    geometry, scenarios, selectedScenarioId, selectedScenario, selectedSpeed, selectedControlMode,
-    status, commandPending, loading, execute, changeScenario, changeSpeed, setSelectedControlMode,
+    geometry, configurationOptions, selectedScenarioId, selectedConfiguration, selectedSpeed, selectedControlMode,
+    status, commandPending, loading, execute, changeNetwork, changeSpeed, setSelectedControlMode,
+    setSelectedTrafficProfile, setEmergencyVehiclesEnabled,
   } = useSimulation();
   const statusTone = status.state === "running" ? "#70e9a6" : status.state === "error" ? "#ff6c76" : "#f0bc55";
   const run = (command: SimulationCommand) => { void execute(command); };
   return (
     <aside className="surface run-toolbar order-2 rounded-[20px] p-4 xl:order-1">
       <div className="mb-5 flex items-center justify-between"><div><p className="font-mono text-[10px] uppercase tracking-[.2em] text-[#ae9785]">Simulation</p><h2 className="mt-1 text-base font-medium">Run controls</h2></div><div className="rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider" style={{ color: statusTone, borderColor: `${statusTone}40`, background: `${statusTone}10` }}>{STATE_LABELS[status.state]}</div></div>
-      <div className="toolbar-field">
-      <label htmlFor="scenario" className="text-xs text-[#b69b87]">Scenario</label>
-      <select id="scenario" value={selectedScenarioId} disabled={status.state !== "idle" || commandPending !== null || loading} onChange={(event) => void changeScenario(event.target.value)} className="mt-2 w-full rounded-xl border border-white/10 bg-[#1d1511] px-3 py-2.5 text-sm text-[#f5e2d3] outline-none focus:border-[#70e9a6]/50 disabled:opacity-50">
-        {scenarios.map((scenario) => <option key={scenario.scenario_id} value={scenario.scenario_id}>{scenario.display_name}</option>)}
-      </select>
-      {selectedScenario && <p className="mt-2 text-[10px] leading-relaxed text-[#b69b87]">{selectedScenario.description}</p>}
-      {selectedScenario?.known_limitation && <p className="mt-2 rounded-lg border border-[#f0bc55]/20 bg-[#f0bc55]/10 px-2.5 py-2 text-[10px] leading-relaxed text-[#e5c783]">{selectedScenario.known_limitation}</p>}
+      <div className="space-y-3">
+        <div className="toolbar-field"><label htmlFor="network" className="text-xs text-[#b69b87]">Map / Network</label><select id="network" value={selectedScenarioId} disabled={status.state !== "idle" || commandPending !== null || loading} onChange={(event) => void changeNetwork(event.target.value as NetworkId)} className="mt-2 w-full rounded-xl border border-white/10 bg-[#1d1511] px-3 py-2.5 text-sm text-[#f5e2d3] disabled:opacity-50">{configurationOptions?.networks.map((item) => <option key={item.id} value={item.id}>{item.display_name}</option>)}</select></div>
+        <div className="toolbar-field"><label htmlFor="traffic-profile" className="text-xs text-[#b69b87]">Traffic Profile</label><select id="traffic-profile" value={selectedConfiguration.traffic_profile} disabled={status.state !== "idle" || commandPending !== null} onChange={(event) => setSelectedTrafficProfile(event.target.value as TrafficProfile)} className="mt-2 w-full rounded-xl border border-white/10 bg-[#1d1511] px-3 py-2.5 text-sm text-[#f5e2d3] disabled:opacity-50">{configurationOptions?.traffic_profiles.map((item) => <option key={item.id} value={item.id}>{item.display_name}</option>)}</select></div>
+        <div className="toolbar-field"><label htmlFor="control-mode" className="text-xs text-[#b69b87]">Controller Mode</label><select id="control-mode" value={selectedControlMode} disabled={status.state !== "idle" || commandPending !== null} onChange={(event) => setSelectedControlMode(event.target.value as ControllerMode)} className="mt-2 w-full rounded-xl border border-white/10 bg-[#1d1511] px-3 py-2.5 text-sm text-[#f5e2d3] disabled:opacity-50">{configurationOptions?.controller_modes.map((item) => <option key={item.id} value={item.id}>{item.display_name}</option>)}</select></div>
+        <div className="toolbar-field"><label htmlFor="emergency-vehicles" className="text-xs text-[#b69b87]">Emergency Vehicles</label><select id="emergency-vehicles" value={String(selectedConfiguration.emergency_vehicles_enabled)} disabled={status.state !== "idle" || commandPending !== null} onChange={(event) => setEmergencyVehiclesEnabled(event.target.value === "true")} className="mt-2 w-full rounded-xl border border-white/10 bg-[#1d1511] px-3 py-2.5 text-sm text-[#f5e2d3] disabled:opacity-50"><option value="false">Disabled</option><option value="true">Enabled</option></select></div>
       </div>
-      <div className="toolbar-field">
-      <label htmlFor="control-mode" className="mt-4 block text-xs text-[#b69b87]">Control mode</label>
-      <select id="control-mode" value={selectedControlMode} disabled={status.state !== "idle" || commandPending !== null} onChange={(event) => setSelectedControlMode(event.target.value as ControlMode)} className="mt-2 w-full rounded-xl border border-white/10 bg-[#1d1511] px-3 py-2.5 text-sm text-[#f5e2d3] outline-none focus:border-[#70e9a6]/50 disabled:opacity-50">
-        <option value="fixed">Fixed timing</option>
-        <option value="adaptive" disabled={!selectedScenario?.supports_adaptive_control}>Adaptive{selectedScenarioId.startsWith("london_") ? " — network" : ""}</option>
-        {selectedScenario?.supports_emergency_priority && <option value="adaptive_with_emergency_priority">Adaptive + emergency priority</option>}
-      </select>
-      {selectedControlMode === "adaptive" && selectedScenarioId.startsWith("london_") && <p className="mt-2 text-[10px] leading-relaxed text-[#e5c783]">Experimental 22-controller network control. Imported yellow and clearance phases remain fixed; pedestrian and real-world safety are not verified.</p>}
-      </div>
+      <div className="mt-4 rounded-xl border border-white/[.08] bg-black/15 p-3"><p className="font-mono text-[9px] uppercase tracking-[.18em] text-[#ae9785]">{status.active_configuration ? "Active configuration" : "Selected configuration"}</p><p className="mt-2 text-xs leading-5 text-[#f5e2d3]">{configurationSummary(status.active_configuration ?? selectedConfiguration)}</p>{status.state !== "idle" && <p className="mt-2 text-[10px] text-[#e5c783]">Stop the run before changing configuration.</p>}</div>
       <div className="run-actions mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
         {status.state === "idle" && <ControlButton label="Start simulation" action="Start" primary enabled={geometry !== null} busy={commandPending !== null} onClick={() => run("start")} />}
         {status.state === "running" && <ControlButton label="Pause" action="Pause" primary enabled busy={commandPending !== null} onClick={() => run("pause")} />}
@@ -190,20 +180,32 @@ function OperatorControls() {
   );
 }
 
+const LABELS = {
+  network: { single_intersection: "Single Intersection", london: "London Network" },
+  traffic: { normal: "Normal", rush_hour: "Rush Hour", unbalanced: "Unbalanced" },
+  controller: { fixed_timing: "Fixed Timing", adaptive_network: "Adaptive Network", adaptive_emergency_priority: "Adaptive + Emergency Priority" },
+} as const;
+
+function configurationSummary(configuration: import("@/lib/contracts").SimulationConfiguration) {
+  return `${LABELS.network[configuration.network]} · ${LABELS.traffic[configuration.traffic_profile]} · ${LABELS.controller[configuration.controller_mode]} · Emergency Vehicles ${configuration.emergency_vehicles_enabled ? "Enabled" : "Disabled"}`;
+}
+
 export function SimulationWorkspace({ access }: { access: "public" | "analyst" | "operator" }) {
   const { geometry, selectedScenario, selectedScenarioId, status, snapshot, connection, loading, error, dismissError } = useSimulation();
   const operator = access === "operator";
   const protectedViewer = access !== "public";
   const stale = connection !== "connected" && snapshot !== null;
+  const activeEmergencyEvents = snapshot?.emergency_events?.filter((event) => event.state === "detected" || event.state === "priority_active") ?? [];
   return (
     <div>
       <div className="workspace-heading mb-7 flex flex-wrap items-end justify-between gap-4"><div><p className="eyebrow">{operator ? "Operator workspace" : protectedViewer ? "Analyst workspace" : "Public live view"}</p><h1 className="mt-2 text-3xl font-semibold tracking-[-.04em]">Simulations</h1>{operator ? <p className="mt-2 text-xs text-[#b69b87]">Authoritative SUMO simulation · {BACKEND_URL}</p> : selectedScenario && <p className="mt-2 max-w-2xl text-xs leading-5 text-[#b69b87]">{selectedScenario.display_name} · {selectedScenario.description}</p>}</div><ConnectionBadge connection={connection} stale={stale} /></div>
       {error && <div role="alert" className="mb-4 flex items-start justify-between gap-4 rounded-xl border border-[#ff6670]/25 bg-[#ff6670]/10 px-4 py-3 text-sm text-[#ffabb1]"><span>{error}</span><button type="button" onClick={dismissError} className="text-xs uppercase tracking-wider text-[#ffccd0]">Dismiss</button></div>}
-      {snapshot?.emergency_priority?.active_vehicle_id && (
+      {!operator && status.active_configuration && <div className="mb-4 rounded-xl border border-white/[.08] bg-[#10171c] px-4 py-3"><p className="font-mono text-[9px] uppercase tracking-[.18em] text-[#ae9785]">Active configuration · read only</p><p className="mt-1 text-xs text-[#f5e2d3]">{configurationSummary(status.active_configuration)}</p></div>}
+      {activeEmergencyEvents.length > 0 && (
         <div className="emergency-banner" role="status">
           <span className="emergency-indicator" aria-hidden="true" />
-          <div><strong>Emergency priority</strong><p>{snapshot.emergency_priority.active_vehicle_id} · {snapshot.emergency_priority.active_approach ?? "Approach unavailable"}</p></div>
-          <span>{snapshot.emergency_priority.reason?.replaceAll("_", " ") ?? "Monitoring the vehicle"}</span>
+          <div><strong>Emergency vehicles active</strong><p>{activeEmergencyEvents.map((event) => `${event.emergency_vehicle_id} · ${event.intersection_id}`).join("; ")}</p></div>
+          <span>{status.controller_mode === "adaptive_emergency_priority" ? "Priority controller monitoring" : "No signal preemption in this controller mode"}</span>
         </div>
       )}
       <section className={`workspace-layout grid gap-4 ${operator ? "operator-workspace lg:grid-cols-[minmax(0,1fr)_300px]" : "lg:grid-cols-[minmax(0,1fr)_300px]"}`}>

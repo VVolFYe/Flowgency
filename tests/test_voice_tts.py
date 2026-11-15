@@ -37,6 +37,16 @@ class VoiceSynthesisTests(unittest.TestCase):
             self.assertIn(b"Traffic alert", request.data)
             self.assertEqual(request.get_header("Xi-api-key"), "test-secret")
 
+    def test_cache_is_bounded_and_text_is_normalized(self) -> None:
+        with patch.dict(os.environ, {"ELEVENLABS_API_KEY": "test-secret", "ELEVENLABS_VOICE_ID": "test-voice"}), patch("backend.voice.tts.urlopen", return_value=FakeAudioResponse()) as opener:
+            speech = VoiceSynthesis(max_cache_entries=1)
+            speech.render("Traffic   alert")
+            speech.render("Traffic alert")
+            self.assertEqual(opener.call_count, 1)
+            speech.render("Second alert")
+            speech.render("Traffic alert")
+            self.assertEqual(opener.call_count, 3)
+
 
 if __name__ == "__main__":
     unittest.main()

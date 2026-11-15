@@ -1,0 +1,448 @@
+{
+ "schema_version": "1.0",
+ "kind": "simulation",
+ "scenario_id": "fixture",
+ "scenario_name": "Fixture",
+ "provenance": {
+  "authoritative_report": "fixture/report.json",
+  "config": "fixture/scenario.sumocfg",
+  "network": "fixture/net.net.xml",
+  "routes": "fixture/demand.rou.xml",
+  "adaptive_manifest": "fixture/manifest.json",
+  "seed": 7,
+  "expected_vehicle_count": 4,
+  "expected_vehicle_ids_sha256": "e393f77158c50c84c3026c1db3302bef2116b4403b88e2efb7039169b96d23fc",
+  "snapshot_created_on": "2026-11-14"
+ },
+ "experiment": {
+  "fixed_label": "Fixed timing",
+  "adaptive_label": "Adaptive",
+  "adaptive_scope": "1 of 2 traffic-light controllers ran the 'fixture_v1' profile in the adaptive run; kept on fixed timing: J2.",
+  "controlled_difference": "Both runs use the same SUMO config, network, routes, seed and vehicle behavior; only signal control at the adaptive controllers differs.",
+  "adaptive_controller_count": 1
+ },
+ "runs": {
+  "fixed": {
+   "steps": 25,
+   "cycle_decisions": 0
+  },
+  "adaptive": {
+   "steps": 25,
+   "cycle_decisions": 2
+  }
+ },
+ "summary": {
+  "total_waiting_time_s": {
+   "fixed": 60.0,
+   "adaptive": 30.0,
+   "absolute_improvement": 30.0,
+   "percentage_improvement": 50.0,
+   "better": "lower"
+  },
+  "average_waiting_time_s": {
+   "fixed": 15.0,
+   "adaptive": 7.5,
+   "absolute_improvement": 7.5,
+   "percentage_improvement": 50.0,
+   "better": "lower"
+  },
+  "total_time_loss_s": {
+   "fixed": 100.0,
+   "adaptive": 68.0,
+   "absolute_improvement": 32.0,
+   "percentage_improvement": 32.0,
+   "better": "lower"
+  },
+  "average_time_loss_s": {
+   "fixed": 25.0,
+   "adaptive": 17.0,
+   "absolute_improvement": 8.0,
+   "percentage_improvement": 32.0,
+   "better": "lower"
+  },
+  "average_trip_duration_s": {
+   "fixed": 105.0,
+   "adaptive": 97.0,
+   "absolute_improvement": 8.0,
+   "percentage_improvement": 7.62,
+   "better": "lower"
+  },
+  "throughput_vehicles_per_hour": {
+   "fixed": 102.857,
+   "adaptive": 115.2,
+   "absolute_improvement": 12.343,
+   "percentage_improvement": 12.0,
+   "better": "higher"
+  },
+  "mean_network_queue_vehicles": {
+   "fixed": 2.0,
+   "adaptive": 1.0,
+   "absolute_improvement": 1.0,
+   "percentage_improvement": 50.0,
+   "better": "lower"
+  },
+  "max_network_queue_vehicles": {
+   "fixed": 2,
+   "adaptive": 1,
+   "absolute_improvement": 1,
+   "percentage_improvement": 50.0,
+   "better": "lower"
+  }
+ },
+ "timeseries": {
+  "interval_s": 10.0,
+  "queue_measurement": "sumo_halting_number_unique_controlled_lanes",
+  "fixed": [
+   {
+    "t_s": 10.0,
+    "network_queue_vehicles": 2,
+    "active_vehicles": 3,
+    "arrived_cumulative": 0
+   },
+   {
+    "t_s": 20.0,
+    "network_queue_vehicles": 2,
+    "active_vehicles": 3,
+    "arrived_cumulative": 1
+   },
+   {
+    "t_s": 25.0,
+    "network_queue_vehicles": 2,
+    "active_vehicles": 3,
+    "arrived_cumulative": 2
+   }
+  ],
+  "adaptive": [
+   {
+    "t_s": 10.0,
+    "network_queue_vehicles": 1,
+    "active_vehicles": 2,
+    "arrived_cumulative": 0
+   },
+   {
+    "t_s": 20.0,
+    "network_queue_vehicles": 1,
+    "active_vehicles": 2,
+    "arrived_cumulative": 1
+   },
+   {
+    "t_s": 25.0,
+    "network_queue_vehicles": 1,
+    "active_vehicles": 2,
+    "arrived_cumulative": 2
+   }
+  ]
+ },
+ "distributions": {
+  "waiting_time_s": {
+   "bin_edges": [
+    0,
+    2,
+    4,
+    6,
+    8,
+    10,
+    12,
+    14,
+    16,
+    18,
+    20,
+    22,
+    24,
+    26,
+    28,
+    30,
+    32
+   ],
+   "fixed": {
+    "count": 4,
+    "p50": 15.0,
+    "p90": 27.0,
+    "p95": 28.5,
+    "max": 30.0,
+    "histogram": [
+     1,
+     0,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     1
+    ]
+   },
+   "adaptive": {
+    "count": 4,
+    "p50": 7.5,
+    "p90": 13.5,
+    "p95": 14.25,
+    "max": 15.0,
+    "histogram": [
+     1,
+     0,
+     1,
+     0,
+     0,
+     1,
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   }
+  },
+  "time_loss_s": {
+   "bin_edges": [
+    0,
+    2,
+    4,
+    6,
+    8,
+    10,
+    12,
+    14,
+    16,
+    18,
+    20,
+    22,
+    24,
+    26,
+    28,
+    30,
+    32,
+    34,
+    36,
+    38,
+    40,
+    42
+   ],
+   "fixed": {
+    "count": 4,
+    "p50": 25.0,
+    "p90": 37.0,
+    "p95": 38.5,
+    "max": 40.0,
+    "histogram": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     1
+    ]
+   },
+   "adaptive": {
+    "count": 4,
+    "p50": 17.5,
+    "p90": 23.5,
+    "p95": 24.25,
+    "max": 25.0,
+    "histogram": [
+     0,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     1,
+     0,
+     0,
+     1,
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   }
+  },
+  "trip_duration_s": {
+   "bin_edges": [
+    0,
+    10,
+    20,
+    30,
+    40,
+    50,
+    60,
+    70,
+    80,
+    90,
+    100,
+    110,
+    120,
+    130
+   ],
+   "fixed": {
+    "count": 4,
+    "p50": 105.0,
+    "p90": 117.0,
+    "p95": 118.5,
+    "max": 120.0,
+    "histogram": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   "adaptive": {
+    "count": 4,
+    "p50": 97.5,
+    "p90": 103.5,
+    "p95": 104.25,
+    "max": 105.0,
+    "histogram": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     1,
+     1,
+     2,
+     0,
+     0
+    ]
+   }
+  }
+ },
+ "intersections": {
+  "queue_measurement": "sumo_halting_number_unique_controlled_lanes",
+  "fixed": {
+   "J1": {
+    "mean_queue": 2.0,
+    "max_queue": 2,
+    "mean_green_s": 30.0,
+    "completed_green_phases": 1,
+    "decision_count": 0
+   },
+   "J2": {
+    "mean_queue": 0.0,
+    "max_queue": 0,
+    "mean_green_s": null,
+    "completed_green_phases": 0,
+    "decision_count": 0
+   }
+  },
+  "adaptive": {
+   "J1": {
+    "mean_queue": 1.0,
+    "max_queue": 1,
+    "mean_green_s": 30.0,
+    "completed_green_phases": 2,
+    "decision_count": 2
+   },
+   "J2": {
+    "mean_queue": 0.0,
+    "max_queue": 0,
+    "mean_green_s": null,
+    "completed_green_phases": 0,
+    "decision_count": 0
+   }
+  }
+ },
+ "emergency": {
+  "vehicle_types": [
+   "ambulance",
+   "fire_brigade",
+   "police"
+  ],
+  "fixed": {
+   "emergency_trip_count": 1,
+   "normal_trip_count": 3,
+   "emergency_average_time_loss_s": 10.0,
+   "normal_average_time_loss_s": 30.0
+  },
+  "adaptive": {
+   "emergency_trip_count": 1,
+   "normal_trip_count": 3,
+   "emergency_average_time_loss_s": 8.0,
+   "normal_average_time_loss_s": 20.0
+  }
+ },
+ "validation": {
+  "passed": true,
+  "matched_vehicle_count": 4,
+  "errors": [],
+  "fixed": {
+   "passed": true,
+   "errors": [],
+   "departed": 4,
+   "arrived": 4,
+   "completed": 4,
+   "unfinished": 0,
+   "duplicate_tripinfo_ids": 0,
+   "collisions": 0,
+   "teleports": 0,
+   "process_exit_code": 0,
+   "terminated_by_step_limit": false
+  },
+  "adaptive": {
+   "passed": true,
+   "errors": [],
+   "departed": 4,
+   "arrived": 4,
+   "completed": 4,
+   "unfinished": 0,
+   "duplicate_tripinfo_ids": 0,
+   "collisions": 0,
+   "teleports": 0,
+   "process_exit_code": 0,
+   "terminated_by_step_limit": false
+  }
+ },
+ "limitations": [
+  "Eclipse SUMO simulation output; not field measurements and not a certified road controller.",
+  "Queues are SUMO halting vehicles (speed below 0.1 m/s) summed once per unique traffic-light-controlled lane, sampled every simulation step; they are not camera counts.",
+  "Mean green is the mean duration of completed phases containing a G/g and no y/Y signal; the phase still running at the end is excluded.",
+  "Throughput is completed trips per hour between the scenario begin time and the last arrival."
+ ]
+}

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes>
+    <vType id="passenger" vClass="passenger" accel="2.6" decel="4.5" sigma="0.0" length="5.0" minGap="2.5" maxSpeed="13.89" speedFactor="1.0" speedDev="0.0"/>
+    <route id="north_to_south" edges="north_in south_out"/>
+    <route id="south_to_north" edges="south_in north_out"/>
+    <route id="east_to_west" edges="east_in west_out"/>
+    <route id="west_to_east" edges="west_in east_out"/>
+    <!-- Balanced demand at twice the normal arrival rate. -->
+    <flow id="north_rush" type="passenger" route="north_to_south" begin="0" end="360" period="5" departLane="best" departSpeed="max"/>
+    <flow id="south_rush" type="passenger" route="south_to_north" begin="1" end="361" period="5" departLane="best" departSpeed="max"/>
+    <flow id="east_rush" type="passenger" route="east_to_west" begin="2" end="362" period="5" departLane="best" departSpeed="max"/>
+    <flow id="west_rush" type="passenger" route="west_to_east" begin="3" end="363" period="5" departLane="best" departSpeed="max"/>
+</routes>
