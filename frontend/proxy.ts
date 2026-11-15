@@ -3,7 +3,8 @@ import { NextResponse } from "next/server";
 import { auth0, auth0Configured } from "@/lib/auth0";
 
 export async function proxy(request: NextRequest) {
-  if (!auth0Configured() && request.nextUrl.pathname.startsWith("/auth/")) {
+  const { pathname } = request.nextUrl;
+  if (!auth0Configured() && pathname.startsWith("/auth/") && pathname !== "/auth/configuration") {
     return NextResponse.redirect(new URL("/auth/configuration", request.url));
   }
   if (request.nextUrl.pathname === "/analytics") {
