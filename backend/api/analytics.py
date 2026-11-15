@@ -81,8 +81,8 @@ def _run_id(payload: dict[str, Any] | None) -> str | None:
     return (payload.get("run") or {}).get("run_id") if payload else None
 
 
-def _insights_context(entry_id: str | None) -> tuple[tuple[str | None, ...], dict[str, Any], dict[str, Any]]:
-    """``(cache source key, prompt context, response source)`` built from the database only."""
+def _insights_context(entry_id: str | None) -> tuple[dict[str, Any], dict[str, Any]]:
+    """``(prompt context, response source)`` built from the database only."""
     try:
         if entry_id is None:
             latest_text = db.latest_run_payload()
@@ -97,9 +97,8 @@ def _insights_context(entry_id: str | None) -> tuple[tuple[str | None, ...], dic
             fixed = json.loads(fixed_text) if fixed_text is not None else None
             adaptive = json.loads(adaptive_text) if adaptive_text is not None else None
             paired = fixed is not None and adaptive is not None
-            key = ("latest_run", _run_id(latest), _run_id(fixed) if paired else None, _run_id(adaptive) if paired else None)
             source = {"kind": "latest_run", "id": _run_id(latest), "scenario_id": scenario_id, "paired": paired}
-            return key, summarize_latest_runs(latest, fixed, adaptive), source
+            return summarize_latest_runs(latest, fixed, adaptive), source
         payload_text = db.get_payload(entry_id)
     except db.AnalyticsDatabaseUnavailable as exc:
         raise _unavailable(exc) from exc
@@ -109,7 +108,7 @@ def _insights_context(entry_id: str | None) -> tuple[tuple[str | None, ...], dic
         context = summarize_payload(json.loads(payload_text))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return ("entry", entry_id), context, {"kind": "entry", "id": entry_id, "scenario_id": None, "paired": False}
+    return context, {"kind": "entry", "id": entry_id, "scenario_id": None, "paired": False}
 
 
 @router.post("/insights", dependencies=[Depends(require_permission("analytics:read"))])
@@ -123,10 +122,10 @@ def create_insights(body: InsightsRequest, request: Request) -> dict[str, Any]:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Gemini is not configured on the backend (set GEMINI_API_KEY)",
         )
-    key, context, source = _insights_context(body.entry_id)
+    context, source = _insights_context(body.entry_id)
     insights: GeminiInsights = request.app.state.insights
     try:
-        review, model, cached = insights.review(key, context)
+        review, model, cached = insights.review(context)
     except InsightsNotConfigured as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     except InsightsGenerationFailed as exc:

@@ -7,11 +7,12 @@ and results are cached in memory so repeated clicks do not spend quota.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import threading
 from collections import OrderedDict
-from collections.abc import Callable, Hashable
+from collections.abc import Callable
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
@@ -114,21 +115,23 @@ class GeminiInsights:
             raise ValueError("max_cache_entries must be positive")
         self._client_factory = client_factory or _default_client
         self._config_factory = config_factory or _generation_config
-        self._cache: OrderedDict[tuple[Hashable, str], InsightReview] = OrderedDict()
+        self._cache: OrderedDict[tuple[str, str], InsightReview] = OrderedDict()
         self._max_cache_entries = max_cache_entries
         self._lock = threading.Lock()
 
-    def review(self, source_key: Hashable, context: dict[str, Any]) -> tuple[InsightReview, str, bool]:
+    def review(self, context: dict[str, Any]) -> tuple[InsightReview, str, bool]:
         """Return ``(review, model, cached)`` for a compact analytics context.
 
-        ``source_key`` identifies the data (run ids or analytics entry id); it is
-        combined with the model name as the cache key.
+        The cache key is the sha256 of the summarized context plus the model, so
+        any change in the underlying data (a new run, new metrics for the same
+        run, a reloaded entry) misses the cache and asks Gemini again.
         """
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:  # read lazily, like ELEVENLABS_API_KEY
             raise InsightsNotConfigured("Gemini is not configured on the backend (set GEMINI_API_KEY)")
         model = configured_model()
-        cache_key = (source_key, model)
+        digest = hashlib.sha256(json.dumps(context, sort_keys=True).encode("utf-8")).hexdigest()
+        cache_key = (digest, model)
         with self._lock:
             if cache_key in self._cache:
                 self._cache.move_to_end(cache_key)

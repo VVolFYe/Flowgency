@@ -195,6 +195,61 @@ class InsightsApiTests(unittest.TestCase):
         self.assertNotIn("\"samples\":[", self.models.calls[0]["contents"])  # raw 5 s samples are trimmed
         self.assertEqual(len(context["latest_run"]["intersections"]["top_5_by_mean_queue"]), 5)
 
+    def insert_run(self, run_id: str, mode: str, ended_at: str, waiting: float) -> None:
+        payload = run_payload(run_id, mode, ended_at, waiting)
+        db.insert_run(run_id=run_id, scenario_id="london_normal", control_mode=mode, status="finished",
+                      started_at=ended_at, ended_at=ended_at, sim_duration_s=600.0, payload=json.dumps(payload))
+
+    def prompt_context(self, call_index: int) -> dict[str, Any]:
+        return json.loads(self.models.calls[call_index]["contents"].split("\n\n", 1)[1])
+
+    def test_same_latest_run_twice_calls_gemini_once(self) -> None:
+        self.insert_run("r-A", "fixed_timing", "2026-11-14T10:00:00.000Z", 40.0)
+        first, second = self.reader({"entry_id": None}), self.reader({"entry_id": None})
+        self.assertEqual((first.status_code, second.status_code), (200, 200))
+        self.assertEqual((first.json()["cached"], second.json()["cached"]), (False, True))
+        self.assertEqual(len(self.models.calls), 1)
+
+    def test_new_latest_run_calls_gemini_again_about_the_new_run(self) -> None:
+        self.insert_run("r-A", "fixed_timing", "2026-11-14T10:00:00.000Z", 40.0)
+        self.assertEqual(self.reader({"entry_id": None}).json()["source"]["id"], "r-A")
+        self.insert_run("r-B", "fixed_timing", "2026-11-14T11:00:00.000Z", 25.0)
+        self.models.text = json.dumps({**REVIEW, "summary": "Run r-B averaged 25 s waiting."})
+        response = self.reader({"entry_id": None})
+        self.assertEqual(len(self.models.calls), 2)
+        body = response.json()
+        self.assertFalse(body["cached"])
+        self.assertEqual(body["source"]["id"], "r-B")
+        self.assertEqual(body["summary"], "Run r-B averaged 25 s waiting.")
+        latest = self.prompt_context(1)["latest_run"]
+        self.assertEqual((latest["run"]["run_id"], latest["summary"]["average_waiting_time_s"]), ("r-B", 25.0))
+
+    def test_same_run_id_with_changed_status_and_metrics_calls_gemini_again(self) -> None:
+        # The runs table holds each run once, at its end (status CHECK has no "running"),
+        # so this patches the DB reads to serve two versions of the same run_id.
+        running = run_payload("r-live", "fixed_timing", "2026-11-14T10:00:00.000Z", 12.0)
+        running["run"]["status"] = "running"
+        finished = run_payload("r-live", "fixed_timing", "2026-11-14T10:10:00.000Z", 38.0)
+        with mock.patch.object(db, "latest_run_payload", side_effect=[json.dumps(running), json.dumps(finished)]), \
+                mock.patch.object(db, "latest_run_payload_for", return_value=None):
+            first, second = self.reader({"entry_id": None}), self.reader({"entry_id": None})
+        self.assertEqual((first.json()["source"]["id"], second.json()["source"]["id"]), ("r-live", "r-live"))
+        self.assertFalse(second.json()["cached"])
+        self.assertEqual(len(self.models.calls), 2)
+        self.assertEqual(self.prompt_context(1)["latest_run"]["run"]["status"], "finished")
+        self.assertEqual(self.prompt_context(1)["latest_run"]["summary"]["average_waiting_time_s"], 38.0)
+
+    def test_same_entry_is_cached_and_a_different_entry_is_not(self) -> None:
+        load.load(ANALYTICS / "index.json")
+        self.assertFalse(self.reader({"entry_id": "youtube"}).json()["cached"])
+        self.assertTrue(self.reader({"entry_id": "youtube"}).json()["cached"])
+        self.assertEqual(len(self.models.calls), 1)
+        other = self.reader({"entry_id": "london_normal"}).json()
+        self.assertFalse(other["cached"])
+        self.assertEqual(other["source"]["id"], "london_normal")
+        self.assertEqual(len(self.models.calls), 2)
+        self.assertEqual(self.prompt_context(1)["scenario_id"], "london_normal")
+
     def test_gemini_failure_is_502_and_not_cached(self) -> None:
         load.load(ANALYTICS / "index.json")
         self.models.error = TimeoutError("slow")
