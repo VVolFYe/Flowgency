@@ -66,6 +66,10 @@ Foundation is followed by a minimal SUMO intersection, adaptive control, API/web
 
 Local development requires Linux/WSL, Python, Node.js/npm, and SUMO with Python TraCI support. The London network was generated with SUMO 1.27.1; Ubuntu 24.04's SUMO 1.18 package cannot load it. Follow the current [backend setup](backend/README.md) for a compatible virtual environment and the [frontend setup](frontend/README.md) for the browser application.
 
+For a single Ubuntu VM and automatic deployment of checked `main` commits, see
+[the deployment setup](docs/DEPLOYMENT.md). Server secrets, SSH access, DNS, and
+the GitHub `production` environment must be configured before enabling deploys.
+
 The repository is reached through a Linux symlink but physically resides on an NTFS-mounted Windows partition. Executable bits, ownership, case sensitivity, symlink behavior, file watching, and Unix sockets can differ from a native Linux filesystem. Avoid `chmod`/`chown`; if a Python virtual environment behaves poorly on NTFS, create it in a developer-owned Linux-native location outside the repository and keep only reproducible dependency manifests here.
 
 ## Portable AI Traffic demo setup
