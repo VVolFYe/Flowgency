@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { SimulationProvider, useSimulation } from "@/components/simulation/simulation-provider";
-import { SimulationCanvas } from "@/components/simulation-canvas";
+import { SimulationMap as SimulationCanvas } from "@/components/simulation/simulation-map";
 
 function Preview() {
   const { geometry, snapshot, status, connection, selectedScenario, loading, error } = useSimulation();

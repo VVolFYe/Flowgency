@@ -1,0 +1,107 @@
+{
+  "alignment": {
+    "note": "AI event t_s and planned SUMO departures share t=0; actual insertion delays remain explicit.",
+    "simulation_continues_after_video": true,
+    "video_ends_without_looping": true,
+    "video_time_to_sumo_planned_departure_offset_s": 0.0
+  },
+  "assets": {
+    "annotated_video": {
+      "duration_s": 263.972306,
+      "path": "videos/annotated.mp4",
+      "sha256": "38559a066c3d0a4090785c95ca85ad45ae9beff2b18321c0a4d9ebe222cb0465",
+      "size_bytes": 66422755
+    },
+    "comparison_report": {
+      "path": "reports/comparison_report.json",
+      "sha256": "39abd8d03b04c6ccf46426ef027d163eef98c156d7e913e56516c90256c14362",
+      "size_bytes": 6243
+    },
+    "fixed_replay": {
+      "frame_count": 533,
+      "path": "replays/fixed.jsonl",
+      "sha256": "e10737674a9658ec61099dba5db5d7361203b2e2b832a20fd401a6a10bb65d1d",
+      "size_bytes": 2759600,
+      "waiting_series_available": true
+    },
+    "gap_v1_replay": {
+      "frame_count": 524,
+      "path": "replays/gap_v1.jsonl",
+      "sha256": "0d8543bdf9751208d3487a314873295ad501eb9e26f9944c87a873d8a66af3c4",
+      "size_bytes": 2631347,
+      "waiting_series_available": true
+    },
+    "original_video": {
+      "duration_s": 263.972042,
+      "path": "videos/original.mp4",
+      "sha256": "0db39335529e979e1be7f85202f029095552b7315bbfa5ea0c540bb48809f46e",
+      "size_bytes": 73991612
+    }
+  },
+  "comparison": {
+    "asset_id": "comparison_report",
+    "validated": true
+  },
+  "dataset_id": "youtube_intersection_264s_v1",
+  "display_name": "Prerecorded AI-derived traffic experiment",
+  "input_provenance": {
+    "ai_sources": {
+      "counts_sha256": "b79c2d870f59ca318f109b5afa02ef1330e39128e0cecf09dc2c820cbfa31ab4",
+      "events_sha256": "3c6458e82062381bf61b861901b607e8bab9e6464a86d643ad509e515691bd1a"
+    },
+    "network_sha256": "d66621d649b6350ec5194de68f003f266938c3406ce78c6ad78253c2057c55e9",
+    "route_file_sha256": "3d283b3a709ef005e547b50789e7cf49f304387679803935a5c0e79f28fef7c5"
+  },
+  "limitations": [
+    "The 26 vehicles initially visible at video t=0 are excluded.",
+    "Camera-to-SUMO orientation is unverified.",
+    "The synthetic network supports straight-through movements only.",
+    "Replay metrics describe a recorded-video-derived synthetic experiment, not real-world savings."
+  ],
+  "network_geometry": {
+    "api_path": "/api/simulation/network?scenario_id=single_intersection",
+    "coordinate_system": "synthetic_cartesian_metres",
+    "scenario_id": "single_intersection"
+  },
+  "replays": {
+    "fixed": {
+      "asset_id": "fixed_replay",
+      "simulation_duration_s": 532.0,
+      "strategy": "fixed",
+      "waiting_time_series": {
+        "available": true,
+        "final_cumulative_waiting_time_s": 8907.0
+      }
+    },
+    "gap_v1": {
+      "asset_id": "gap_v1_replay",
+      "controller_provenance": {
+        "active_strategies": [
+          "gap_v1"
+        ],
+        "active_strategy_verified_at_runtime": true,
+        "active_traffic_light_ids": [
+          "demo_01"
+        ],
+        "gap_release_decision_count": 4,
+        "manifest_sha256": "ba92afadde0e13b3f54007369c390588b7f10b4681493310cc6d922efdcb760f",
+        "profile_id": "single_intersection_gap_v1_experimental",
+        "selected_strategy": "gap_v1",
+        "validation_errors": []
+      },
+      "simulation_duration_s": 523.0,
+      "strategy": "gap_v1",
+      "waiting_time_series": {
+        "available": true,
+        "final_cumulative_waiting_time_s": 8034.0
+      }
+    }
+  },
+  "schema_version": "1.0",
+  "video": {
+    "annotated_duration_s": 263.972306,
+    "camera_orientation_verified": false,
+    "duration_s": 263.972042,
+    "source_identifier": "0db39335529e979e1be7f85202f029095552b7315bbfa5ea0c540bb48809f46e"
+  }
+}

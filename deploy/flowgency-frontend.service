@@ -1,0 +1,14 @@
+[Unit]
+Description=Flowgency Next.js production frontend
+
+[Service]
+Type=simple
+WorkingDirectory=%h/flowgency/current/frontend
+ExecStart=/bin/bash %h/flowgency/current/deploy/start-frontend.sh
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+
+[Install]
+WantedBy=default.target

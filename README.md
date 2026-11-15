@@ -66,7 +66,68 @@ Foundation is followed by a minimal SUMO intersection, adaptive control, API/web
 
 Local development requires Linux/WSL, Python, Node.js/npm, and SUMO with Python TraCI support. The London network was generated with SUMO 1.27.1; Ubuntu 24.04's SUMO 1.18 package cannot load it. Follow the current [backend setup](backend/README.md) for a compatible virtual environment and the [frontend setup](frontend/README.md) for the browser application.
 
+For a single Ubuntu VM and automatic deployment of checked `main` commits, see
+[the deployment setup](docs/DEPLOYMENT.md). Server secrets, SSH access, DNS, and
+the GitHub `production` environment must be configured before enabling deploys.
+
 The repository is reached through a Linux symlink but physically resides on an NTFS-mounted Windows partition. Executable bits, ownership, case sensitivity, symlink behavior, file watching, and Unix sockets can differ from a native Linux filesystem. Avoid `chmod`/`chown`; if a Python virtual environment behaves poorly on NTFS, create it in a developer-owned Linux-native location outside the repository and keep only reproducible dependency manifests here.
+
+## Portable AI Traffic demo setup
+
+The prerecorded AI Traffic demo is versioned under
+`assets/ai-traffic/versions/waiting-v1`. Its MP4 files use Git LFS. After
+installing Git LFS for your operating system, populate the clone with:
+
+```bash
+git lfs install
+git lfs pull
+git lfs ls-files
+```
+
+Create the backend environment outside this NTFS checkout and install the
+declared dependencies and matching SUMO toolchain:
+
+```bash
+python3 -m venv "$HOME/.venvs/flowgency"
+source "$HOME/.venvs/flowgency/bin/activate"
+python -m pip install -r backend/requirements.txt 'eclipse-sumo==1.27.1'
+```
+
+Install the pinned frontend dependencies:
+
+```bash
+cd frontend
+npm ci
+cd ..
+```
+
+Configure private Auth0 values without committing them. Copy
+`frontend/.env.example` to the ignored `frontend/.env.local`, fill in
+`AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, `AUTH0_SECRET`,
+`APP_BASE_URL`, and `AUTH0_AUDIENCE`, and export matching `AUTH0_DOMAIN` and
+`AUTH0_AUDIENCE` in the backend shell. Follow [Auth0 setup](docs/AUTH0_SETUP.md)
+for tenant roles, permissions, callbacks, and MFA. Do not place access tokens
+or client secrets in source files.
+
+Start the backend from the repository root, then start the frontend in another
+terminal:
+
+```bash
+source "$HOME/.venvs/flowgency/bin/activate"
+export SUMO_HOME="$(python -c 'import sumo; print(sumo.SUMO_HOME)')"
+python -m uvicorn backend.api.app:app --host 127.0.0.1 --port 8000
+```
+
+```bash
+cd frontend
+npm run dev
+```
+
+Sign in as an authorized operator and open
+<http://localhost:3000/operator/ai-traffic>. No replay-directory setting is
+needed for the committed bundle. Custom deployments can set
+`FLOWGENCY_REPLAY_ASSET_DIR` in the backend process to override it with another
+validated bundle.
 
 ## Collaboration
 

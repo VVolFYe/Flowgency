@@ -1,0 +1,112 @@
+name: Check and deploy VM
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          lfs: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Backend checks (no camera models or cloud secrets)
+        run: |
+          python -m pip install -r backend/requirements-dev.txt
+          python -m unittest tests.test_cycle_planner tests.test_emergency_controller tests.test_simulation_configuration tests.test_api_auth tests.test_analytics_insights tests.test_ai_replay tests.test_api_replay tests.test_deploy_package -v
+          for script in deploy/*.sh; do bash -n "$script"; done
+      - name: Frontend checks
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run lint
+          npm run typecheck
+          npm run test:voice
+          npm run test:replay
+          npm run test:map
+          npm run build
+
+  deploy:
+    needs: check
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: production
+    concurrency:
+      group: flowgency-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          lfs: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Package checked source and verified Git LFS payloads
+        env:
+          DEPLOY_SHA: ${{ github.sha }}
+        run: python deploy/package_source.py --ref "$DEPLOY_SHA" --output "$RUNNER_TEMP/source.tar.gz"
+      - name: Upload the checked commit and deploy
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # A slow check for an older push must not replace a newer main version.
+          latest="$(git ls-remote origin refs/heads/main | cut -f1)"
+          if [[ "$latest" != "$DEPLOY_SHA" ]]; then
+            echo 'Skipping a superseded main commit.'
+            exit 0
+          fi
+          : "${DEPLOY_HOST:?Missing DEPLOY_HOST}"
+          : "${DEPLOY_USER:?Missing DEPLOY_USER}"
+          : "${DEPLOY_SSH_KEY:?Missing DEPLOY_SSH_KEY}"
+          : "${DEPLOY_KNOWN_HOSTS:?Missing DEPLOY_KNOWN_HOSTS}"
+          [[ "$DEPLOY_HOST" =~ ^[a-zA-Z0-9.-]+$ ]]
+          [[ "$DEPLOY_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          [[ "$DEPLOY_SHA" =~ ^[a-f0-9]{40}$ ]]
+          umask 077
+          ssh_dir="$(mktemp -d)"
+          trap 'rm -rf -- "$ssh_dir"' EXIT
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$ssh_dir/key"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$ssh_dir/known_hosts"
+          ssh_options=(-i "$ssh_dir/key" -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$ssh_dir/known_hosts")
+          target="$DEPLOY_USER@$DEPLOY_HOST"
+          ssh "${ssh_options[@]}" "$target" 'mkdir -p "$HOME/flowgency/incoming"'
+          scp "${ssh_options[@]}" "$RUNNER_TEMP/source.tar.gz" "$target:flowgency/incoming/$DEPLOY_SHA.tar.gz"
+          ssh "${ssh_options[@]}" "$target" bash -s -- "$DEPLOY_SHA" <<'REMOTE'
+          set -euo pipefail
+          sha="$1"
+          [[ "$sha" =~ ^[a-f0-9]{40}$ ]]
+          root="$HOME/flowgency"
+          mkdir -p "$root/releases"
+          exec 9>"$root/deploy.lock"
+          flock -n 9 || { echo 'Another deployment is running'; exit 1; }
+          # A fresh directory also makes a rerun safe for an already-live SHA.
+          release="$(mktemp -d "$root/releases/$sha.XXXXXX")"
+          tar -xzf "$root/incoming/$sha.tar.gz" -C "$release"
+          rm -- "$root/incoming/$sha.tar.gz"
+          bash "$release/deploy/release.sh"
+          REMOTE

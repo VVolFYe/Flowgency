@@ -76,6 +76,21 @@ Development CORS is restricted to `http://localhost:3000` and `http://127.0.0.1:
 
 `simulation_speed` means simulated seconds advanced per wall-clock second and accepts values from `0.1` through `100`. Reset starts a fresh SUMO process at time zero and leaves it paused. Stop releases SUMO and returns to `idle`.
 
+### Protected AI replay assets
+
+By default, the backend loads the portable Git LFS bundle at
+`assets/ai-traffic/versions/waiting-v1`, resolved from the source tree rather
+than the shell's working directory. Set `FLOWGENCY_REPLAY_ASSET_DIR` in the
+backend process environment only when a deployment should use another
+directory containing `replay_manifest.json`. These endpoints require
+`simulation:read`, `analytics:read`, and `simulation:control`:
+
+- `GET /api/ai-traffic/manifest` validates and returns sanitized metadata and comparison metrics.
+- `GET /api/ai-traffic/assets/{original_video|annotated_video|fixed_replay|gap_v1_replay}` serves only manifest-declared allowlisted files. Video responses support byte ranges through Starlette `FileResponse`.
+
+A missing default or configured bundle returns `503`, missing manifest assets
+return `404`, and invalid manifests or comparison provenance return `422`.
+
 `POST /api/simulation/start` accepts independent `network`, `traffic_profile`, `controller_mode`, and `emergency_vehicles_enabled` fields. Controller modes are `fixed_timing`, `adaptive_network`, and `adaptive_emergency_priority`. The verified synthetic adaptive policy samples halting queues each simulated second, protects a 10-second minimum green, and normally limits green to 45 seconds. Emergency priority recognizes declared SUMO emergency types on verified/controlled incoming lanes. It preserves minimum green and the installed yellow/all-red sequence. London Normal, Rush Hour, and Unbalanced use the experimental network profile and maintain priority state per traffic-light controller. `GET /api/simulation/status` exposes `active_configuration`; Reset retains it and Stop clears it.
 
 For a visible emergency-priority run, select **Single Intersection**, enable **Emergency Vehicles**, choose **Adaptive Network + Emergency Priority**, and press Start. The emergency overlay contains two marked vehicles on conflicting approaches. A matching headless run is:

@@ -1,0 +1,15 @@
+# Replace this hostname with the public DNS name pointing at the VM.
+flowgency.example.com {
+    # Browser requests share one HTTPS origin: no additional CORS policy needed.
+    @backend {
+        path /api/health /api/simulation/status /api/simulation/snapshot /api/simulation/configuration-options /api/simulation/network /api/voice/* /api/analytics /api/analytics/* /ws/simulation
+        not path /api/analytics/insights
+    }
+    handle @backend {
+        reverse_proxy 127.0.0.1:8000
+    }
+    # Auth, simulation commands, and analytics insights use the authenticated BFF.
+    handle {
+        reverse_proxy 127.0.0.1:3000
+    }
+}

@@ -54,6 +54,7 @@ The Operator area is protected by a server-validated, signed `HttpOnly` cookie:
 - `/operator/login` — Operator login
 - `/operator` — operational overview
 - `/operator/simulation` — full simulation controls and snapshot details
+- `/operator/ai-traffic` — protected synchronized AI-video, Fixed and gap_v1 replay
 - `/operator/analytics` — live charts for the current browser session
 
 Copy `.env.example` to `.env.local` and replace all demo Operator values:
@@ -68,12 +69,30 @@ These variables are server-only. Never rename them with a `NEXT_PUBLIC_` prefix.
 
 Analytics uses only live snapshot fields. If the backend provides no historical endpoint, snapshots are retained in browser `sessionStorage`, labeled `Current browser session`, and reset when `run_id` changes. Missing values remain `—`.
 
+AI Traffic reads its validated manifest and allowlisted media through protected same-origin routes under `/api/operator/ai-traffic`. The Next.js server forwards the current Auth0 access token to the backend; the browser never receives that token or an arbitrary filesystem path. The backend uses the repository's `assets/ai-traffic/versions/waiting-v1` Git LFS bundle by default; `FLOWGENCY_REPLAY_ASSET_DIR` remains an optional backend-only override. One monotonic browser clock synchronizes the selected original/annotated video with the recorded Fixed and gap_v1 SUMO streams. Play, pause, restart, seek, and 0.5×–4× playback are available; video freezes without looping at its own end while the longer SUMO replays continue.
+
+Replay streams generated with cumulative metrics show Fixed and gap_v1 waiting vehicle-seconds at the selected shared timestamp, plus active and completed vehicle counts. Older schema-1.0 streams remain playable but show an explicit unavailable state for time-dependent waiting metrics; the UI never derives a curve from final benchmark totals.
+
 ## Checks
 
 ```bash
 npm run lint
 npm run typecheck
+npm run test:map
 npm run build
 ```
 
 For an end-to-end local check, start `npm run dev`, visit the public routes, then verify that opening `/operator` in a signed-out browser redirects to `/operator/login`. Sign in with the local environment credentials, exercise the controls, inspect Analytics, and use Logout.
+
+## Road-map presentation
+
+Simulation views default to a MapLibre road map, with a Technical switch for the SUMO canvas. London uses the public OpenFreeMap Liberty style with its OpenStreetMap attribution. Its tiles, fonts and sprites require internet access. The technical canvas stays available when those resources or WebGL are unavailable.
+
+The synthetic intersection uses a local engineering scene with illustrative buildings, explicitly labeled in the view. Its surroundings are decoration. Road shapes, signal states, vehicle positions and headings come from the existing SUMO geometry and snapshots. Geographic positions for London use the supplied projection and subtract SUMO's net offset before conversion with proj4. No real-world location is assigned to the synthetic scene.
+
+The map supports top-down/tilted views, fit-to-network, zoom, signal tooltips and vehicle details. Click a vehicle and choose Follow vehicle to center the camera on it. Dragging the map, fitting the network or Stop following releases the camera. Cars, buses, ambulances, police and fire vehicles use locally generated icons. New runs reset interpolation.
+
+Dependencies: maplibre-gl supplies vector-map/WebGL rendering and camera controls; proj4 converts the supplied SUMO projection without changing the API contract. The worker asset is referenced explicitly through Next.js so it is bundled locally in development and production.
+
+`npm run test:map` checks the London projection/offset, synthetic coordinates,
+unknown signal states, and supported active emergency events per intersection.

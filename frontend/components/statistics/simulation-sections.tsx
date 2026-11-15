@@ -12,7 +12,7 @@ import {
 } from "@/lib/contracts";
 import { GroupedBarChart, LineChart } from "./charts";
 import { formatClock, formatNumber, formatPercent, formatSignedNumber, UNKNOWN } from "./format";
-import { LimitationsSection, StatisticsSection, tableClass } from "./section";
+import { DataTable, InlineNote, KpiTile, LimitationsSection, Num, Pill, StatisticsSection, type PillTone } from "./section";
 
 const SUMMARY_LABELS: Record<SimulationSummaryKey, { label: string; unit: string }> = {
   total_waiting_time_s: { label: "Total waiting time", unit: "s" },
@@ -39,84 +39,111 @@ function modeLabel(data: SimulationAnalytics, mode: ComparisonMode) {
   return mode === "fixed" ? data.experiment.fixed_label : data.experiment.adaptive_label;
 }
 
+/** Tone for a percentage improvement as computed by the exporter (positive favours adaptive). */
+function improvementTone(metric: PairedMetric): PillTone {
+  if (metric.percentage_improvement === null) return "neutral";
+  if (metric.percentage_improvement > 0) return "good";
+  if (metric.percentage_improvement < 0) return "bad";
+  return "neutral";
+}
+
 export function SimulationHeader({ data }: { data: SimulationAnalytics }) {
   const { provenance, experiment } = data;
   return (
-    <header className="statistics-header mt-6">
-      <h2 className="text-xl font-semibold">{data.scenario_name}</h2>
-      <p className="mt-1 text-sm">{experiment.controlled_difference}</p>
-      <p className="mt-1 text-sm">{experiment.adaptive_scope}</p>
-      {!data.validation.passed && (
-        <p role="status" className="mt-2 text-sm font-medium">Validation failed — values are shown for inspection only, not as a valid comparison.</p>
-      )}
-      <details className="mt-2 text-xs">
-        <summary>Provenance</summary>
-        <dl className="mt-2 grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1">
-          <dt>Config</dt><dd>{provenance.config ?? UNKNOWN}</dd>
-          <dt>Network</dt><dd>{provenance.network ?? UNKNOWN}</dd>
-          <dt>Routes</dt><dd>{provenance.routes || UNKNOWN}</dd>
-          <dt>Adaptive manifest</dt><dd>{provenance.adaptive_manifest ?? UNKNOWN}</dd>
-          <dt>Seed</dt><dd>{provenance.seed ?? UNKNOWN}</dd>
-          <dt>Expected vehicles</dt><dd>{provenance.expected_vehicle_count}</dd>
-          <dt>Report</dt><dd>{provenance.authoritative_report ?? UNKNOWN}</dd>
-          <dt>Created</dt><dd>{provenance.snapshot_created_on}</dd>
-        </dl>
-      </details>
-    </header>
+    <section aria-labelledby="simulation-title" className="stats-card">
+      <div className="stats-card-body">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="stats-group-title">Simulation · SUMO fixed vs adaptive</p>
+            <h2 id="simulation-title" className="mt-2 text-xl font-bold tracking-[-.02em] text-[#fff4eb] sm:text-2xl">{data.scenario_name}</h2>
+          </div>
+          <Pill tone={data.validation.passed ? "good" : "bad"}>{data.validation.passed ? "Validation passed" : "Validation failed"}</Pill>
+        </div>
+        <div className="mt-4 grid gap-3 text-[13px] leading-6 text-[#dccdc0] lg:grid-cols-2">
+          <p><span className="font-semibold text-[#fff4eb]">Controlled difference. </span>{experiment.controlled_difference}</p>
+          <p><span className="font-semibold text-[#fff4eb]">Adaptive scope. </span>{experiment.adaptive_scope}</p>
+        </div>
+        {!data.validation.passed && (
+          <div className="mt-4"><InlineNote role="status">Validation failed — values are shown for inspection only, not as a valid comparison.</InlineNote></div>
+        )}
+        <details className="stats-details mt-4">
+          <summary>Provenance</summary>
+          <dl className="stats-dl mt-3">
+            <dt>Config</dt><dd className="stats-mono">{provenance.config ?? UNKNOWN}</dd>
+            <dt>Network</dt><dd className="stats-mono">{provenance.network ?? UNKNOWN}</dd>
+            <dt>Routes</dt><dd className="stats-mono">{provenance.routes || UNKNOWN}</dd>
+            <dt>Adaptive manifest</dt><dd className="stats-mono">{provenance.adaptive_manifest ?? UNKNOWN}</dd>
+            <dt>Seed</dt><dd>{provenance.seed ?? UNKNOWN}</dd>
+            <dt>Expected vehicles</dt><dd>{provenance.expected_vehicle_count}</dd>
+            <dt>Report</dt><dd className="stats-mono">{provenance.authoritative_report ?? UNKNOWN}</dd>
+            <dt>Created</dt><dd>{provenance.snapshot_created_on}</dd>
+          </dl>
+        </details>
+      </div>
+    </section>
   );
-}
-
-function ImprovementNote({ metric }: { metric: PairedMetric }) {
-  if (metric.percentage_improvement === null) return <span>Change unknown</span>;
-  const better = metric.percentage_improvement > 0;
-  const worse = metric.percentage_improvement < 0;
-  return <span>{formatPercent(metric.percentage_improvement)} {better ? "(adaptive better)" : worse ? "(adaptive worse)" : "(no change)"}</span>;
 }
 
 export function KpiRow({ data }: { data: SimulationAnalytics }) {
   return (
-    <section aria-label="Key indicators" className="statistics-kpis mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      {KPI_KEYS.map((key) => {
-        const metric = data.summary[key];
-        const { label, unit } = SUMMARY_LABELS[key];
-        return (
-          <article key={key} className="statistics-kpi rounded-xl border border-white/10 p-3">
-            <h3 className="text-xs opacity-70">{label} ({unit})</h3>
-            <p className="mt-1 text-sm">{data.experiment.fixed_label}: {formatNumber(metric.fixed, 2)}</p>
-            <p className="text-sm">{data.experiment.adaptive_label}: {formatNumber(metric.adaptive, 2)}</p>
-            <p className="mt-1 text-xs"><ImprovementNote metric={metric} /></p>
-          </article>
-        );
-      })}
+    <section aria-label="Key indicators">
+      <h2 className="sr-only">Key indicators</h2>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {KPI_KEYS.map((key, index) => {
+          const metric = data.summary[key];
+          const { label, unit } = SUMMARY_LABELS[key];
+          const tone = improvementTone(metric);
+          return (
+            <KpiTile
+              key={key}
+              label={label}
+              value={formatNumber(metric.adaptive, 2)}
+              unit={unit}
+              emphasis={index === 0}
+              foot={(
+                <>
+                  <span><strong>{data.experiment.adaptive_label}</strong> · {data.experiment.fixed_label}: {formatNumber(metric.fixed, 2)}{metric.fixed === null ? "" : ` ${unit}`}</span>
+                  {metric.percentage_improvement === null
+                    ? <Pill>Change unknown</Pill>
+                    : <Pill tone={tone}>{formatPercent(metric.percentage_improvement)}{tone === "good" ? " better" : tone === "bad" ? " worse" : " no change"}</Pill>}
+                </>
+              )}
+            />
+          );
+        })}
+      </div>
     </section>
   );
 }
 
 export function PairedMetricsTable({ data }: { data: SimulationAnalytics }) {
   return (
-    <StatisticsSection id="paired-metrics" title="Paired metrics" description="Positive improvement favours adaptive (lower is better, except throughput).">
-      <div className="overflow-x-auto">
-        <table className={tableClass}>
-          <thead><tr><th>Metric</th><th>{data.experiment.fixed_label}</th><th>{data.experiment.adaptive_label}</th><th>Improvement</th><th>Improvement %</th><th>Better</th></tr></thead>
-          <tbody>
-            {SIMULATION_SUMMARY_KEYS.map((key) => {
-              const metric = data.summary[key];
-              const { label, unit } = SUMMARY_LABELS[key];
-              return (
-                <tr key={key}>
-                  <td>{label} ({unit})</td>
-                  <td>{formatNumber(metric.fixed, 3)}</td>
-                  <td>{formatNumber(metric.adaptive, 3)}</td>
-                  <td>{formatSignedNumber(metric.absolute_improvement, 3)}</td>
-                  <td>{formatPercent(metric.percentage_improvement)}</td>
-                  <td>{metric.better}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      {data.validation.matched_vehicle_count !== null && <p className="mt-2 text-xs">Matched vehicles: {data.validation.matched_vehicle_count}</p>}
+    <StatisticsSection
+      id="paired-metrics"
+      title="Paired metrics"
+      description="Positive improvement favours adaptive (lower is better, except throughput)."
+      aside={data.validation.matched_vehicle_count !== null ? <Pill>{data.validation.matched_vehicle_count} matched vehicles</Pill> : undefined}
+    >
+      <DataTable caption="Paired metrics, fixed vs adaptive">
+        <thead><tr><th>Metric</th><th>{data.experiment.fixed_label}</th><th>{data.experiment.adaptive_label}</th><th>Improvement</th><th>Improvement %</th><th>Better</th></tr></thead>
+        <tbody>
+          {SIMULATION_SUMMARY_KEYS.map((key) => {
+            const metric = data.summary[key];
+            const { label, unit } = SUMMARY_LABELS[key];
+            const tone = improvementTone(metric);
+            return (
+              <tr key={key}>
+                <td>{label} ({unit})</td>
+                <Num>{formatNumber(metric.fixed, 3)}</Num>
+                <Num>{formatNumber(metric.adaptive, 3)}</Num>
+                <td className={metric.absolute_improvement === null ? "stats-unknown" : undefined}><span className="stats-delta" data-tone={tone === "neutral" ? undefined : tone}>{formatSignedNumber(metric.absolute_improvement, 3)}</span></td>
+                <td className={metric.percentage_improvement === null ? "stats-unknown" : undefined}><span className="stats-delta" data-tone={tone === "neutral" ? undefined : tone}>{formatPercent(metric.percentage_improvement)}</span></td>
+                <td>{metric.better}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </DataTable>
     </StatisticsSection>
   );
 }
@@ -129,10 +156,11 @@ const TIMESERIES_FIELDS: Array<{ key: keyof Omit<TimeseriesSample, "t_s">; title
 
 export function TimeSeriesSection({ data }: { data: SimulationAnalytics }) {
   const available = COMPARISON_MODES.filter((mode) => data.timeseries[mode] !== null);
+  const missing = COMPARISON_MODES.filter((mode) => data.timeseries[mode] === null);
   return (
     <StatisticsSection id="timeseries" title="Time series" description={`One sample per ${data.timeseries.interval_s} s of simulation time. Queue: ${data.timeseries.queue_measurement}.`}>
-      {available.length === 0 ? <p className="text-sm">No per-step samples in this file.</p> : (
-        <div className="grid gap-4 lg:grid-cols-3">
+      {available.length === 0 ? <p className="stats-chart-empty">No per-step samples in this file.</p> : (
+        <div className="stats-grid-charts">
           {TIMESERIES_FIELDS.map((field) => (
             <LineChart
               key={field.key}
@@ -140,6 +168,7 @@ export function TimeSeriesSection({ data }: { data: SimulationAnalytics }) {
               xLabel="simulation time"
               yLabel={field.unit}
               formatX={formatClock}
+              formatY={(y) => formatNumber(y, 0)}
               series={available.map((mode) => ({
                 label: modeLabel(data, mode),
                 points: (data.timeseries[mode] ?? []).map((row) => ({ x: row.t_s, y: row[field.key] })),
@@ -148,9 +177,11 @@ export function TimeSeriesSection({ data }: { data: SimulationAnalytics }) {
           ))}
         </div>
       )}
-      {COMPARISON_MODES.filter((mode) => data.timeseries[mode] === null).map((mode) => (
-        <p key={mode} className="mt-2 text-xs">{modeLabel(data, mode)}: samples unknown (missing).</p>
-      ))}
+      {missing.length > 0 && (
+        <div className="mt-4 flex flex-col gap-2">
+          {missing.map((mode) => <InlineNote key={mode}>{modeLabel(data, mode)}: samples unknown (missing).</InlineNote>)}
+        </div>
+      )}
     </StatisticsSection>
   );
 }
@@ -158,41 +189,43 @@ export function TimeSeriesSection({ data }: { data: SimulationAnalytics }) {
 export function DistributionsSection({ data }: { data: SimulationAnalytics }) {
   return (
     <StatisticsSection id="distributions" title="Distributions" description="Completed trips. Both modes share the same histogram bins.">
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="stats-grid-charts">
         {SIMULATION_DISTRIBUTION_KEYS.map((key) => {
           const item = data.distributions[key];
           const edges = item.bin_edges;
           const categories = edges ? edges.slice(0, -1).map((edge, index) => `${formatNumber(edge, 1)}–${formatNumber(edges[index + 1], 1)} s`) : [];
           return (
-            <article key={key} className="statistics-distribution">
-              <h3 className="text-sm font-medium">{DISTRIBUTION_LABELS[key]}</h3>
+            <article key={key} className="min-w-0">
               <GroupedBarChart
-                title={`${DISTRIBUTION_LABELS[key]} histogram`}
+                title={DISTRIBUTION_LABELS[key]}
                 categories={categories}
-                yLabel="trips"
+                yLabel="trips per bin"
+                formatY={(y) => formatNumber(y, 0)}
                 series={COMPARISON_MODES.map((mode) => ({
                   label: modeLabel(data, mode),
                   values: item[mode]?.histogram ?? categories.map(() => null),
                 }))}
               />
-              <table className={`${tableClass} mt-2`}>
-                <thead><tr><th>Mode</th><th>n</th><th>p50</th><th>p90</th><th>p95</th><th>max</th></tr></thead>
-                <tbody>
-                  {COMPARISON_MODES.map((mode) => {
-                    const stats = item[mode];
-                    return (
-                      <tr key={mode}>
-                        <td>{modeLabel(data, mode)}</td>
-                        <td>{stats ? stats.count : UNKNOWN}</td>
-                        <td>{formatNumber(stats?.p50, 1)}</td>
-                        <td>{formatNumber(stats?.p90, 1)}</td>
-                        <td>{formatNumber(stats?.p95, 1)}</td>
-                        <td>{formatNumber(stats?.max, 1)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              <div className="mt-4">
+                <DataTable caption={`${DISTRIBUTION_LABELS[key]} percentiles`}>
+                  <thead><tr><th>Mode</th><th>n</th><th>p50</th><th>p90</th><th>p95</th><th>max</th></tr></thead>
+                  <tbody>
+                    {COMPARISON_MODES.map((mode) => {
+                      const stats = item[mode];
+                      return (
+                        <tr key={mode}>
+                          <td>{modeLabel(data, mode)}</td>
+                          <td className={stats ? undefined : "stats-unknown"}>{stats ? stats.count : UNKNOWN}</td>
+                          <Num>{formatNumber(stats?.p50, 1)}</Num>
+                          <Num>{formatNumber(stats?.p90, 1)}</Num>
+                          <Num>{formatNumber(stats?.p95, 1)}</Num>
+                          <Num>{formatNumber(stats?.max, 1)}</Num>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </DataTable>
+              </div>
             </article>
           );
         })}
@@ -204,32 +237,30 @@ export function DistributionsSection({ data }: { data: SimulationAnalytics }) {
 export function IntersectionsTable({ data }: { data: SimulationAnalytics }) {
   const ids = Array.from(new Set(COMPARISON_MODES.flatMap((mode) => Object.keys(data.intersections[mode] ?? {})))).sort();
   return (
-    <StatisticsSection id="intersections" title="Intersections" description={`Per traffic-light controller. Queue: ${data.intersections.queue_measurement}.`}>
-      {ids.length === 0 ? <p className="text-sm">No per-controller samples in this file.</p> : (
-        <div className="overflow-x-auto">
-          <table className={tableClass}>
-            <thead>
-              <tr><th rowSpan={2}>Traffic light</th>{COMPARISON_MODES.map((mode) => <th key={mode} colSpan={4}>{modeLabel(data, mode)}</th>)}</tr>
-              <tr>{COMPARISON_MODES.map((mode) => ["Mean queue", "Max queue", "Mean green (s)", "Decisions"].map((label) => <th key={`${mode}-${label}`}>{label}</th>))}</tr>
-            </thead>
-            <tbody>
-              {ids.map((id) => (
-                <tr key={id}>
-                  <td>{id}</td>
-                  {COMPARISON_MODES.map((mode) => {
-                    const stats = data.intersections[mode]?.[id];
-                    return [
-                      <td key={`${mode}-mean`}>{formatNumber(stats?.mean_queue, 2)}</td>,
-                      <td key={`${mode}-max`}>{formatNumber(stats?.max_queue, 0)}</td>,
-                      <td key={`${mode}-green`}>{formatNumber(stats?.mean_green_s, 1)}</td>,
-                      <td key={`${mode}-decisions`}>{formatNumber(stats?.decision_count, 0)}</td>,
-                    ];
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+    <StatisticsSection id="intersections" title="Intersections" description={`Per traffic-light controller. Queue: ${data.intersections.queue_measurement}.`} aside={ids.length > 0 ? <Pill>{ids.length} controllers</Pill> : undefined}>
+      {ids.length === 0 ? <p className="text-sm text-[#dccdc0]">No per-controller samples in this file.</p> : (
+        <DataTable caption="Per-controller statistics">
+          <thead>
+            <tr><th rowSpan={2}>Traffic light</th>{COMPARISON_MODES.map((mode) => <th key={mode} colSpan={4}>{modeLabel(data, mode)}</th>)}</tr>
+            <tr>{COMPARISON_MODES.map((mode) => ["Mean queue", "Max queue", "Mean green (s)", "Decisions"].map((label) => <th key={`${mode}-${label}`}>{label}</th>))}</tr>
+          </thead>
+          <tbody>
+            {ids.map((id) => (
+              <tr key={id}>
+                <td className="stats-mono">{id}</td>
+                {COMPARISON_MODES.map((mode) => {
+                  const stats = data.intersections[mode]?.[id];
+                  return [
+                    <Num key={`${mode}-mean`}>{formatNumber(stats?.mean_queue, 2)}</Num>,
+                    <Num key={`${mode}-max`}>{formatNumber(stats?.max_queue, 0)}</Num>,
+                    <Num key={`${mode}-green`}>{formatNumber(stats?.mean_green_s, 1)}</Num>,
+                    <Num key={`${mode}-decisions`}>{formatNumber(stats?.decision_count, 0)}</Num>,
+                  ];
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </DataTable>
       )}
     </StatisticsSection>
   );
@@ -238,9 +269,9 @@ export function IntersectionsTable({ data }: { data: SimulationAnalytics }) {
 export function EmergencySection({ data }: { data: SimulationAnalytics }) {
   const emergency = data.emergency;
   return (
-    <StatisticsSection id="emergency" title="Emergency vehicles">
-      {emergency === null ? <p className="text-sm">This scenario has no emergency-vehicle trips.</p> : (
-        <table className={tableClass}>
+    <StatisticsSection id="emergency" title="Emergency vehicles" description={emergency ? `Emergency vehicle types: ${emergency.vehicle_types.join(", ")}` : undefined}>
+      {emergency === null ? <p className="text-sm text-[#dccdc0]">This scenario has no emergency-vehicle trips.</p> : (
+        <DataTable caption="Emergency vehicle trips">
           <thead><tr><th>Mode</th><th>Emergency trips</th><th>Emergency avg time loss (s)</th><th>Normal trips</th><th>Normal avg time loss (s)</th></tr></thead>
           <tbody>
             {COMPARISON_MODES.map((mode) => {
@@ -248,17 +279,16 @@ export function EmergencySection({ data }: { data: SimulationAnalytics }) {
               return (
                 <tr key={mode}>
                   <td>{modeLabel(data, mode)}</td>
-                  <td>{stats ? stats.emergency_trip_count : UNKNOWN}</td>
-                  <td>{formatNumber(stats?.emergency_average_time_loss_s, 2)}</td>
-                  <td>{stats ? stats.normal_trip_count : UNKNOWN}</td>
-                  <td>{formatNumber(stats?.normal_average_time_loss_s, 2)}</td>
+                  <td className={stats ? undefined : "stats-unknown"}>{stats ? stats.emergency_trip_count : UNKNOWN}</td>
+                  <Num>{formatNumber(stats?.emergency_average_time_loss_s, 2)}</Num>
+                  <td className={stats ? undefined : "stats-unknown"}>{stats ? stats.normal_trip_count : UNKNOWN}</td>
+                  <Num>{formatNumber(stats?.normal_average_time_loss_s, 2)}</Num>
                 </tr>
               );
             })}
           </tbody>
-        </table>
+        </DataTable>
       )}
-      {emergency && <p className="mt-2 text-xs">Emergency vehicle types: {emergency.vehicle_types.join(", ")}</p>}
     </StatisticsSection>
   );
 }
@@ -272,23 +302,22 @@ const VALIDATION_FIELDS = [
 export function ValidationSection({ data }: { data: SimulationAnalytics }) {
   const { validation } = data;
   return (
-    <StatisticsSection id="validation" title="Validation">
-      <p className="text-sm font-medium">{validation.passed ? "Passed" : "Failed"}</p>
-      <table className={`${tableClass} mt-2`}>
+    <StatisticsSection id="validation" title="Validation" aside={<Pill tone={validation.passed ? "good" : "bad"}>{validation.passed ? "Passed" : "Failed"}</Pill>}>
+      <DataTable caption="Validation checks per mode">
         <thead><tr><th>Check</th>{COMPARISON_MODES.map((mode) => <th key={mode}>{modeLabel(data, mode)}</th>)}</tr></thead>
         <tbody>
-          <tr><td>Passed</td>{COMPARISON_MODES.map((mode) => <td key={mode}>{validation[mode].passed ? "yes" : "no"}</td>)}</tr>
+          <tr><td>Passed</td>{COMPARISON_MODES.map((mode) => <td key={mode}><span className="stats-delta" data-tone={validation[mode].passed ? "good" : "bad"}>{validation[mode].passed ? "yes" : "no"}</span></td>)}</tr>
           {VALIDATION_FIELDS.map(([key, label]) => (
-            <tr key={key}><td>{label}</td>{COMPARISON_MODES.map((mode) => <td key={mode}>{formatNumber(validation[mode][key], 0)}</td>)}</tr>
+            <tr key={key}><td>{label}</td>{COMPARISON_MODES.map((mode) => <Num key={mode}>{formatNumber(validation[mode][key], 0)}</Num>)}</tr>
           ))}
           <tr><td>Stopped by step limit</td>{COMPARISON_MODES.map((mode) => {
             const value = validation[mode].terminated_by_step_limit;
-            return <td key={mode}>{value === null ? UNKNOWN : value ? "yes" : "no"}</td>;
+            return <td key={mode} className={value === null ? "stats-unknown" : undefined}>{value === null ? UNKNOWN : value ? "yes" : "no"}</td>;
           })}</tr>
         </tbody>
-      </table>
+      </DataTable>
       {validation.errors.length > 0 && (
-        <ul className="mt-3 list-disc pl-5 text-sm">{validation.errors.map((error) => <li key={error}>{error}</li>)}</ul>
+        <ul className="mt-4 list-disc space-y-1.5 pl-5 text-[13px] leading-6 text-[#ffd6d2] marker:text-[#ff9b93]">{validation.errors.map((error) => <li key={error}>{error}</li>)}</ul>
       )}
     </StatisticsSection>
   );

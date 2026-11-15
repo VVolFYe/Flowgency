@@ -1,13 +1,14 @@
 "use client";
 
 /**
- * Statistics page skeleton. The first option is the last run recorded from
+ * Statistics page. The first option is the last run recorded from
  * Live Simulation (GET /api/analytics/runs/latest); the others come from the
  * analytics list (local SQLite copy of frontend/public/analytics/) and are
  * rendered by kind.
  */
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import {
   isAnalyticsDocument,
@@ -20,8 +21,10 @@ import {
   type RecordedRunPair,
 } from "@/lib/contracts";
 import { RecordedRunStatistics } from "./recorded-run-sections";
+import { Notice } from "./section";
 import { SimulationStatistics } from "./simulation-sections";
 import { VisionStatistics } from "./vision-sections";
+import "./statistics.css";
 
 const LOADER_COMMAND = "python -m backend.analytics.load";
 /** Cannot collide with an analytics id, which matches [A-Za-z0-9_.-]+. */
@@ -56,6 +59,7 @@ async function fetchLastRun(signal: AbortSignal) {
 }
 
 export function StatisticsView() {
+  const workspace = usePathname().startsWith("/analyst") ? "Analyst" : "Operator";
   const [refreshKey, setRefreshKey] = useState(0);
   const [index, setIndex] = useState<Load<AnalyticsListEntry[]>>({ status: "loading" });
   const [selectedId, setSelectedId] = useState<string>(LAST_RUN);
@@ -117,60 +121,77 @@ export function StatisticsView() {
     setRefreshKey((key) => key + 1);
   }
 
+  const datasetCount = index.status === "ready" ? index.value.length : null;
+
   return (
-    <div className="statistics-page">
-      <header className="statistics-page-header">
-        <h1 className="text-2xl font-semibold">Statistics</h1>
-        <p className="mt-1 text-sm opacity-70">The last run recorded from Live Simulation, plus results loaded from the local analytics database: SUMO fixed-vs-adaptive simulations and camera gate counts. Unknown values are shown as —.</p>
+    <div className="statistics-page stats-scope">
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div className="min-w-0">
+          <p className="eyebrow">{workspace} statistics</p>
+          <h1 className="mt-2 text-4xl font-semibold tracking-[-.045em] text-[#fff4eb]">Statistics</h1>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-[#dccdc0]">
+            The last run recorded from Live Simulation, plus results loaded from the analytics database: SUMO fixed-vs-adaptive simulations and camera gate counts. Unknown values are shown as —.
+          </p>
+        </div>
       </header>
 
-      <div className="statistics-selector mt-6 flex flex-wrap items-center gap-2">
-        <label htmlFor="statistics-dataset" className="text-sm">Dataset</label>
+      <div className="stats-panel mt-6 flex flex-wrap items-center gap-3 px-4 py-3 sm:px-5">
+        <label htmlFor="statistics-dataset" className="stats-field-label">Dataset</label>
         <select
           id="statistics-dataset"
           value={selectedId}
           onChange={(event) => select(event.target.value)}
-          className="rounded-lg border border-white/10 bg-transparent px-2 py-1 text-sm"
+          className="stats-select min-w-0 flex-1 sm:max-w-md sm:flex-none"
         >
-          <option value={LAST_RUN} className="text-black">Last simulation</option>
+          <option value={LAST_RUN}>Last simulation</option>
           {index.status === "ready" && (["simulation", "vision"] as const).map((kind) => {
             const options = index.value.filter((item) => item.kind === kind);
             return options.length === 0 ? null : (
               <optgroup key={kind} label={kind === "simulation" ? "Simulation (SUMO)" : "Vision (camera)"}>
-                {options.map((item) => <option key={item.id} value={item.id} className="text-black">{item.label}</option>)}
+                {options.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
               </optgroup>
             );
           })}
         </select>
-        <button type="button" onClick={refresh} className="rounded-lg border border-white/10 px-2 py-1 text-sm">Refresh</button>
+        <button type="button" onClick={refresh} className="stats-button">Refresh</button>
+        <p className="w-full text-xs text-[#b8a393] sm:ml-auto sm:w-auto" aria-live="polite">
+          {index.status === "loading" && <span role="status">Loading statistics index…</span>}
+          {index.status === "ready" && datasetCount !== null && datasetCount > 0 && `${datasetCount} analytics ${datasetCount === 1 ? "file" : "files"} available`}
+          {index.status === "ready" && datasetCount === 0 && "No analytics files loaded"}
+          {index.status === "error" && "Analytics files unavailable"}
+        </p>
       </div>
-      {index.status === "loading" && <p role="status" className="mt-2 text-xs opacity-70">Loading statistics index…</p>}
-      {index.status === "error" && <p className="mt-2 text-xs opacity-70">Analytics files unavailable: {index.message}</p>}
-      {index.status === "ready" && index.value.length === 0 && (
-        <p className="mt-2 text-xs opacity-70">No analytics files are loaded. Generate the JSON files and run {LOADER_COMMAND} (see frontend/public/analytics/README.md).</p>
-      )}
 
-      {selectedId === LAST_RUN && (
-        <>
-          {lastRun.status === "loading" && <p role="status" className="mt-6 text-sm">Loading the last simulation…</p>}
-          {lastRun.status === "empty" && <p className="mt-6 text-sm">{NO_RUN_MESSAGE}</p>}
-          {lastRun.status === "error" && <p role="alert" className="mt-6 text-sm">Could not load the last simulation: {lastRun.message}</p>}
-          {lastRun.status === "ready" && <RecordedRunStatistics run={lastRun.value.run} pair={lastRun.value.pair} />}
-        </>
-      )}
+      <div className="mt-4 flex flex-col gap-4">
+        {index.status === "error" && (
+          <Notice tone="warning" role="status">Analytics files unavailable: {index.message}</Notice>
+        )}
+        {index.status === "ready" && index.value.length === 0 && (
+          <Notice tone="info">No analytics files are loaded. Generate the JSON files and run <code>{LOADER_COMMAND}</code> (see frontend/public/analytics/README.md).</Notice>
+        )}
 
-      {selectedId !== LAST_RUN && !entry && index.status !== "loading" && (
-        <p role="alert" className="mt-6 text-sm">This dataset is no longer available. Choose another one.</p>
-      )}
-      {selectedId !== LAST_RUN && entry && (
-        <>
-          {dataset?.status === "loading" && <p role="status" className="mt-6 text-sm">Loading {entry?.label ?? "dataset"}…</p>}
-          {dataset?.status === "error" && <p role="alert" className="mt-6 text-sm">Could not load {entry?.label ?? "dataset"}: {dataset.message}</p>}
-          {dataset?.status === "ready" && (dataset.value.kind === "simulation"
-            ? <SimulationStatistics data={dataset.value} />
-            : <VisionStatistics data={dataset.value} />)}
-        </>
-      )}
+        {selectedId === LAST_RUN && (
+          <>
+            {lastRun.status === "loading" && <Notice tone="loading" role="status">Loading the last simulation…</Notice>}
+            {lastRun.status === "empty" && <Notice tone="info">{NO_RUN_MESSAGE}</Notice>}
+            {lastRun.status === "error" && <Notice tone="error" role="alert">Could not load the last simulation: {lastRun.message}</Notice>}
+            {lastRun.status === "ready" && <RecordedRunStatistics run={lastRun.value.run} pair={lastRun.value.pair} />}
+          </>
+        )}
+
+        {selectedId !== LAST_RUN && !entry && index.status !== "loading" && (
+          <Notice tone="error" role="alert">This dataset is no longer available. Choose another one.</Notice>
+        )}
+        {selectedId !== LAST_RUN && entry && (
+          <>
+            {dataset?.status === "loading" && <Notice tone="loading" role="status">Loading {entry?.label ?? "dataset"}…</Notice>}
+            {dataset?.status === "error" && <Notice tone="error" role="alert">Could not load {entry?.label ?? "dataset"}: {dataset.message}</Notice>}
+            {dataset?.status === "ready" && (dataset.value.kind === "simulation"
+              ? <SimulationStatistics data={dataset.value} />
+              : <VisionStatistics data={dataset.value} />)}
+          </>
+        )}
+      </div>
     </div>
   );
 }
