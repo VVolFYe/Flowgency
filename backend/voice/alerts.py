@@ -73,6 +73,7 @@ class VoiceAlertPolicy:
         self._high_queue_since: float | None = None
         self._congestion_announced = False
         self._event_states: dict[str, dict[str, Any]] = {}
+        self._intersection_numbers: dict[str, int] = {}
 
     def _reset(self, run_id: str) -> None:
         self._history.clear()
@@ -84,6 +85,32 @@ class VoiceAlertPolicy:
         self._high_queue_since = None
         self._congestion_announced = False
         self._event_states.clear()
+        self._intersection_numbers.clear()
+
+    def _register_intersections(self, snapshot: dict[str, Any]) -> None:
+        """Name London controllers from the complete snapshot, not arrival order.
+
+        Every normal SUMO snapshot lists all controllers before any emergency is
+        present. Sorting that inventory keeps numbers identical across demand and
+        control modes on the same network. Unexpected later IDs append without
+        changing names already used by an alert. Raw IDs remain in metadata.
+        """
+        configuration = snapshot.get("active_configuration") or {}
+        london = configuration.get("network") == "london" or str(
+            snapshot.get("scenario_selection_id", "")
+        ).startswith("london")
+        controllers = snapshot.get("traffic_light_controllers") or {}
+        identifiers = set(controllers) if isinstance(controllers, dict) else set()
+        for event in snapshot.get("emergency_events") or []:
+            if isinstance(event, dict) and isinstance(event.get("intersection_id"), str):
+                identifiers.add(event["intersection_id"])
+        for identifier in sorted(value for value in identifiers if isinstance(value, str)):
+            if (london or identifier.startswith("GS_")) and identifier not in self._intersection_numbers:
+                self._intersection_numbers[identifier] = len(self._intersection_numbers) + 1
+
+    def _spoken_intersection(self, identifier: object) -> str:
+        raw = str(identifier) if identifier is not None else "unknown"
+        return str(self._intersection_numbers.get(raw, raw))
 
     def _emit(
         self,
@@ -97,7 +124,7 @@ class VoiceAlertPolicy:
         text = MESSAGES[message_id][0 if self.language == "en" else 1]
         if emergency_event is not None:
             text = text.format(
-                intersection_id=emergency_event.get("intersection_id", "unknown")
+                intersection_id=self._spoken_intersection(emergency_event.get("intersection_id"))
             )
         event_id = sha256(f"{self._run_id}|{subject}|{message_id}".encode()).hexdigest()[:24]
         if event_id in self._emitted_ids:
@@ -143,6 +170,7 @@ class VoiceAlertPolicy:
             return []
         if run_id != self._run_id:
             self._reset(run_id)
+        self._register_intersections(snapshot)
         new: list[dict[str, Any]] = []
         def announce(
             message_id: str,
@@ -239,20 +267,35 @@ class VoiceAlertPolicy:
         if len(known) == 1:
             return {"text": known[0]["text"], "run_id": known[0]["run_id"]}
         message_ids = {alert["message_id"] for alert in known}
-        intersections = sorted(
+        intersection_ids = sorted(
             {
                 str(alert["intersection_id"])
                 for alert in known
                 if alert.get("intersection_id")
-            }
+            },
+            key=lambda identifier: (self._intersection_numbers.get(identifier, 0), identifier),
         )
+        intersections = [self._spoken_intersection(identifier) for identifier in intersection_ids]
+        joined = (" and " if self.language == "en" else " și ").join(intersections)
         if message_ids == {"emergency.detected"} and intersections:
             if len(intersections) == 1:
-                text = f"{len(known)} emergency vehicles detected at intersection {intersections[0]}."
+                text = (
+                    f"{len(known)} emergency vehicles detected at intersection {intersections[0]}."
+                    if self.language == "en" else
+                    f"{len(known)} vehicule de intervenție detectate la intersecția {intersections[0]}."
+                )
             else:
-                text = f"Emergency vehicles detected at intersections {' and '.join(intersections)}."
+                text = (
+                    f"Emergency vehicles detected at intersections {joined}."
+                    if self.language == "en" else
+                    f"Vehicule de intervenție detectate la intersecțiile {joined}."
+                )
         elif message_ids == {"emergency.priority_activated"} and intersections:
-            text = f"Emergency priority activated at intersections {' and '.join(intersections)}."
+            text = (
+                f"Emergency priority activated at intersections {joined}."
+                if self.language == "en" else
+                f"Prioritate de urgență activată la intersecțiile {joined}."
+            )
         else:
             text = " ".join(dict.fromkeys(alert["text"] for alert in known))
         return {"text": text, "run_id": known[0]["run_id"]}
