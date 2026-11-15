@@ -44,6 +44,61 @@ def emergency_event(event_id: str, vehicle_id: str, intersection_id: str, state:
 
 
 class VoiceAlertTests(unittest.TestCase):
+    def london_snapshot(self, time_s: float, events: list[dict], *, mode: str = "adaptive_network", run_id: str = "run-1", reverse: bool = False) -> dict:
+        result = event_snapshot(time_s, events, run_id=run_id)
+        result["active_configuration"] = {"network": "london", "controller_mode": mode}
+        ids = ["GS_26546583", "GS_cluster_10218369045_4202836241_63951016"]
+        result["traffic_light_controllers"] = dict.fromkeys(reversed(ids) if reverse else ids, {})
+        return result
+
+    def test_london_names_use_full_inventory_before_emergency_arrival(self) -> None:
+        policy = VoiceAlertPolicy()
+        self.assertEqual(policy.observe(self.london_snapshot(0, [], reverse=True)), [])
+        raw_id = "GS_cluster_10218369045_4202836241_63951016"
+        alerts = policy.observe(self.london_snapshot(1, [emergency_event("e2", "a2", raw_id)]))
+        self.assertEqual(alerts[0]["text"], "Emergency vehicle detected at intersection 2.")
+        self.assertEqual(alerts[0]["intersection_id"], raw_id)
+
+    def test_london_names_are_equal_across_modes_and_reset(self) -> None:
+        for mode in ("fixed_timing", "adaptive_network", "adaptive_emergency_priority"):
+            with self.subTest(mode=mode):
+                policy = VoiceAlertPolicy()
+                for run_id in ("run-1", "run-2"):
+                    events = [emergency_event("e1", "a1", "GS_26546583")]
+                    alerts = policy.observe(self.london_snapshot(1, events, mode=mode, run_id=run_id, reverse=True))
+                    self.assertEqual(alerts[0]["text"], "Emergency vehicle detected at intersection 1.")
+
+    def test_london_aggregates_speak_numbers_without_raw_ids(self) -> None:
+        policy = VoiceAlertPolicy()
+        events = [
+            emergency_event("e2", "a2", "GS_cluster_10218369045_4202836241_63951016"),
+            emergency_event("e1", "a1", "GS_26546583"),
+        ]
+        detected = policy.observe(self.london_snapshot(1, events))
+        self.assertEqual(policy.aggregate([a["event_id"] for a in detected])["text"], "Emergency vehicles detected at intersections 1 and 2.")
+        active_events = [{**event, "state": "priority_active"} for event in events]
+        active = policy.observe(self.london_snapshot(2, active_events, mode="adaptive_emergency_priority"))
+        self.assertEqual(policy.aggregate([a["event_id"] for a in active])["text"], "Emergency priority activated at intersections 1 and 2.")
+        completed = policy.observe(self.london_snapshot(3, [{**event, "state": "completed"} for event in events]))
+        self.assertTrue(all("GS_" not in alert["text"] for alert in completed))
+        self.assertEqual(len(completed), 2)
+
+    def test_london_romanian_aggregation_is_localized(self) -> None:
+        policy = VoiceAlertPolicy(language="ro")
+        events = [emergency_event("e1", "a1", "GS_26546583"), emergency_event("e2", "a2", "GS_26546583")]
+        alerts = policy.observe(self.london_snapshot(1, events))
+        self.assertEqual(policy.aggregate([a["event_id"] for a in alerts])["text"], "2 vehicule de intervenție detectate la intersecția 1.")
+
+    def test_later_unknown_controller_does_not_rename_existing_intersections(self) -> None:
+        policy = VoiceAlertPolicy()
+        policy.observe(self.london_snapshot(0, []))
+        event = emergency_event("new", "a3", "GS_000new")
+        new = policy.observe(self.london_snapshot(1, [event]))
+        self.assertIn("intersection 3", new[0]["text"])
+        original = emergency_event("old", "a1", "GS_26546583")
+        alerts = policy.observe(self.london_snapshot(2, [event, original]))
+        self.assertIn("intersection 1", alerts[0]["text"])
+
     def test_simultaneous_events_aggregate_same_and_different_intersections(self) -> None:
         policy = VoiceAlertPolicy()
         emitted = policy.observe(event_snapshot(5, [

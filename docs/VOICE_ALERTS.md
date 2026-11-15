@@ -31,9 +31,35 @@ model, and exact text.
 | ID | Trigger | English | Romanian |
 | --- | --- | --- | --- |
 | `traffic.congestion_sustained` | A measured, deduplicated controlled-lane queue stays above a calibrated threshold for a configured number of simulation seconds. Do not enable until that threshold is set for the scenario. | "Traffic is building near the intersection." | „Traficul se aglomerează în apropierea intersecției.” |
-| `emergency.requested` | A selected emergency vehicle first becomes eligible on a verified incoming edge, while its approach does not already have green. This requests green; it does not claim the signal has changed yet. | "Emergency vehicle approaching. Green light requested for its approach." | „Se apropie un vehicul de intervenție. S-a solicitat verde pentru direcția sa.” |
-| `emergency.already_green` | The selected vehicle first becomes eligible and its approach already has confirmed green. Replaces `emergency.requested` and `emergency.green_confirmed` for that vehicle. | "Emergency vehicle approaching. Its approach already has a green signal." | „Se apropie un vehicul de intervenție. Direcția sa are deja verde.” |
-| `emergency.green_confirmed` | After a request on a conflicting approach, the actual SUMO signal phase and state first confirm green for that vehicle's mapped approach. | "Green signal confirmed for the emergency approach." | „S-a confirmat verde pentru direcția vehiculului de intervenție.” |
+| `emergency.detected` | An emergency event for a vehicle/intersection is first observed. Available in Fixed Timing, Adaptive Network, and Adaptive Network + Emergency Priority. | "Emergency vehicle detected at intersection 1." | „Vehicul de intervenție detectat la intersecția 1.” |
+| `emergency.priority_activated` | That event enters `priority_active`. Produced only when emergency priority is supported/enabled. It can mean a compatible green is held or safe clearance is requested; it does not assert green is already present. | "Emergency priority activated at intersection 1." | „Prioritate de urgență activată la intersecția 1.” |
+| `emergency.priority_completed` | An event directly transitions from `priority_active` to `completed`, or disappears while active. This ends the event, not proof of safe passage or restored normal timing. | "Emergency priority completed at intersection 1." | „Prioritate de urgență încheiată la intersecția 1.” |
+
+All current application scenarios provide `emergency_events` and use the three
+emergency messages above. The old `emergency.requested`, `emergency.already_green`,
+and `emergency.green_confirmed` phrases remain only as compatibility behavior for
+snapshots that do not contain an event list. Do not describe them as the current
+normal application flow. In particular, the current event flow does emit a
+priority-completed announcement; it is different from the removed legacy
+`emergency.request_ended` message.
+
+### London intersection names
+
+London captions and speech use `intersection 1`, `intersection 2`, etc. Numbers
+come from the sorted full `traffic_light_controllers` inventory in the first
+snapshot, before emergencies arrive. The same network gets the same numbers in
+Normal/Rush Hour/Unbalanced and all controller modes. Later unknown controllers
+append without renumbering earlier announcements. This is a presentation alias,
+not a rename in SUMO or a geographic/JamCam label. Raw `intersection_id` values
+remain unchanged in alert/event metadata, control decisions, and technical views.
+Reset clears history and rebuilds the same numbering for the same inventory.
+Legacy London events whose IDs start with `GS_` can also receive aliases when the
+network selector is absent; full inventory is required for cross-run numbering.
+
+Aggregation uses these same aliases, e.g. "Emergency vehicles detected at
+intersections 1 and 2." Multiple vehicles at one intersection use a single number.
+Romanian aggregation is localized too. Each physical SUMO controller is numbered;
+these are not the five selected camera-site labels J1–J5.
 
 Avoid saying that an emergency vehicle **passed safely**, that normal timing
 **resumed**, or that traffic **improved** unless the corresponding outcome has
@@ -56,21 +82,23 @@ been measured.
    latest decisions, not one-time events. In particular,
    `request_normal_clearance_for_emergency` means a duration request was sent;
    it does not prove that yellow, all-red, or a new green has occurred.
-2. Use the selected `active_vehicle_id`, verified approach mapping, actual
-   phase/state, and `run_id`. Do not infer an approach from compass words or
-   camera proximity. The runner's current `emergency_priority` fields are
-   enough to identify the selected vehicle; the backend event producer retains
-   previous state to detect transitions.
+2. Current scenarios use the runner's `emergency_events`: stable event ID,
+   vehicle, intersection, state, support flag, and reason. The runner uses
+   verified controlled lanes/approaches; never infer a mapping from compass
+   words or camera proximity. The policy observes these events without changing
+   the simulation or deciding priority itself.
 3. Give each emitted announcement a stable ID such as
    `(run_id, vehicle_id, message_id)` for emergencies. Emit each emergency
    stage once per vehicle per run. Reset starts a new run; reconnecting the
    browser must not replay spoken announcements as new events.
-4. If green is already confirmed on first eligibility, emit only
-   `emergency.already_green`. Otherwise emit `emergency.requested`, then
-   `emergency.green_confirmed` only after SUMO confirms that green. Yellow and
-   all-red remain owned by SUMO.
-5. If another emergency request remains, announce the next selected vehicle
-   according to the same rules; do not speak when the old request ends.
+4. A new event emits `emergency.detected`. A transition into `priority_active`
+   emits `emergency.priority_activated`, even if first seen already active.
+   Those messages do not claim that yellow/all-red has finished. Fixed Timing
+   and Adaptive Network events do not receive priority-active state from the
+   runner, so they produce detection only.
+5. After an active event becomes completed or disappears, emit
+   `emergency.priority_completed` once. Detection-only events ending do not
+   produce this message. Multiple intersections can announce independently.
 6. Include simulation time and run ID in the event. The browser ignores
    historical alerts more than eight simulated seconds old, cancels playback
    on a new run, aggregates matching events for 650 ms, and uses one FIFO
@@ -115,16 +143,18 @@ The snapshot addition and audio route are documented in `docs/DATA_CONTRACTS.md`
 
 ## Acceptance cases for implementation
 
-- A single approaching vehicle produces one request announcement and one confirmed
-  green announcement if needed; ending the request produces no speech.
+- Current event-based snapshots produce detection once per vehicle/intersection,
+  plus activation and completion only when the event reaches those stages.
 - Adaptive cycle-plan changes, scenario selection, Start, Pause, Resume, Reset,
   Stop, and run finish produce no spoken announcement.
 - Congestion voice remains disabled until a scenario threshold and hysteresis
   have been configured and tested.
-- Compatible green produces the combined `already_green` line, without a
-  redundant green announcement.
-- A conflicting request never announces green while SUMO is still in the
-  minimum green, yellow, or all-red phase.
+- A conflicting event may announce priority activation when safe clearance is
+  requested, but must not claim the emergency approach is already green.
+- Legacy snapshots without an event list preserve `already_green` or
+  requested/confirmed-green compatibility behavior.
+- London aliases are stable across controller/demand modes, appear in aggregate
+  speech, and never replace raw IDs in metadata or traffic-control inputs.
 - Two simultaneous vehicles, reset, reconnect, pause/resume, and accelerated
   simulation do not duplicate or replay stale audio.
 - Audio failures do not alter TraCI decisions or stop a run; captions remain.
