@@ -221,7 +221,7 @@ def create_bundle(
     limitations = [
         initial_exclusion_limitation(
             demand_summary,
-            "The {count} vehicles initially visible at video t=0 are excluded.",
+            "The {count} vehicles initially visible at video {at} are excluded.",
         ),
         "Camera-to-SUMO orientation is unverified.",
         "The synthetic network supports straight-through movements only.",

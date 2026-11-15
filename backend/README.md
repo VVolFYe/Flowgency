@@ -107,8 +107,9 @@ manifest assets (such as `original_video` in the annotated-only Demo 2) return
 
 AI demand tools (`ai_demand`, `ai_fixed_run`, `ai_adaptive_run`, and
 `ai_compare --run-experiments`) accept `--allow-unknown-initial-observations`
-for recordings whose t=0 count snapshot has no arm data; those counts stay
-`null` and never create vehicles. `ai_replay_bundle` accepts an optional
+for recordings where no counts line has every arm known (the starting offset
+normally comes from the first complete line, `t_s = 0` or the vision warm-up
+line); the offset then stays `null` and never creates vehicles. `ai_replay_bundle` accepts an optional
 `--original-video` (omit it for annotated-only datasets) and `--display-name`.
 See [AI Traffic datasets](../docs/AI_TRAFFIC_DATASETS.md).
 
