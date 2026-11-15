@@ -96,3 +96,5 @@ gate_run.json
 ultralytics_config/
 backend/vision/config/*.jpg
 backend/vision/config/*.png
+
+/assets/ai-traffic/

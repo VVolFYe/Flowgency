@@ -68,6 +68,63 @@ Local development requires Linux/WSL, Python, Node.js/npm, and SUMO with Python 
 
 The repository is reached through a Linux symlink but physically resides on an NTFS-mounted Windows partition. Executable bits, ownership, case sensitivity, symlink behavior, file watching, and Unix sockets can differ from a native Linux filesystem. Avoid `chmod`/`chown`; if a Python virtual environment behaves poorly on NTFS, create it in a developer-owned Linux-native location outside the repository and keep only reproducible dependency manifests here.
 
+## Portable AI Traffic demo setup
+
+The prerecorded AI Traffic demo is versioned under
+`assets/ai-traffic/versions/waiting-v1`. Its MP4 files use Git LFS. After
+installing Git LFS for your operating system, populate the clone with:
+
+```bash
+git lfs install
+git lfs pull
+git lfs ls-files
+```
+
+Create the backend environment outside this NTFS checkout and install the
+declared dependencies and matching SUMO toolchain:
+
+```bash
+python3 -m venv "$HOME/.venvs/flowgency"
+source "$HOME/.venvs/flowgency/bin/activate"
+python -m pip install -r backend/requirements.txt 'eclipse-sumo==1.27.1'
+```
+
+Install the pinned frontend dependencies:
+
+```bash
+cd frontend
+npm ci
+cd ..
+```
+
+Configure private Auth0 values without committing them. Copy
+`frontend/.env.example` to the ignored `frontend/.env.local`, fill in
+`AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, `AUTH0_SECRET`,
+`APP_BASE_URL`, and `AUTH0_AUDIENCE`, and export matching `AUTH0_DOMAIN` and
+`AUTH0_AUDIENCE` in the backend shell. Follow [Auth0 setup](docs/AUTH0_SETUP.md)
+for tenant roles, permissions, callbacks, and MFA. Do not place access tokens
+or client secrets in source files.
+
+Start the backend from the repository root, then start the frontend in another
+terminal:
+
+```bash
+source "$HOME/.venvs/flowgency/bin/activate"
+export SUMO_HOME="$(python -c 'import sumo; print(sumo.SUMO_HOME)')"
+python -m uvicorn backend.api.app:app --host 127.0.0.1 --port 8000
+```
+
+```bash
+cd frontend
+npm run dev
+```
+
+Sign in as an authorized operator and open
+<http://localhost:3000/operator/ai-traffic>. No replay-directory setting is
+needed for the committed bundle. Custom deployments can set
+`FLOWGENCY_REPLAY_ASSET_DIR` in the backend process to override it with another
+validated bundle.
+
 ## Collaboration
 
 Four developers can own frontend, simulation/controller, API/integration, and vision while coordinating changes to `backend/models` and `docs/DATA_CONTRACTS.md`. Keep changes small; do not commit secrets, model weights, datasets, videos, caches, or generated simulation output; report only checks actually run. Repository-wide agent guidance is in [AGENTS.md](AGENTS.md).
