@@ -11,7 +11,6 @@ export function OperatorNav({ workspace }: { workspace: "analyst" | "operator" }
     ...(workspace === "operator" ? [{ href: "/operator/ai-traffic", label: "AI Traffic" }] : []),
     { href: `/${workspace}/analytics`, label: "Analytics" },
     { href: `/${workspace}/statistics`, label: "Statistics" },
-    ...(workspace === "operator" ? [{ href: "/operator/benchmarks", label: "Benchmarks" }] : []),
   ];
 
   return (
