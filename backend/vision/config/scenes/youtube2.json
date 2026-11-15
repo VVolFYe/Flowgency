@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.0",
+  "scene_id": "youtube2",
+  "video": "youtube/clip2.mp4",
+  "frame_size": [
+    1920,
+    1080
+  ],
+  "view": "top_down",
+  "counting_point": "center",
+  "model_id": "yolo11s_visdrone",
+  "drive_side": "right",
+  "reference_frame_index": 0,
+  "gate_min_inside": 2,
+  "gate_window_frames": 3,
+  "parked_max_travel_px": 25.0,
+  "notes": "Proposed by Claude from frames 0/1440/3740 (travel lanes only); to be reviewed by the user in draw-gates. Parking (keep gates off): W and E arms have angled parking strips; W: y~285-365 (north edge), y~490-585 (median), y~695-775 (south edge); E: y~445-530 (median), y~660-745 (south edge), lot x>1730 y<350 (NE corner). N and S arms: no on-street parking.",
+  "gates": {
+    "north_in.far": [[785.0, 5.0], [950.0, 5.0], [950.0, 65.0], [785.0, 65.0]],
+    "north_in.stop": [[785.0, 200.0], [950.0, 200.0], [950.0, 262.0], [785.0, 262.0]],
+    "north_out": [[1018.0, 135.0], [1198.0, 135.0], [1198.0, 197.0], [1018.0, 197.0]],
+    "east_in.far": [[1800.0, 352.0], [1860.0, 352.0], [1860.0, 440.0], [1800.0, 440.0]],
+    "east_in.stop": [[1240.0, 300.0], [1300.0, 300.0], [1300.0, 442.0], [1240.0, 442.0]],
+    "east_out": [[1310.0, 553.0], [1370.0, 553.0], [1370.0, 652.0], [1310.0, 652.0]],
+    "south_in.far": [[1030.0, 1015.0], [1200.0, 1015.0], [1200.0, 1075.0], [1030.0, 1075.0]],
+    "south_in.stop": [[1030.0, 735.0], [1200.0, 735.0], [1200.0, 795.0], [1030.0, 795.0]],
+    "south_out": [[790.0, 800.0], [978.0, 800.0], [978.0, 860.0], [790.0, 860.0]],
+    "west_in.far": [[60.0, 592.0], [120.0, 592.0], [120.0, 690.0], [60.0, 690.0]],
+    "west_in.stop": [[700.0, 592.0], [760.0, 592.0], [760.0, 690.0], [700.0, 690.0]],
+    "west_out": [[630.0, 372.0], [690.0, 372.0], [690.0, 462.0], [630.0, 462.0]]
+  }
+}
