@@ -188,10 +188,27 @@ unsuppressed triggers per gate, every suppressed trigger (reason, frame,
 counting point `x`/`y`, and for `already_entered` the gate of the track's entry),
 `already_entered_by_gate_pair`, every clamp, `origin_arm` null reasons, scene
 warnings, detector provenance, and `tracking`: track count
-and tracks whose counting point never spans 20 px over the clip
+and tracks whose counting point never moves more than 20 px from its first position
 (`static_tracks`, parked vehicles) with those among the initial counts
 (`static_initial_tracks`; `process` warns when it is not empty). On the current
 clip 21 tracks are static and none is counted in the initial state.
+
+**Parked vehicles.** A scene can set `parked_max_travel_px` (`youtube2`: 25). After
+tracking, a track whose counting point never moves more than that many pixels from
+its first position over its **whole life in the clip** (maximum displacement, not
+path length, so box jitter does not add up) is parked. Boxes within 3 px of the frame
+border are ignored for this: a car that rolls into the frame and stops in a queue at the
+edge has a clipped box whose centre barely moves. A track with no fully visible box is
+never parked. It is removed before the gate engine runs, so it
+is not in the first-frame offset, the in-approach counts, or any event. The rule uses
+the whole clip, not short windows: a car waiting at a red light drives in or out
+during the clip, and a car that pulls out of a parking spot is not parked at all. Its
+gate triggers after it starts moving count normally. `process` logs the number of
+parked tracks and warns about any whose median position is inside an approach region,
+the junction or a gate. `gate_run.json` → `tracking` lists them with their lifetime,
+travel, position, region and gates (`parked`), plus `travel_px_of_event_tracks`.
+`render-gate-demo` draws them thin in muted slate with a `P` label. Without the field
+(the `youtube` scene), never-moving tracks are only flagged (`static_tracks`).
 
 ## Status and known limitations
 

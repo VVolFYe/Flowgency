@@ -90,7 +90,7 @@ def cmd_detect(args: argparse.Namespace) -> int:
     from .gate_detect import detect_video
 
     paths, scene, video = _scene_and_video(args)
-    detect_video(paths, get_profile(scene.model_id), video, use_cache=not args.no_cache, log=_log)
+    detect_video(paths, get_profile(scene.model_id), video, use_cache=not args.no_cache, log=_log, device=args.device)
     return 0
 
 
@@ -126,6 +126,17 @@ def cmd_process(args: argparse.Namespace) -> int:
     _log(f"initial on approach: {summary['initial']['vehicles_on_approach']}, in junction: "
          f"{summary['initial']['in_intersection']}; clamps: {len(summary['clamps'])}; origin_arm null: "
          f"{summary['origin_arm_null']}/{summary['intersection_exited']} {summary['origin_arm_null_reasons']}")
+    if diagnostics["parked_max_travel_px"] is None:
+        _log(f"parked rule off (scene has no parked_max_travel_px); {len(diagnostics['static_tracks'])} tracks never "
+             f"move > {diagnostics['static_travel_px']:.0f} px (diagnostics only)")
+    else:
+        on_regions = [p["track_id"] for p in diagnostics["parked"] if p["region"] is not None]
+        in_gates = [p["track_id"] for p in diagnostics["parked"] if p["gates"]]
+        _log(f"parked tracks (never move > {diagnostics['parked_max_travel_px']:g} px over the clip; excluded from "
+             f"initial state, events and counts): {diagnostics['parked_tracks']} of {diagnostics['track_ids']}")
+        if on_regions or in_gates:
+            _log(f"WARNING: parked tracks inside an approach region / the junction: {on_regions}; inside a gate: "
+                 f"{in_gates} (a gate over a parking lane, or a stopped car whose track never moved)")
     if diagnostics["static_initial_tracks"]:
         _log(f"WARNING: initial-state tracks that never move >= {diagnostics['static_travel_px']:.0f} px: "
              f"{diagnostics['static_initial_tracks']}")
@@ -139,12 +150,12 @@ def cmd_process(args: argparse.Namespace) -> int:
 def cmd_render_gate_demo(args: argparse.Namespace) -> int:
     from .gate_render import render_gate_demo
 
-    paths, scene, video, _profile, meta, tracked, run, _diag = _process(args)
+    paths, scene, video, _profile, meta, tracked, run, diagnostics = _process(args)
     out = args.out or paths.scene_output_dir(scene.scene_id) / "demo" / f"{scene.scene_id}_gates_demo.mp4"
     start = round(args.start_s * meta["fps"])
     end = None if args.end_s is None else round(args.end_s * meta["fps"])
     render_gate_demo(video, scene, tracked, run, out, fps=meta["fps"], scale=args.scale, start_frame=start,
-                     end_frame=end, log=_log)
+                     end_frame=end, parked=set(diagnostics["parked_track_ids"]), log=_log)
     _log(f"wrote {out}")
     return 0
 
@@ -502,6 +513,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("detect", help="gate mode: run the scene's detector over its whole video once (cached)")
     p.add_argument("--scene", type=Path, required=True, help="scene file, e.g. backend/vision/config/scenes/youtube.json")
     p.add_argument("--no-cache", action="store_true", help="re-run YOLO even when cached detections exist")
+    p.add_argument("--device", default="cpu",
+                   help="cpu (default; uses the ONNX export when it fits) or a CUDA device such as 0 (uses the .pt)")
     p.set_defaults(func=cmd_detect)
 
     p = sub.add_parser("process", help="gate mode: track cached detections, write events/counts/gate_run")

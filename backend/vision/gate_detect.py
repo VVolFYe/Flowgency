@@ -41,13 +41,13 @@ class GateDetector:
     """Per-frame vehicle detections for one video size."""
 
     def __init__(self, paths: VisionPaths, profile: DetectorProfile, frame_size: tuple[int, int],
-                 log: Callable[[str], None] = print, floor: float = DETECTION_FLOOR) -> None:
+                 log: Callable[[str], None] = print, floor: float = DETECTION_FLOOR, device: str = "cpu") -> None:
         from .detect_track import configure_ultralytics
 
         configure_ultralytics(paths)
         from ultralytics import YOLO
 
-        self.profile, self.floor = profile, floor
+        self.profile, self.floor, self.device = profile, floor, device
         onnx_path = paths.weights_dir / profile.onnx_weights if profile.onnx_weights else None
         choice = choose_backend(
             profile, frame_size,
@@ -60,6 +60,9 @@ class GateDetector:
                 choice = BackendChoice("pt", profile.weights, profile.imgsz,
                                        f"{choice.weights} input is {actual}, profile says {choice.imgsz}; "
                                        f"using {profile.weights}")
+        if choice.backend == "onnx" and device != "cpu":  # the ONNX export runs on onnxruntime's CPU provider
+            choice = BackendChoice("pt", profile.weights, profile.imgsz,
+                                   f"device {device} requested; using {profile.weights} on it via torch")
         if choice.fallback_reason:
             log(f"detector fallback: {choice.fallback_reason}")
         weights = fetch_weights(paths, choice.weights, f"weights for profile {profile.model_id}")
@@ -67,12 +70,12 @@ class GateDetector:
         self.model: Any = YOLO(str(weights), task="detect")
         self.names: dict[int, str] = dict(self.model.names)
         self.class_ids = vehicle_class_ids(self.names, profile.vehicle_classes)
-        log(f"detector: {profile.model_id} via {choice.backend} ({choice.weights}), imgsz {choice.imgsz}, "
+        log(f"detector: {profile.model_id} via {choice.backend} ({choice.weights}) on {device}, imgsz {choice.imgsz}, "
             f"floor {floor}, vehicle classes {[self.names[i] for i in self.class_ids]}")
 
     def detect(self, frame: np.ndarray) -> np.ndarray:
         result = self.model.predict(frame, imgsz=self.choice.imgsz, conf=self.floor, agnostic_nms=True,
-                                    classes=self.class_ids, device="cpu", verbose=False)[0]
+                                    classes=self.class_ids, device=self.device, verbose=False)[0]
         boxes = result.boxes
         if boxes is None or len(boxes) == 0:
             return np.zeros((0, 6), np.float32)
@@ -126,8 +129,12 @@ def save_detections(path: Path, frames: Frames, meta: dict[str, Any]) -> None:
 
 
 def detect_video(paths: VisionPaths, profile: DetectorProfile, video: Path, *, use_cache: bool = True,
-                 log: Callable[[str], None] = print, progress_every_s: float = 60.0) -> tuple[Frames, dict[str, Any]]:
-    """Detections for every decoded frame of ``video`` (from the cache when valid)."""
+                 log: Callable[[str], None] = print, progress_every_s: float = 60.0,
+                 device: str = "cpu") -> tuple[Frames, dict[str, Any]]:
+    """Detections for every decoded frame of ``video`` (from the cache when valid).
+
+    ``device``: ``"cpu"`` or a torch device such as ``"0"`` (first CUDA GPU); a GPU always uses the ``.pt``.
+    """
     import cv2
 
     target = cache_path(paths, profile, video)
@@ -141,7 +148,7 @@ def detect_video(paths: VisionPaths, profile: DetectorProfile, video: Path, *, u
         frame_size = (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
         fps = float(cap.get(cv2.CAP_PROP_FPS))
         header_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        detector = GateDetector(paths, profile, frame_size, log=log)
+        detector = GateDetector(paths, profile, frame_size, log=log, device=device)
         frames: Frames = []
         detect_s, started, last_log = 0.0, time.monotonic(), time.monotonic()
         while True:
@@ -160,7 +167,7 @@ def detect_video(paths: VisionPaths, profile: DetectorProfile, video: Path, *, u
         raise OSError(f"no frames decoded from {video}")
     meta = {
         "cache_version": CACHE_VERSION, **_video_key(video),
-        "model_id": profile.model_id, "backend": detector.choice.backend, "weights": detector.choice.weights,
+        "model_id": profile.model_id, "device": device, "backend": detector.choice.backend, "weights": detector.choice.weights,
         "imgsz": detector.choice.imgsz, "fallback_reason": detector.choice.fallback_reason,
         "floor": detector.floor, "class_ids": detector.class_ids,
         "class_names": [detector.names[i] for i in detector.class_ids],

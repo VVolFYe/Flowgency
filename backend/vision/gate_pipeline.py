@@ -24,6 +24,7 @@ from backend.models.gates import GateCounts, GateEvent
 from .counting import TrackedBox
 from .detections import merge_vehicle_classes
 from .gates import GateRun, TrackPoint, run_gates
+from .geometry import Point, point_in_polygon
 from .scene import SceneConfig
 from .track_filter import DuplicateTrackFilter
 
@@ -76,34 +77,102 @@ def track_all(frames: Iterable[tuple[int, np.ndarray]], frame_size: tuple[int, i
     return [tracker.update(frame, dets) for frame, dets in frames]
 
 
-STATIC_TRAVEL_PX = 20.0  # a track whose counting point never spans more than this is treated as parked
+STATIC_TRAVEL_PX = 20.0  # diagnostics-only threshold for scenes without ``parked_max_travel_px``
+EDGE_MARGIN_PX = 3.0  # a box this close to the frame border is clipped: its centre is not the vehicle's centre
 
 
-def track_travel(tracked: Sequence[TrackedFrame], counting_point: str) -> dict[int, float]:
-    """Per track: diagonal of the bounding box of all its counting points over the clip (pixels)."""
-    extent: dict[int, list[float]] = {}
+def track_travel(tracked: Sequence[TrackedFrame], counting_point: str,
+                 frame_size: tuple[int, int] | None = None, edge_margin: float = EDGE_MARGIN_PX) -> dict[int, float]:
+    """Per track: maximum displacement (pixels) of its counting point from its first observed position.
+
+    Not the cumulative path length, which grows with every frame of box jitter even for a parked car.
+    With ``frame_size``, boxes within ``edge_margin`` of the frame border are skipped: a vehicle rolling into
+    the frame and stopping in a queue at the edge has a clipped box whose centre barely moves (youtube2: queued
+    cars at the north/south edges measured 13-25 px). Tracks with no fully visible box are left out: their
+    travel is unknown, so they are never parked.
+    """
+    first: dict[int, Point] = {}
+    travel: dict[int, float] = {}
     for tf in tracked:
-        for tp in tf.points(counting_point):
-            x, y = tp.point
-            e = extent.setdefault(tp.track_id, [x, y, x, y])
-            e[0], e[1], e[2], e[3] = min(e[0], x), min(e[1], y), max(e[2], x), max(e[3], y)
-    return {tid: float(np.hypot(e[2] - e[0], e[3] - e[1])) for tid, e in extent.items()}
+        for box in tf.boxes:
+            if frame_size is not None:
+                x1, y1, x2, y2 = box.bbox
+                if (x1 < edge_margin or y1 < edge_margin or x2 > frame_size[0] - edge_margin
+                        or y2 > frame_size[1] - edge_margin):
+                    continue
+            point = box.point(counting_point)
+            x0, y0 = first.setdefault(box.track_id, point)
+            d = float(np.hypot(point[0] - x0, point[1] - y0))
+            travel[box.track_id] = max(travel.get(box.track_id, 0.0), d)
+    return travel
+
+
+def parked_track_ids(travel: dict[int, float], max_travel_px: float | None) -> set[int]:
+    """Tracks whose whole-clip travel is at most ``max_travel_px`` (none when the rule is off).
+
+    Whole clip, not a sliding window: a car waiting at a red light drives in or out within the clip, so its
+    travel is large; a car that pulls out of a parking spot is not parked at all, so every gate it crosses
+    after it starts moving counts normally.
+    """
+    if max_travel_px is None:
+        return set()
+    return {tid for tid, d in travel.items() if d <= max_travel_px}
+
+
+def without_tracks(tracked: Sequence[TrackedFrame], drop: set[int]) -> list[TrackedFrame]:
+    if not drop:
+        return list(tracked)
+    return [TrackedFrame(tf.frame, tuple(b for b in tf.boxes if b.track_id not in drop)) for tf in tracked]
+
+
+def parked_details(tracked: Sequence[TrackedFrame], parked: set[int], travel: dict[int, float], scene: SceneConfig,
+                   fps: float) -> list[dict[str, Any]]:
+    """Per parked track: lifetime, travel, median counting point, and the region / gates that point lies in."""
+    seen: dict[int, list[tuple[int, float, float]]] = {}
+    for tf in tracked:
+        for tp in tf.points(scene.counting_point):
+            if tp.track_id in parked:
+                seen.setdefault(tp.track_id, []).append((tf.frame, *tp.point))
+    out = []
+    for tid in sorted(seen):
+        obs = seen[tid]
+        x, y = float(np.median([o[1] for o in obs])), float(np.median([o[2] for o in obs]))
+        out.append({
+            "track_id": tid, "first_s": round(obs[0][0] / fps, 2), "last_s": round(obs[-1][0] / fps, 2),
+            "frames": len(obs), "travel_px": round(travel[tid], 1), "x": round(x, 1), "y": round(y, 1),
+            "region": scene.locate((x, y)),
+            "gates": [g for g, poly in scene.gates.items() if point_in_polygon((x, y), poly)],
+        })
+    return out
 
 
 def process_scene(scene: SceneConfig, frames: Sequence[tuple[int, np.ndarray]], *, class_ids: Sequence[int],
                   conf: float, fps: float, model_id: str) -> tuple[list[TrackedFrame], GateRun, dict[str, Any]]:
-    """Track cached detections and run the gate engine. Returns tracks, run, and diagnostics for the run log."""
+    """Track cached detections and run the gate engine. Returns tracks, run, and diagnostics for the run log.
+
+    The returned tracks include parked ones (for rendering); the run never sees them.
+    """
     tracked = track_all(frames, tuple(scene.frame_size), class_ids, conf)
-    points = [(tf.frame, tf.points(scene.counting_point)) for tf in tracked]
+    travel = track_travel(tracked, scene.counting_point, tuple(scene.frame_size))
+    parked = parked_track_ids(travel, scene.parked_max_travel_px)
+    counted = without_tracks(tracked, parked)
+    points = [(tf.frame, tf.points(scene.counting_point)) for tf in counted]
     run = run_gates(scene, points, fps=fps, frame_count=len(frames), model_id=model_id)
-    travel = track_travel(tracked, scene.counting_point)
+    static_px = scene.parked_max_travel_px or STATIC_TRAVEL_PX
     initial_ids = {tid for ids in run.initial.approach_tracks.values() for tid in ids}
     initial_ids |= set(run.initial.junction_tracks or ())
     diagnostics = {
-        "track_ids": len(travel),
-        "static_travel_px": STATIC_TRAVEL_PX,
-        "static_tracks": sorted(tid for tid, d in travel.items() if d < STATIC_TRAVEL_PX),
-        "static_initial_tracks": sorted(tid for tid in initial_ids if travel.get(tid, 0.0) < STATIC_TRAVEL_PX),
+        "track_ids": len({b.track_id for tf in tracked for b in tf.boxes}),
+        "tracks_without_full_box": len({b.track_id for tf in tracked for b in tf.boxes} - set(travel)),
+        "static_travel_px": static_px,
+        "static_tracks": sorted(tid for tid, d in travel.items() if d <= static_px),
+        "static_initial_tracks": sorted(tid for tid in initial_ids if travel.get(tid, 0.0) <= static_px),
+        "parked_max_travel_px": scene.parked_max_travel_px,
+        "parked_tracks": len(parked),
+        "parked_track_ids": sorted(parked),
+        "parked": parked_details(tracked, parked, travel, scene, fps),
+        "travel_px_of_event_tracks": {str(tid): None if tid not in travel else round(travel[tid], 1)
+                                      for tid in sorted({e["track_id"] for e in run.events})},
     }
     return tracked, run, diagnostics
 

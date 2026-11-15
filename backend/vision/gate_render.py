@@ -8,7 +8,8 @@ event list: ``(init)`` for initial-state vehicles, ``SUPPRESSED (already
 entered)`` for a second stop-gate trigger by a track that already entered. Box colour: the arm of the track's latest
 event (grey after ``intersection_exited``); before any event, its arm if it was
 counted on that approach at the start, white if it started in the junction,
-else green.
+else green. Parked tracks (scene ``parked_max_travel_px``) are excluded from the
+run and drawn thin in a muted slate colour with a ``P`` label.
 """
 
 from __future__ import annotations
@@ -27,11 +28,12 @@ FLASH_FRAMES = 8
 EVENT_LINES = 6
 NO_EVENT = (80, 255, 80)
 EXITED = (170, 170, 170)
+PARKED = (110, 90, 75)  # BGR muted slate: visibly not part of the counted traffic
 
 
 def render_gate_demo(video: Path, scene: SceneConfig, tracked: Sequence[TrackedFrame], run: GateRun, out: Path,
                      *, fps: float, scale: float = 2 / 3, start_frame: int = 0, end_frame: int | None = None,
-                     log: Callable[[str], None] = print) -> Path:
+                     parked: set[int] | frozenset[int] = frozenset(), log: Callable[[str], None] = print) -> Path:
     import cv2
 
     from .pipeline import ensure_outside_repo
@@ -69,8 +71,12 @@ def render_gate_demo(video: Path, scene: SceneConfig, tracked: Sequence[TrackedF
             flash = {g: n - 1 for g, n in flash.items() if n > 1}
             tf = by_frame.get(frame)
             for box in tf.boxes if tf else ():
-                c = colour.get(box.track_id, NO_EVENT)
                 x1, y1, x2, y2 = (int(round(v * scale)) for v in box.bbox)
+                if box.track_id in parked:
+                    cv2.rectangle(image, (x1, y1), (x2, y2), PARKED, 1)
+                    cv2.putText(image, "P", (x1 + 2, y1 + 11), cv2.FONT_HERSHEY_SIMPLEX, 0.35, PARKED, 1, cv2.LINE_AA)
+                    continue
+                c = colour.get(box.track_id, NO_EVENT)
                 cv2.rectangle(image, (x1, y1), (x2, y2), c, 2)
                 cx, cy = box.point(scene.counting_point)
                 cv2.circle(image, (int(cx * scale), int(cy * scale)), 3, c, -1)
@@ -78,7 +84,7 @@ def render_gate_demo(video: Path, scene: SceneConfig, tracked: Sequence[TrackedF
                             (0, 0, 0), 3, cv2.LINE_AA)
                 cv2.putText(image, str(box.track_id), (x1, max(y1 - 3, 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.42, c, 1,
                             cv2.LINE_AA)
-            _panel(image, run, frame, fps, recent)
+            _panel(image, run, frame, fps, recent, len(parked))
             writer.write(image)
             if frame and frame % 1500 == 0:
                 log(f"  rendered frame {frame}/{end}")
@@ -101,7 +107,7 @@ def _apply(t, colour: dict, recent: list[str], fps: float) -> None:
     del recent[:-EVENT_LINES]
 
 
-def _panel(image: np.ndarray, run: GateRun, frame: int, fps: float, recent: list[str]) -> None:
+def _panel(image: np.ndarray, run: GateRun, frame: int, fps: float, recent: list[str], parked: int = 0) -> None:
     import cv2
 
     second = min(int(frame / fps + 1e-9), len(run.counts) - 1)
@@ -114,6 +120,8 @@ def _panel(image: np.ndarray, run: GateRun, frame: int, fps: float, recent: list
                     f"{arm:<6} {a['vehicles_on_approach']:>7}  {a['entered_total']:>7}  {a['discharged_total']:>10}")
     junction = line["in_intersection"]
     rows.append(f"in_intersection: {'unknown' if junction is None else junction}")
+    if parked:
+        rows.append(f"P = parked, ignored ({parked} tracks)")
     rows.append("")
     rows.extend(recent)
     font, fs, lh = cv2.FONT_HERSHEY_SIMPLEX, 0.45, 17
@@ -126,6 +134,8 @@ def _panel(image: np.ndarray, run: GateRun, frame: int, fps: float, recent: list
         c = (255, 255, 255)
         if 2 <= i < 2 + len(ARMS):
             c = ARM_COLOURS[ARMS[i - 2]]
+        elif text.startswith("P = parked"):
+            c = (200, 175, 155)  # lighter slate so the legend is readable on the dark panel
         cv2.putText(image, text, (6, 16 + i * lh), font, fs, c, 1, cv2.LINE_AA)
 
 

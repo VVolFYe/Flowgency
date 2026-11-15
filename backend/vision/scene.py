@@ -82,6 +82,10 @@ class SceneConfig(BaseModel):
     # Gate rule: trigger once inside in >= gate_min_inside of the last gate_window_frames video frames.
     gate_min_inside: Annotated[int, Field(ge=1)] = 2
     gate_window_frames: Annotated[int, Field(ge=1, le=25)] = 3
+    # Parked rule: a track whose counting point never moves more than this many px from its first position over its
+    # whole life in the clip (max displacement, not path length; boxes clipped by the frame border are ignored) is
+    # parked and excluded from the initial state, triggers, events and counts. None = off (diagnostics only).
+    parked_max_travel_px: Annotated[float, Field(gt=0)] | None = None
     gates: dict[str, Quad] = {}
     notes: str = ""
 

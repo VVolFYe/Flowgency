@@ -45,7 +45,7 @@ def north_to_east(step: int) -> tuple[float, float] | None:
 
 @unittest.skipUnless(HAS_ULTRALYTICS, "ultralytics not installed")
 class GatePipelineTests(unittest.TestCase):
-    def test_track_travel_is_the_counting_point_extent(self) -> None:
+    def test_track_travel_is_max_displacement_from_the_first_point(self) -> None:
         from backend.vision.counting import TrackedBox
         from backend.vision.gate_pipeline import TrackedFrame, track_travel
 
@@ -55,6 +55,10 @@ class GatePipelineTests(unittest.TestCase):
         travel = track_travel(frames, "center")
         self.assertAlmostEqual(travel[1], 12.0)
         self.assertAlmostEqual(travel[2], 1.0)
+        # jitter around the first point: max displacement 10, not the 20 px extent nor the 80 px path length
+        jitter = [TrackedFrame(f, (TrackedBox(3, "vehicle", 0.9, (95 + dx, 95, 105 + dx, 105)),))
+                  for f, dx in enumerate([0, -10, 10, -10, 10, 0, -10, 10, 0])]
+        self.assertAlmostEqual(track_travel(jitter, "center")[3], 10.0)
 
     def frames(self, flip_labels: bool) -> list[tuple[int, np.ndarray]]:
         out = []
@@ -123,6 +127,24 @@ class GatePipelineTests(unittest.TestCase):
         self.assertEqual(diag["static_initial_tracks"], list(queued))  # the car at (172, 90) never moves
         self.assertEqual(diag["static_tracks"], list(queued))
         self.assertEqual(diag["track_ids"], 2)
+        self.assertIsNone(diag["parked_max_travel_px"])  # rule off: flagged only, still counted
+        self.assertEqual(diag["parked_tracks"], 0)
+
+    def test_process_scene_excludes_the_parked_track_when_the_rule_is_on(self) -> None:
+        from backend.vision.gate_pipeline import process_scene
+
+        tracked, run, diag = process_scene(scene(parked_max_travel_px=30), self.frames(False),
+                                           class_ids=VISDRONE_VEHICLES, conf=0.25, fps=FPS, model_id="yolo11s_visdrone")
+        self.assertEqual(diag["parked_tracks"], 1)
+        parked = diag["parked_track_ids"][0]
+        self.assertTrue(any(b.track_id == parked for t in tracked for b in t.boxes))  # kept for the demo render
+        self.assertEqual(run.initial.approach_counts()["north"], 0)
+        self.assertEqual(diag["static_initial_tracks"], [])
+        self.assertEqual([(e["event"], e["arm"]) for e in run.events],
+                         [("approach_entered", "north"), ("intersection_entered", "north"), ("intersection_exited", "east")])
+        self.assertEqual(diag["parked"][0]["region"], "north")
+        self.assertEqual(run.counts[-1]["approaches"]["north"],
+                         {"vehicles_on_approach": 0, "entered_total": 1, "discharged_total": 1})
 
     def test_sample_keeps_the_first_seconds_consistently(self) -> None:
         from backend.vision.gate_pipeline import write_sample
