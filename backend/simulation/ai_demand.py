@@ -190,12 +190,10 @@ def generate_demand(
         })
     ET.indent(root, space="    ")
 
-    initial = {
-        arm: state.observed_vehicles
-        for arm, state in timeline.points[0].approaches.items()
-    }
-    if any(value is None for value in initial.values()):
-        raise JsonlValidationError("initial t_s=0 vehicle observations must be known for every arm")
+    initial_point = timeline.initial_point  # t_s=0 in older files, the warm-up line since 2026-11-15
+    if initial_point is None:
+        raise JsonlValidationError("no counts observation has the vehicle count known for every arm")
+    initial = {arm: state.observed_vehicles for arm, state in initial_point.approaches.items()}
     arrivals_by_arm = Counter(item.camera_arm for item in arrivals)
     summary: dict[str, Any] = {
         "schema_version": "1.0",
@@ -209,6 +207,7 @@ def generate_demand(
             arm: arrivals_by_arm.get(arm, 0) for arm in ARM_ORDER
         },
         "initial_observed_vehicles_not_inserted": {
+            "observed_at_t_s": initial_point.t_s,
             "by_camera_arm": initial,
             "total": sum(value for value in initial.values() if value is not None),
         },

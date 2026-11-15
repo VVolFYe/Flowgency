@@ -55,6 +55,24 @@ def arrival(track_id: int, arm: str, t_s: float, **extra: object) -> dict[str, o
 
 
 class AiDemandUnitTests(unittest.TestCase):
+    def test_initial_vehicles_come_from_the_warm_up_line(self) -> None:
+        unknown = [{**counts_record(float(t)), "approaches": {}, "in_intersection": None} for t in range(3)]
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            counts, events = directory / "counts.jsonl", directory / "events.jsonl"
+            write_jsonl(counts, unknown + [counts_record(3.0), counts_record(4.0)])
+            write_jsonl(events, [arrival(10, "north", 3.5)])
+            summary = generate_demand(counts, events, directory / "generated.rou.xml")
+            initial = summary["initial_observed_vehicles_not_inserted"]
+            self.assertEqual(initial["observed_at_t_s"], 3.0)
+            self.assertEqual(initial["by_camera_arm"], {"north": 5, "east": 3, "south": 4, "west": 14})
+            self.assertEqual(initial["total"], 26)
+            self.assertEqual(summary["vehicle_count"], 1)
+            write_jsonl(counts, unknown)  # warm-up never completed: no starting offset is known
+            write_jsonl(events, [arrival(10, "north", 1.5)])
+            with self.assertRaisesRegex(JsonlValidationError, "vehicle count known for every arm"):
+                generate_demand(counts, events, directory / "none.rou.xml")
+
     def test_simultaneous_arrivals_are_ordered_and_future_fields_are_ignored(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)

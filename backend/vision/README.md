@@ -183,15 +183,38 @@ cross the top-right corner of `west_in.stop`, and east -> south turners cross
 the top-left corner of `south_in.stop`. Before this rule they caused false
 discharges, 101 clamps, and ambiguous `origin_arm` values.
 
-**`gate_run.json`.** Initial state (track IDs per approach and in the junction),
-unsuppressed triggers per gate, every suppressed trigger (reason, frame,
-counting point `x`/`y`, and for `already_entered` the gate of the track's entry),
-`already_entered_by_gate_pair`, every clamp, `origin_arm` null reasons, scene
-warnings, detector provenance, and `tracking`: track count
-and tracks whose counting point never spans 20 px over the clip
-(`static_tracks`, parked vehicles) with those among the initial counts
-(`static_initial_tracks`; `process` warns when it is not empty). On the current
-clip 21 tracks are static and none is counted in the initial state.
+**Causal rules.** Every decision at frame `f` uses only frames `<= f`, so the same
+engine can run live (tests check that cutting the frames after `t` leaves the output up
+to `t` unchanged). Parked cars are excluded by **position**: gates and approach regions
+cover travel lanes only. The rules (`gates.py`; all parameters are scene fields with
+defaults):
+
+| rule | default | effect |
+|---|---|---|
+| warm-up offset | `warmup_s` 2 s | confirmed tracks inside an approach region (or the junction) at 2 s form the starting offset; triggers before it are ignored and counts are unknown |
+| confirmation | `min_track_frames` 10 | a track counts on an approach only after 10 observations; a far-gate crossing by a younger track is applied when it is confirmed (edge fragments never create arrivals) |
+| region join | 2 of 3 frames | entering an approach region without crossing the far gate (pull-out, late detection, re-identification) -> `approach_entered` `via: "region"` |
+| region leave | `region_leave_frames` 3, `region_leave_margin_px` 15 | at least 15 px outside the region for 3 observations (e.g. parking) -> `approach_left` `via: "region"` |
+| lost | `lost_s` 1.5 s | unseen for 1.5 s -> `approach_left` `via: "lost"` |
+| obstruction | `obstruction_s` 150 s, `obstruction_radius_px` 25 | stationary in its region for 150 s -> `approach_left` `via: "obstruction"` |
+
+A track joins an approach at most once (one `approach_entered` per track).
+`vehicles_on_approach` is the number of tracks counted on the approach now, so it
+cannot go negative.
+
+**`gate_run.json`.** The rule parameters, the warm-up offset (track IDs per approach
+and in the junction), unsuppressed triggers per gate, every suppressed trigger (reason:
+`warmup`, `unconfirmed`, `initial_on_approach`, `already_on_approach`,
+`already_joined`, `initial_in_junction`, `already_entered`; frame, counting point
+`x`/`y`, and for `already_entered` the gate of the track's entry),
+`suppressed_by_reason`, `events_by_type`, every `approach_left` and region entry,
+`already_entered_by_gate_pair`, every clamp, `origin_arm` null reasons, scene warnings,
+detector provenance, and the track count.
+
+**Demo video.** Boxes are coloured by the track's latest event (red after
+`approach_left`). A vehicle outside every region, gate and the junction that has stayed
+within 15 px for the last 3 s is drawn thin in muted slate (display only, decided from
+past frames).
 
 ## Status and known limitations
 
