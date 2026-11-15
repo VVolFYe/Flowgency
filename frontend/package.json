@@ -10,8 +10,9 @@
     "build": "next build --webpack",
     "start": "next start --hostname 0.0.0.0 --port 3000",
     "lint": "eslint .",
+    "test:replay": "tsc tests/ai-replay.test.ts lib/ai-replay.ts lib/contracts.ts --outDir /tmp/flowgency-ai-replay-tests --module commonjs --moduleResolution node --target ES2022 --esModuleInterop --skipLibCheck --rewriteRelativeImportExtensions && node /tmp/flowgency-ai-replay-tests/tests/ai-replay.test.js",
     "typecheck": "tsc --noEmit",
-    "test:voice": "node --experimental-strip-types tests/voice-alert-coordinator.test.ts"
+    "test:voice": "tsc tests/voice-alert-coordinator.test.ts lib/voice-alert-coordinator.ts --outDir /tmp/flowgency-voice-alert-tests --module commonjs --moduleResolution node --target ES2022 --esModuleInterop --skipLibCheck --rewriteRelativeImportExtensions && node /tmp/flowgency-voice-alert-tests/tests/voice-alert-coordinator.test.js"
   },
   "dependencies": {
     "@auth0/nextjs-auth0": "^4.33.0",
