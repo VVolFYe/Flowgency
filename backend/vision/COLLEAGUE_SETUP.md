@@ -36,6 +36,12 @@ Rules that matter for consumers:
   `gate_run.json`.
 - `origin_arm` on `intersection_exited` is `null` when it is not known; it is
   never guessed.
+- Since 2026-11-15 the rules are causal (nothing uses later frames): counts
+  before the 2 s warm-up are unknown (`approaches` is `{}`), `approach_entered`
+  carries `via` (`far_gate` or `region`), and a new `approach_left` event
+  (`via`: `region`, `lost`, `obstruction`) marks a vehicle that stopped being
+  counted without crossing the stop line. The committed `youtube_*` samples were
+  produced before this change.
 
 ## Videos (Google Drive)
 
