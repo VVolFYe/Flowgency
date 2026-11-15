@@ -182,6 +182,17 @@ class CommittedSampleTests(unittest.TestCase):
         self.assertEqual(events[:len(short_events)], short_events)
         self.assertEqual(counts[:len(short_counts)], short_counts)
 
+    def test_youtube2_samples_validate(self) -> None:
+        events, counts = self.load("youtube2_full")
+        self.assertEqual([c["t_s"] for c in counts], [float(t) for t in range(156)])
+        self.assertEqual(counts[0]["approaches"], {})  # before the warm-up: unknown
+        for event_name in ("approach_entered", "intersection_entered"):  # one per track (contract I)
+            ids = [e["track_id"] for e in events if e["event"] == event_name]
+            self.assertEqual(len(ids), len(set(ids)), event_name)
+        short_events, short_counts = self.load("youtube2_30s")
+        self.assertEqual(events[:len(short_events)], short_events)
+        self.assertEqual(counts[:len(short_counts)], short_counts)
+
 
 if __name__ == "__main__":
     unittest.main()
