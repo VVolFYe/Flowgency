@@ -12,11 +12,14 @@
     "lint": "eslint .",
     "test:replay": "tsc tests/ai-replay.test.ts lib/ai-replay.ts lib/contracts.ts --outDir /tmp/flowgency-ai-replay-tests --module commonjs --moduleResolution node --target ES2022 --esModuleInterop --skipLibCheck --rewriteRelativeImportExtensions && node /tmp/flowgency-ai-replay-tests/tests/ai-replay.test.js",
     "typecheck": "tsc --noEmit",
-    "test:voice": "tsc tests/voice-alert-coordinator.test.ts lib/voice-alert-coordinator.ts --outDir /tmp/flowgency-voice-alert-tests --module commonjs --moduleResolution node --target ES2022 --esModuleInterop --skipLibCheck --rewriteRelativeImportExtensions && node /tmp/flowgency-voice-alert-tests/tests/voice-alert-coordinator.test.js"
+    "test:voice": "tsc tests/voice-alert-coordinator.test.ts lib/voice-alert-coordinator.ts --outDir /tmp/flowgency-voice-alert-tests --module commonjs --moduleResolution node --target ES2022 --esModuleInterop --skipLibCheck --rewriteRelativeImportExtensions && node /tmp/flowgency-voice-alert-tests/tests/voice-alert-coordinator.test.js",
+    "test:map": "node --experimental-strip-types --test tests/map-geometry.test.ts"
   },
   "dependencies": {
     "@auth0/nextjs-auth0": "^4.33.0",
+    "maplibre-gl": "^6.18.0",
     "next": "16.4.6",
+    "proj4": "^2.23.0",
     "react": "19.3.1",
     "react-dom": "19.3.1"
   },

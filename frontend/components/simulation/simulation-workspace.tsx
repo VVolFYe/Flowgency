@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { SimulationCanvas } from "@/components/simulation-canvas";
+import { SimulationMap as SimulationCanvas } from "./simulation-map";
 import { VoiceAlerts } from "@/components/voice-alerts";
 import { RunComparison } from "./run-comparison";
 import { BACKEND_URL } from "@/lib/api";
