@@ -341,7 +341,7 @@ Vision producers validate these payloads strictly with `GateEvent`, `GateCounts`
 
 ## K. Offline AI timeline adapter
 
-`backend.simulation.ai_input` validates sections I/J and groups `approach_entered` events into half-open video intervals `[t_s, next_observation_t_s)`. The last interval uses the observed cadence, allowing a final partial second without fabricating another count snapshot. Each timeline point keeps event-derived arrivals separate from observed vehicle counts and cumulative totals. Duplicate arrival track IDs, decreasing cumulative counters, unordered input, invalid mappings, and arrivals outside the recording are rejected.
+`backend.simulation.ai_input` validates sections I/J and groups `approach_entered` events into half-open video intervals `[t_s, next_observation_t_s)`. The last interval uses the observed cadence, allowing a final partial second without fabricating another count snapshot. Each timeline point keeps event-derived arrivals separate from observed vehicle counts and cumulative totals. The summary's initial values (`initial_observed_vehicles`, `initial_in_intersection`, with `initial_observation_t_s`) come from the first counts line on which every mapped arm is known: `t_s = 0` in files produced before 2026-11-15, the warm-up line since then (earlier lines are unknown, section J). They are `null` when no such line exists. Duplicate arrival track IDs, decreasing cumulative counters, unordered input, invalid mappings, and arrivals outside the recording are rejected.
 
 `scenarios/single_intersection/ai_arm_mapping.json` is an explicit demo convention validated against `mappings.json`. Every arm remains marked `unverified_camera_to_sumo`; it is not evidence of camera orientation or a real-world approach mapping.
 
@@ -349,7 +349,7 @@ Vision producers validate these payloads strictly with `GateEvent`, `GateCounts`
 
 `backend.simulation.ai_demand` creates one SUMO vehicle for each unique `approach_entered` event. Vehicle IDs are `ai_<camera_arm>_<track_id>`, departures preserve event `t_s`, and simultaneous events are ordered deterministically by video time, camera-arm order, then track ID. Unknown optional event fields do not affect vehicle type or demand.
 
-For the synthetic MVP, each mapped incoming edge uses its single verified `dir="s"` connection. Turns are neither inferred nor generated. The camera-to-SUMO orientation remains unverified. Vehicles observed at `t_s=0` are recorded in summary metadata and are not inserted because their positions and arrival times are unknown.
+For the synthetic MVP, each mapped incoming edge uses its single verified `dir="s"` connection. Turns are neither inferred nor generated. The camera-to-SUMO orientation remains unverified. Vehicles in the starting offset (the first counts line with every arm known: `t_s = 0` in older files, the warm-up line since 2026-11-15; `observed_at_t_s` in the summary) are recorded in summary metadata and are not inserted because their positions and arrival times are unknown. Generation fails when no counts line has every arm known.
 
 Generated `.rou.xml` and summary JSON are runtime artifacts, not shared API payloads or tracked scenario definitions. They are not connected to a running SUMO worker in Phase 2A.
 
