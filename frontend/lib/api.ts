@@ -57,6 +57,14 @@ export const api = {
     `/api/analytics/runs/latest-pair?scenario_id=${encodeURIComponent(scenarioId)}`,
     { signal },
   ),
+  // Gemini AI review through the authenticated same-origin proxy; null = latest recorded run.
+  // Validate with isAnalyticsInsights. The proxy waits up to 30 s for Gemini.
+  analyticsInsights: (entryId: string | null, signal?: AbortSignal) => request<unknown>("/api/analytics/insights", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ entry_id: entryId }),
+    signal: signal ?? AbortSignal.timeout(35000),
+  }, ""),
   snapshot: async (): Promise<SimulationSnapshot | null> => {
     const response = await fetch(`${BACKEND_URL}/api/simulation/snapshot`, { cache: "no-store", signal: AbortSignal.timeout(4000) }).catch(() => null);
     if (!response) throw new Error(`Cannot reach the Flowgency backend at ${BACKEND_URL}`);

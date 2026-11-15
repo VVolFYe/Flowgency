@@ -25,7 +25,7 @@ From the repository root:
 cp -n .env.example .env
 cp -n backend/.env.example backend/.env
 # Edit .env and set ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID for voice audio.
-# Edit backend/.env for Auth0 and, optionally, FLOWGENCY_ANALYTICS_DB (see below).
+# Edit backend/.env for Auth0, GEMINI_API_KEY (AI review) and, optionally, FLOWGENCY_ANALYTICS_DB (see below).
 source "$HOME/.venvs/flowgency-sumo-1.27.1/bin/activate"
 set -a; source .env; source backend/.env; set +a
 export SUMO_HOME="$(python -c 'import sumo; print(sumo.SUMO_HOME)')"
@@ -133,6 +133,19 @@ python -m uvicorn backend.api.app:app --host 127.0.0.1 --port 8000
 Fill an empty database once with `python -m backend.analytics.load`. It creates the tables, then upserts `frontend/public/analytics/index.json`.
 
 The Postgres database is shared by the whole team, so the Statistics page's "Last simulation" is the latest run recorded from **any** PC, and every teammate's runs land there. Each request opens its own connection, with a 5 s connect timeout. If the database is unreachable or not loaded, the analytics routes return 503. The URL is never logged or printed; the loader reports it as `hosted Postgres (URL hidden)`.
+
+## Gemini AI review
+
+`POST /api/analytics/insights` asks Gemini for a short review of the Statistics data. It requires an Auth0 token with `analytics:read` (the Next.js proxy `/api/analytics/insights` adds it) and the body `{"entry_id": null}` (latest recorded run plus, when both exist, the finished fixed/adaptive pair of its scenario) or `{"entry_id": "<analytics id>"}`. The backend reads the data from the analytics database itself and reduces time series, histograms and per-controller tables to summary statistics before prompting, so the browser never sends statistics. See DATA_CONTRACTS.md O.6.
+
+Set in `backend/.env` (never commit it):
+
+```bash
+GEMINI_API_KEY=your-key            # required; https://aistudio.google.com/apikey
+# GEMINI_MODEL=gemini-3.5-flash    # optional; this is the default
+```
+
+The key is read on every request, like `ELEVENLABS_API_KEY`. Results are cached in memory until the API restarts, keyed on the sha256 of the trimmed summary sent to Gemini plus the model, so repeated clicks on unchanged data do not spend quota and any data change asks Gemini again. One attempt with a 25 s timeout. Errors: 503 without `GEMINI_API_KEY`, without the `google-genai` package ("google-genai is not installed; pip install -r backend/requirements.txt") or without the database; 404 for no recorded run or an unknown id; 502 when Gemini fails or times out (for example `503 high demand`; try again or set another flash model in `GEMINI_MODEL`). The review is generated text about simulation output; check it against the numbers on the page.
 
 ## Test
 

@@ -465,3 +465,29 @@ Read-only routes, unauthenticated like the other GETs, with the same 503 behavio
 - `GET /api/analytics/runs/latest-pair?scenario_id=X` returns `{"scenario_id", "fixed", "adaptive"}`. `fixed` is the latest **finished** `fixed_timing` run of that `scenario_id` (including the `_emergency` suffix), and `adaptive` is the latest **finished** `adaptive_network` run. `adaptive_emergency_priority` runs, and stopped or failed runs, are never paired, matching the Live Simulation comparison. Either side is `null` if there is no such run. `/runs/latest` still returns the newest run of any mode and status. A missing `scenario_id` returns 422.
 
 The Statistics page shows the latest run as its first option ("Last simulation"). It adds a fixed-vs-adaptive section when `latest-pair` has both modes for that run's scenario. These are live service runs, not the matched tripinfo comparison of O.2.
+
+### O.6 Gemini AI review (`POST /api/analytics/insights`)
+
+Unlike the GETs above, this route spends Gemini quota, so it requires a Bearer token with `analytics:read` (the browser calls the same-origin Next.js proxy `/api/analytics/insights`, which adds the Auth0 access token). Request body:
+
+```json
+{"entry_id": null}
+```
+
+`null` reviews the latest recorded run (`/runs/latest`) together with the latest finished `fixed_timing` and `adaptive_network` runs of its `scenario_id` (the `/runs/latest-pair` rules); a non-empty string reviews that `analytics` row (O.2 or O.3). The client never sends statistics: the backend reads the database and builds a compact prompt in `backend/insights/summary.py`. Time series become `{samples, known, min, mean, max, last}` over known values (`null` stays `null`), histograms are dropped (percentiles kept), per-controller tables become a controller count plus the top 5 by mean queue, and a pair run that is the latest run is referenced rather than repeated.
+
+Response (`200`):
+
+```json
+{
+  "source": {"kind": "latest_run", "id": "<run_id>", "scenario_id": "london_normal", "paired": true},
+  "model": "gemini-3.5-flash",
+  "cached": false,
+  "summary": "…",
+  "key_findings": ["…"],
+  "suggestions": ["…"],
+  "caveats": ["…"]
+}
+```
+
+For an entry, `source` is `{"kind": "entry", "id": "<entry id>", "scenario_id": null, "paired": false}`. `summary` through `caveats` come from Gemini structured output (`response_schema`). `model` is `$GEMINI_MODEL` or the default in `backend/insights/gemini.py`. Results are cached in memory until the API restarts. The key is (sha256 of the trimmed summary as `json.dumps(..., sort_keys=True)`, model), computed after the data is read and summarized and before Gemini is called, so a new latest run, changed metrics for the same `run_id`, or a reloaded entry all miss the cache. `cached` reports a cache hit. Errors: 401/403 without a token or permission; 503 without `GEMINI_API_KEY`, without the `google-genai` package, or with the O.4 unavailable database (same detail); 404 when no run is recorded or the id is unknown; 422 for an unsupported stored `kind`; 502 when Gemini fails, times out (25 s, one attempt) or returns JSON that does not match the schema. The review is generated text, not a measurement.

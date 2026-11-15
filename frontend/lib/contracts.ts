@@ -729,3 +729,42 @@ export function isRecordedRunPair(value: unknown): value is RecordedRunPair {
     && (value.fixed === null || isRecordedRun(value.fixed))
     && (value.adaptive === null || isRecordedRun(value.adaptive));
 }
+
+/* ------------------------------------------------------------------ */
+/* Gemini AI review, POST /api/analytics/insights (DATA_CONTRACTS O.6). */
+/* ------------------------------------------------------------------ */
+
+export interface AnalyticsInsightsSource {
+  kind: "latest_run" | "entry";
+  /** run_id of the latest run, or the analytics entry id. */
+  id: string | null;
+  scenario_id: string | null;
+  /** true when a finished fixed/adaptive pair was included (latest_run only). */
+  paired: boolean;
+}
+
+export interface AnalyticsInsights {
+  source: AnalyticsInsightsSource;
+  model: string;
+  cached: boolean;
+  summary: string;
+  key_findings: string[];
+  suggestions: string[];
+  caveats: string[];
+}
+
+export function isAnalyticsInsights(value: unknown): value is AnalyticsInsights {
+  if (!isRecord(value)) return false;
+  const { source } = value;
+  return isRecord(source)
+    && (source.kind === "latest_run" || source.kind === "entry")
+    && isNullableString(source.id)
+    && isNullableString(source.scenario_id)
+    && typeof source.paired === "boolean"
+    && typeof value.model === "string"
+    && typeof value.cached === "boolean"
+    && typeof value.summary === "string"
+    && isStringArray(value.key_findings)
+    && isStringArray(value.suggestions)
+    && isStringArray(value.caveats);
+}
