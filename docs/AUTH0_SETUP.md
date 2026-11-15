@@ -43,7 +43,7 @@ Create these API permissions:
 | Permission | Purpose |
 | --- | --- |
 | `simulation:read` | Read-only live simulation access |
-| `analytics:read` | Current-browser-session analytics |
+| `analytics:read` | Current-browser-session analytics and the Gemini AI review (`POST /api/analytics/insights`) |
 | `simulation:control` | Start, pause, resume, reset, stop, and speed commands |
 
 Create and assign roles exactly as follows:

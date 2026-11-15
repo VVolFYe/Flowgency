@@ -1,5 +1,6 @@
 "use client";
 
+import { AiReview } from "@/components/analytics/ai-review";
 import { ConnectionBadge, formatTime } from "@/components/simulation/simulation-workspace";
 import { useSimulation, type HistoryPoint } from "@/components/simulation/simulation-provider";
 import { usePathname } from "next/navigation";
@@ -73,6 +74,7 @@ export default function SessionAnalytics() {
         <article className="surface rounded-[24px] p-5 sm:p-6"><div className="flex items-start justify-between gap-4"><div><p className="font-mono text-[10px] uppercase tracking-[.2em] text-[#667781]">Current browser session</p><h2 className="mt-1 text-base font-medium">Queue evolution by approach</h2></div><span className="font-mono text-[10px] text-[#667781]">SUMO halting number</span></div><div className="mt-5"><LineChart points={history} series={queueSeries} /></div></article>
       </section>
       <div className="mt-4 grid gap-3 sm:grid-cols-3"><div className="rounded-xl border border-white/[.06] bg-[#10171c] px-4 py-3 text-sm"><span className="text-[#73838d]">Simulation state</span><span className="float-right font-mono capitalize">{status.state}</span></div><div className="rounded-xl border border-white/[.06] bg-[#10171c] px-4 py-3 text-sm"><span className="text-[#73838d]">WebSocket</span><span className="float-right font-mono capitalize">{connection}</span></div><div className="rounded-xl border border-white/[.06] bg-[#10171c] px-4 py-3 text-sm"><span className="text-[#73838d]">Run</span><span className="float-right max-w-[60%] truncate font-mono text-xs">{snapshot?.run_id ?? "—"}</span></div></div>
+      <AiReview />
     </div>
   );
 }
